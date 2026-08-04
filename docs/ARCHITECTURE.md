@@ -216,7 +216,16 @@ sandbox that looks like a real one is worse than none.
 ## Performance notes
 
 §13.5 budgets under 2 ms of host overhead per frame, and a 30-minute set without
-unbounded memory growth. The things that keep that true:
+unbounded memory growth.
+
+That second one is measured, not assumed — `npm run test:soak` is the check, and the
+last full run held **60.1 FPS across 108,866 frames and 7,040 evaluations in 30.2
+minutes, with the heap moving 17.1 MB → 17.2 MB (+0.4%)**. The canvas element, the
+`AudioContext`, and `window.draw` were compared by identity at the end and were the
+same objects they started as, which is the strongest available form of the A-04 and
+R-01 claims: not "audio still works" but "nothing was ever rebuilt".
+
+The things that keep that true:
 
 - one context object, reused for every patch on every frame; `state` is swapped in
   immediately before the call

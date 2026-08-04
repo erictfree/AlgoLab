@@ -46,6 +46,19 @@ accumulated patch state all survive. The rest cover the projection window (inclu
 that a stack trace can never reach it), panic, import confirmation, and that the page
 loads with every non-local request blocked.
 
+```sh
+npm run test:soak                  # 3 minutes
+SOAK_MINUTES=30 npm run test:soak  # the PRD §15 figure
+```
+
+The soak runs the page continuously while evaluating a rotation of good edits,
+stateful patches, syntax errors, and first-frame crashes. Last full run:
+
+> **30.2 minutes · 108,866 frames · 7,040 evaluations · mean 60.1 FPS · heap
+> 17.1 MB → 17.2 MB (+0.4%)** — with the canvas element, `AudioContext`, and
+> `window.draw` all still the same objects they were at the start, and the music
+> still playing.
+
 ---
 
 ## Where to look
