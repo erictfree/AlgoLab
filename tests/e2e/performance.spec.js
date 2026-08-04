@@ -192,6 +192,51 @@ test.describe('multiple copies of one patch', () => {
   });
 });
 
+test.describe('the tools overlay', () => {
+  test('the canvas fills the window and the panel floats over it', async ({ page }) => {
+    await boot(page);
+
+    // The composition is the shape of the projection, not of a leftover column.
+    const size = await page.evaluate(() => {
+      const canvas = document.querySelector('#stage canvas');
+      return { w: canvas.width, h: canvas.height, iw: window.innerWidth, ih: window.innerHeight };
+    });
+    expect(size.w).toBe(size.iw);
+    expect(size.h).toBe(size.ih);
+
+    // Slightly transparent, and blurred so it stays readable over moving visuals.
+    const style = await page.evaluate(() => {
+      const cs = getComputedStyle(document.getElementById('side'));
+      return { background: cs.backgroundColor, backdrop: cs.backdropFilter };
+    });
+    expect(style.background).toMatch(/0\.78|0\.78\)/);
+    expect(style.backdrop).toContain('blur');
+
+    // "\" clears it off the canvas, and brings it back.
+    await page.locator('#code').focus();
+    await page.locator('#code').press('Escape');
+    await page.keyboard.press('\\');
+    await expect(page.locator('#side')).toHaveClass(/is-hidden/);
+    await page.keyboard.press('\\');
+    await expect(page.locator('#side')).not.toHaveClass(/is-hidden/);
+
+    // Hiding the tools must not disturb the sketch — it is only a panel.
+    expect(await page.evaluate(() => window.Response.registry.activeOrder())).toEqual([
+      'wash',
+      'rings',
+      'orbiters',
+    ]);
+  });
+
+  test('"\\" does nothing while the editor has focus', async ({ page }) => {
+    await boot(page);
+    await page.locator('#code').focus();
+    await page.locator('#code').press('\\');
+    await expect(page.locator('#side')).not.toHaveClass(/is-hidden/);
+    expect(await page.locator('#code').inputValue()).toContain('\\');
+  });
+});
+
 test.describe('S-06 / P-05 panic', () => {
   test('returns to the safe scene from the keyboard with no editor focus', async ({ page }) => {
     await boot(page);

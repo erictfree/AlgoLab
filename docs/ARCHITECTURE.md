@@ -200,6 +200,22 @@ structurally rather than by discipline.
 
 ---
 
+## Layout
+
+The canvas fills the viewport; the performer's tools float over it as a translucent,
+blurred panel that `\` slides away.
+
+The reason is aspect ratio, not screen real estate. With the tools in a column, the
+performer composed on roughly 5:4 while the projector showed 16:9 — the thing being
+made was never the shape of the thing being shown, so framing decisions did not
+survive the trip to the projector. PRD §10.1 asks for 60% of the viewport; this gives
+100%, and the tools occlude a corner of the composition rather than reshaping it.
+
+A convenient consequence for P-01: the tools are DOM *over* the canvas, and the
+projection window copies pixels rather than markup, so there is no route by which
+performer chrome can reach the audience even if someone later adds a panel that
+overlaps the middle of the frame.
+
 ## Projection
 
 `projection.js` opens a popup, gives it a plain 2D canvas, and copies each frame

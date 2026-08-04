@@ -58,18 +58,28 @@ input:focus-visible {
   outline-offset: 1px;
 }
 
-/* --- layout: stage dominant -------------------------------------------------- */
+/* --- layout: the stage IS the window ------------------------------------------
+ *
+ * The canvas fills the viewport and the performer's tools float over it. This is not
+ * only about size (§10.1 asks for 60%; this gives 100%). It is about aspect ratio:
+ * with the tools taking a column, the performer composed on a ~5:4 canvas while the
+ * projector showed 16:9, so the thing being made was never the shape of the thing
+ * being shown. Now it is, and the tools occlude a corner of it rather than reshaping
+ * it — and they can be hidden outright.
+ *
+ * The tools are DOM over the canvas, so they cannot reach the projection window,
+ * which copies pixels rather than markup. P-01 holds for free.
+ */
 
 #app {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  grid-template-rows: 1fr auto;
+  position: relative;
   height: 100vh;
+  overflow: hidden;
 }
 
 #stage {
-  grid-row: 1 / 3;
-  position: relative;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -78,16 +88,52 @@ input:focus-visible {
 }
 #stage canvas {
   display: block;
-  max-width: 100%;
-  max-height: 100%;
 }
 
 #side {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 380px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border-left: 1px solid var(--line);
-  background: var(--panel);
+  /* Slightly transparent, so the performer keeps a sense of what is behind the panel.
+   * The blur is what makes that affordable: without it, moving visuals under moving
+   * text is unreadable, and this panel has to stay readable in a dark room at a
+   * glance. Values tuned together — raising transparency means raising the blur. */
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(0.65);
+  transition: transform 160ms ease;
+}
+#side.is-hidden {
+  transform: translateX(100%);
+}
+
+/* Always reachable, including when the panel is off-screen. */
+#tools-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--panel-2) 85%, transparent);
+  backdrop-filter: blur(8px);
+}
+#side:not(.is-hidden) ~ #tools-toggle {
+  right: 396px;
+}
+
+@media (max-width: 900px) {
+  #side {
+    width: 300px;
+  }
+  #side:not(.is-hidden) ~ #tools-toggle {
+    right: 316px;
+  }
 }
 
 /* --- transport --------------------------------------------------------------- */
@@ -138,7 +184,7 @@ input:focus-visible {
   align-items: center;
   padding: 6px 8px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel-2);
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
 }
 #stagebar .spacer {
   flex: 1;
@@ -252,7 +298,8 @@ input[type='number'] {
   border: none;
   border-top: 2px solid transparent;
   padding: 8px 10px;
-  background: #0d0d10;
+  /* Denser than the panel around it — code is the thing you have to read exactly. */
+  background: color-mix(in srgb, #0d0d10 82%, transparent);
   color: var(--text);
   font: 12px/1.5 var(--mono);
   tab-size: 2;
@@ -426,7 +473,7 @@ button.icon {
   align-items: center;
   padding: 6px 10px;
   border-top: 1px solid var(--line);
-  background: var(--panel-2);
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
   font-size: 11px;
 }
 #runtime-bar .label {

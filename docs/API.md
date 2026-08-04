@@ -25,6 +25,7 @@ With editor focus released:
 | --- | --- |
 | `Space` | Play / pause the audio source |
 | `0` | **Panic** — return to the safe scene |
+| `\` | Hide / show the tools, to see the whole canvas |
 
 A "block" is one top-level statement — usually one `patch(...)` call. If Response
 can't tell where the block boundaries are, it evaluates the whole buffer instead.
@@ -336,6 +337,12 @@ it names the link between what they're hearing and what they're seeing.
 
 **Fullscreen** blows up the stage in this window instead. Resizing either way keeps
 every patch, every version, and all their state.
+
+The canvas fills your whole window, with the tools floating over it — so you are
+composing at the same aspect ratio the projector shows, not on a narrower canvas that
+gets reshaped on the way out. The panel is translucent and blurred so you keep a sense
+of what is behind it, and `\` clears it off entirely when you want to see the whole
+frame.
 
 ---
 

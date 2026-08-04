@@ -87,7 +87,7 @@
           <div id="editor-hint">
             <strong>Cmd/Ctrl+Enter</strong> evaluate block · <strong>Shift</strong> for whole
             buffer · <strong>Esc</strong> release focus · then <strong>Space</strong> play,
-            <strong>0</strong> panic
+            <strong>0</strong> panic, <strong>\</strong> hide tools
           </div>
         </div>
 
@@ -204,6 +204,16 @@
           <span class="value" id="stat-status">ready</span>
         </div>
       </aside>
+
+      <!-- After #side, so the CSS sibling selector can shift it clear of the panel. -->
+      <button
+        id="tools-toggle"
+        type="button"
+        title="Show or hide the performer tools (\)"
+        aria-label="Show or hide the performer tools"
+      >
+        tools
+      </button>
     </div>
 
     <script type="module" src="src/main.js"></script>

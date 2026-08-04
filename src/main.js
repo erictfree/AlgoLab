@@ -261,6 +261,22 @@ document.addEventListener('fullscreenchange', () => {
   requestAnimationFrame(() => resizeCanvas(stage.clientWidth, stage.clientHeight));
 });
 
+// --- tools overlay ---------------------------------------------------------------
+
+const side = document.getElementById('side');
+
+function toggleTools(force) {
+  const hidden = force ?? !side.classList.contains('is-hidden');
+  side.classList.toggle('is-hidden', hidden);
+  document.getElementById('tools-toggle').classList.toggle('is-on', !hidden);
+  // The canvas already fills the window, so nothing needs resizing — the panel is
+  // over the top of it, not beside it. That is the point of the overlay.
+  return hidden;
+}
+toggleTools(false);
+
+document.getElementById('tools-toggle').addEventListener('click', () => toggleTools());
+
 const fpsThresholdInput = document.getElementById('fps-threshold');
 fpsThresholdInput.addEventListener('change', () => {
   const value = Number(fpsThresholdInput.value);
@@ -427,6 +443,10 @@ window.addEventListener('keydown', (event) => {
   if (event.key === '0') {
     event.preventDefault();
     panic(); // S-06 / P-05: one action, back to a scene the performer trusts
+  }
+  if (event.key === '\\') {
+    event.preventDefault();
+    toggleTools(); // clear the tools off the canvas to see the whole composition
   }
 });
 window.addEventListener('keyup', (event) => {
