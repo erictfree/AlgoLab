@@ -20,7 +20,7 @@ import { createProjection } from './ui/projection.js';
 import { createConfirmDialog } from './ui/confirmDialog.js';
 import { createProjectStore } from './persistence/projectStore.js';
 import { STARTER_SOURCE } from '../starter/starter.js';
-import { LIBRARY, LIBRARY_DEMO } from '../starter/library.js';
+import { LIBRARY, libraryDemoSource } from '../starter/library.js';
 
 const diagnostics = createDiagnostics();
 const registry = createRegistry();
@@ -265,6 +265,45 @@ document.addEventListener('fullscreenchange', () => {
 
 const side = document.getElementById('side');
 
+const OPACITY_KEY = 'response.toolsAlpha';
+
+/**
+ * How see-through the tools are.
+ *
+ * A live control rather than a fixed value, because the right amount depends on what
+ * is playing: over a dark set you want it low to see anything behind the panel at
+ * all, over a bright one you want it high to read the code. Persisted on its own key
+ * — it is a property of this machine and this room, not of the project, so it should
+ * not travel in an export.
+ */
+function setToolsOpacity(alpha) {
+  const value = Math.min(1, Math.max(0.15, Number(alpha) || 0.55));
+  document.documentElement.style.setProperty('--tools-alpha', value.toFixed(2));
+  // The editor stays denser than the panel around it, but never fully opaque.
+  document.documentElement.style.setProperty(
+    '--tools-alpha-strong',
+    Math.min(1, value + 0.18).toFixed(2),
+  );
+  try {
+    localStorage.setItem(OPACITY_KEY, String(value));
+  } catch {
+    /* a private-mode browser is not a reason to stop */
+  }
+  return value;
+}
+
+const opacityInput = document.getElementById('tools-opacity');
+opacityInput.addEventListener('input', () => setToolsOpacity(opacityInput.value));
+{
+  let saved = null;
+  try {
+    saved = localStorage.getItem(OPACITY_KEY);
+  } catch {
+    /* ignore */
+  }
+  opacityInput.value = setToolsOpacity(saved ?? opacityInput.value);
+}
+
 function toggleTools(force) {
   const hidden = force ?? !side.classList.contains('is-hidden');
   side.classList.toggle('is-hidden', hidden);
@@ -323,7 +362,9 @@ function buildDemoScene() {
     if (!registry.hasPatch(entry.name)) insertFromLibrary(entry.source, `patch ${entry.name}`);
   }
   evaluator.applyPending();
-  insertFromLibrary(LIBRARY_DEMO, 'scene stacked');
+  // Only mention the starter's wash if it is actually there — see libraryDemoSource.
+  const result = insertFromLibrary(libraryDemoSource(registry.hasPatch('wash')), 'scene stacked');
+  if (!result.ok) diagnostics.error('Could not build the demo scene', result.error?.message);
 }
 
 // --- project export / import (D-02, D-03) ----------------------------------------

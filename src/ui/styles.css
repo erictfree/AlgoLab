@@ -17,6 +17,13 @@
   --bad: #ff5c6c;
   --accent: #7aa2f7;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* How much of the visuals shows through the tools. Driven live by the slider in
+   * the stage bar, because the right value depends entirely on what is playing:
+   * over a dark set you want it low to see anything at all, over a bright one you
+   * want it high to read the code. There is no single correct number. */
+  --tools-alpha: 0.55;
+  --tools-alpha-strong: 0.73; /* the editor, which has to be read exactly */
 }
 
 * {
@@ -101,12 +108,17 @@ input:focus-visible {
   flex-direction: column;
   min-height: 0;
   border-left: 1px solid var(--line);
-  /* Slightly transparent, so the performer keeps a sense of what is behind the panel.
-   * The blur is what makes that affordable: without it, moving visuals under moving
-   * text is unreadable, and this panel has to stay readable in a dark room at a
-   * glance. Values tuned together — raising transparency means raising the blur. */
-  background: color-mix(in srgb, var(--panel) 78%, transparent);
-  backdrop-filter: blur(18px) saturate(0.65);
+  /* Transparent enough to actually see through, including over dark visuals — which
+   * is the hard case, since near-black panel over near-black canvas reads as solid
+   * however low the alpha goes.
+   *
+   * The blur is deliberately light. A heavy blur smears the shapes behind into a
+   * uniform smudge, which defeats the point: you stop seeing your composition and
+   * start seeing fog. Legibility comes from the text shadow instead, which costs
+   * nothing in visibility. */
+  background: rgba(17, 17, 20, var(--tools-alpha));
+  backdrop-filter: blur(7px) saturate(0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
   transition: transform 160ms ease;
 }
 #side.is-hidden {
@@ -184,10 +196,20 @@ input:focus-visible {
   align-items: center;
   padding: 6px 8px;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+  background: rgba(22, 22, 27, var(--tools-alpha));
 }
 #stagebar .spacer {
   flex: 1;
+}
+#tools-opacity-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--dim);
+}
+#tools-opacity {
+  width: 68px;
 }
 button.danger {
   border-color: #5a2a30;
@@ -299,7 +321,7 @@ input[type='number'] {
   border-top: 2px solid transparent;
   padding: 8px 10px;
   /* Denser than the panel around it — code is the thing you have to read exactly. */
-  background: color-mix(in srgb, #0d0d10 82%, transparent);
+  background: rgba(13, 13, 16, var(--tools-alpha-strong));
   color: var(--text);
   font: 12px/1.5 var(--mono);
   tab-size: 2;
@@ -326,6 +348,7 @@ input[type='number'] {
 #panels {
   flex: 1 1 54%;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
 }
 
@@ -473,7 +496,7 @@ button.icon {
   align-items: center;
   padding: 6px 10px;
   border-top: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+  background: rgba(22, 22, 27, var(--tools-alpha));
   font-size: 11px;
 }
 #runtime-bar .label {

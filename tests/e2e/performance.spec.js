@@ -192,6 +192,42 @@ test.describe('multiple copies of one patch', () => {
   });
 });
 
+test.describe('the demo scene', () => {
+  test('builds even after the project has been reset away', async ({ page }) => {
+    await boot(page);
+    // Wipe everything, so "wash" no longer exists. The demo must not depend on it.
+    await page.evaluate(() => {
+      const R = window.Response;
+      R.registry.reset();
+      R.stateStore.clear();
+      R.host.reset();
+    });
+    expect(await page.evaluate(() => window.Response.registry.hasPatch('wash'))).toBe(false);
+
+    await page.getByRole('button', { name: 'Build a scene from several copies of the library patches' }).click();
+
+    await expect.poll(() => page.evaluate(() => window.Response.registry.activeSceneName())).toBe(
+      'stacked',
+    );
+    await expect
+      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
+      .toEqual(['grid', 'grid#2', 'ribbon', 'ribbon#2', 'pulse']);
+    expect(
+      await page.evaluate(() =>
+        window.Response.diagnostics.list().filter((d) => d.level === 'error').length,
+      ),
+    ).toBe(0);
+  });
+
+  test('includes the wash layer when it is there', async ({ page }) => {
+    await boot(page);
+    await page.getByRole('button', { name: 'Build a scene from several copies of the library patches' }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
+      .toEqual(['wash', 'grid', 'grid#2', 'ribbon', 'ribbon#2', 'pulse']);
+  });
+});
+
 test.describe('the tools overlay', () => {
   test('the canvas fills the window and the panel floats over it', async ({ page }) => {
     await boot(page);
@@ -209,8 +245,14 @@ test.describe('the tools overlay', () => {
       const cs = getComputedStyle(document.getElementById('side'));
       return { background: cs.backgroundColor, backdrop: cs.backdropFilter };
     });
-    expect(style.background).toMatch(/0\.78|0\.78\)/);
+    expect(style.background).toMatch(/rgba?\(.*0\.55\)/);
     expect(style.backdrop).toContain('blur');
+
+    // The slider actually changes it, live.
+    await page.locator('#tools-opacity').fill('0.25');
+    await expect
+      .poll(() => page.evaluate(() => getComputedStyle(document.getElementById('side')).backgroundColor))
+      .toMatch(/0\.25\)/);
 
     // "\" clears it off the canvas, and brings it back.
     await page.locator('#code').focus();

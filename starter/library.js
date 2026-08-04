@@ -279,13 +279,22 @@ patch("grid", ({ audio, config, time }) => {
   },
 ];
 
-/** Ready-made source that stacks copies of the library patches into one scene. */
-export const LIBRARY_DEMO = `// A scene built from several copies of the same patches.
+/**
+ * Ready-made source that stacks copies of the library patches into one scene.
+ *
+ * Takes the wash layer as a parameter rather than naming the starter's `wash`
+ * outright. A scene(...) naming a patch that does not exist fails validation and is
+ * rejected whole (S-02) — correct behavior, but it would mean the demo button
+ * silently did nothing if the performer had renamed or reset away the starter. The
+ * demo should not depend on anything outside the library.
+ *
+ * @param {boolean} withWash whether a patch named "wash" is currently registered
+ */
+export const libraryDemoSource = (withWash = true) => `// A scene built from several copies of the same patches.
 //
 // Each copy keeps its own state and its own config. Try removing one from the
 // Scene panel, or adding a third ribbon.
-scene("stacked", [
-  "wash",
+scene("stacked", [${withWash ? '\n  "wash",' : ''}
   { patch: "grid",   config: { cols: 14, rows: 8, hue: 220, scale: 0.7 } },
   { patch: "grid",   config: { cols: 7,  rows: 4, hue: 320, scale: 0.35, rotate: 0.05 } },
   { patch: "ribbon", config: { y: 0.32, hue: 190 } },
