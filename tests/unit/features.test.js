@@ -1,0 +1,100 @@
+// PRD §9.5 — the shared audio snapshot.
+
+import { describe, it, expect } from 'vitest';
+import { createFeatureExtractor } from '../../src/audio/features.js';
+
+const frame = (over = {}) => ({
+  dt: 1 / 60,
+  level: 0,
+  bass: 0,
+  mid: 0,
+  treble: 0,
+  centroid: 0,
+  nyquist: 22050,
+  ...over,
+});
+
+describe('normalized bands', () => {
+  it('keeps every summary value inside 0..1', () => {
+    const fx = createFeatureExtractor();
+    for (let i = 0; i < 200; i++) {
+      const s = fx.compute(
+        frame({ level: Math.random() * 3, bass: Math.random() * 400, mid: 255, treble: -20 }),
+      );
+      for (const key of ['level', 'bass', 'mid', 'treble', 'centroid']) {
+        expect(s[key]).toBeGreaterThanOrEqual(0);
+        expect(s[key]).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('preserves p5.sound’s own scales under raw (§19.3)', () => {
+    const fx = createFeatureExtractor();
+    const s = fx.compute(frame({ bass: 200, mid: 100, treble: 30, centroid: 1200 }));
+    expect(s.raw.bass).toBe(200);
+    expect(s.raw.mid).toBe(100);
+    expect(s.raw.centroid).toBe(1200);
+  });
+
+  it('auto-gain lets a quiet source still reach the top of the range', () => {
+    const fx = createFeatureExtractor();
+    let last = 0;
+    // A steady, quiet bass — a fixed /255 divisor would leave this near 0.04.
+    for (let i = 0; i < 200; i++) last = fx.compute(frame({ bass: 10 })).bass;
+    expect(last).toBeGreaterThan(0.8);
+  });
+
+  it('returns a frozen snapshot so one patch cannot alter another’s audio (A-05)', () => {
+    const fx = createFeatureExtractor();
+    const s = fx.compute(frame({ bass: 100 }));
+    expect(Object.isFrozen(s)).toBe(true);
+    expect(Object.isFrozen(s.raw)).toBe(true);
+  });
+
+  it('treats silence as silence', () => {
+    const s = createFeatureExtractor().silence();
+    expect(s.level).toBe(0);
+    expect(s.beat).toBe(false);
+    expect(s.spectrum.length).toBe(0);
+  });
+
+  it('survives NaN and missing fields without emitting NaN', () => {
+    const fx = createFeatureExtractor();
+    const s = fx.compute({ dt: NaN, level: NaN, bass: undefined, nyquist: 0 });
+    for (const key of ['level', 'bass', 'mid', 'treble', 'centroid', 'sinceBeat']) {
+      expect(Number.isFinite(s[key])).toBe(true);
+    }
+  });
+});
+
+describe('onset detection', () => {
+  it('fires on a rising edge and not on the frames that follow it', () => {
+    const fx = createFeatureExtractor({ minBeatInterval: 0.05 });
+    for (let i = 0; i < 60; i++) fx.compute(frame({ bass: 20 })); // settle on quiet
+
+    const hits = [];
+    for (let i = 0; i < 20; i++) {
+      // one loud frame, then sustained loudness
+      hits.push(fx.compute(frame({ bass: 220 })).beat);
+    }
+    expect(hits[0]).toBe(true);
+    expect(hits.slice(1, 6).every((b) => b === false)).toBe(true);
+  });
+
+  it('never beats on silence', () => {
+    const fx = createFeatureExtractor();
+    for (let i = 0; i < 300; i++) {
+      expect(fx.compute(frame({ bass: 0, level: 0 })).beat).toBe(false);
+    }
+  });
+
+  it('reports seconds since the last onset', () => {
+    const fx = createFeatureExtractor({ minBeatInterval: 0.05 });
+    for (let i = 0; i < 60; i++) fx.compute(frame({ bass: 20 }));
+    expect(fx.compute(frame({ bass: 220 })).beat).toBe(true);
+    let s;
+    for (let i = 0; i < 30; i++) s = fx.compute(frame({ bass: 220 }));
+    expect(s.sinceBeat).toBeGreaterThan(0.4);
+    expect(s.sinceBeat).toBeLessThan(0.6);
+  });
+});

@@ -1,0 +1,17 @@
+{
+  "name": "response",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Response — a p5.js live visual playground for audio-reactive performance (AET 350C)",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "vitest": "^2.1.0"
+  }
+}

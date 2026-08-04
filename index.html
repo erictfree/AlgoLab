@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Response — p5.js live visual playground</title>
+
+    <!--
+      p5 and p5.sound are pinned course builds, vendored locally so the project runs
+      with no network access (PRD §8, D-05).
+
+      They must be classic scripts, and they must come before the module below. p5's
+      global mode binds window.setup / window.draw on the window `load` event; module
+      scripts are deferred and run before that event, so main.js gets there in time.
+    -->
+    <script src="vendor/p5.min.js"></script>
+    <script src="vendor/p5.sound.min.js"></script>
+    <link rel="stylesheet" href="src/ui/styles.css" />
+  </head>
+
+  <body>
+    <div id="app">
+      <!-- STAGE — never replaced by an editor error (§10.1) -->
+      <main id="stage">
+        <div id="start-overlay">
+          <h1>RESPONSE</h1>
+          <p>
+            Choose an audio file, then start the audio context. Browsers require a
+            click before any sound can play.
+          </p>
+          <label id="file-label" for="audio-file">choose audio file…</label>
+          <input id="audio-file" type="file" accept="audio/*" />
+          <button id="start-audio" type="button">start</button>
+          <p id="start-note">You can also start without audio and edit against silence.</p>
+        </div>
+      </main>
+
+      <aside id="side">
+        <div id="transport">
+          <span class="brand">RESPONSE</span>
+          <label id="file-label-2" class="file-label" for="audio-file-2">load audio</label>
+          <input id="audio-file-2" type="file" accept="audio/*" hidden />
+          <button id="play-toggle" type="button" title="Play / pause the audio source">
+            play/pause
+          </button>
+          <button id="loop-toggle" type="button" title="Loop the audio source">loop</button>
+        </div>
+
+        <!-- CODE EDITOR (§10.1) -->
+        <div id="editor-wrap">
+          <textarea
+            id="code"
+            spellcheck="false"
+            autocomplete="off"
+            autocapitalize="off"
+            aria-label="Live code editor"
+          ></textarea>
+          <div id="editor-hint">
+            <strong>Cmd/Ctrl+Enter</strong> evaluate block ·
+            <strong>Shift</strong> for whole buffer · <strong>Esc</strong> release focus
+          </div>
+        </div>
+
+        <div id="panels">
+          <details class="panel" open>
+            <summary>Audio monitor</summary>
+            <div class="body">
+              <div class="row">
+                <span class="name" id="audio-source">no source</span>
+                <span class="version" id="audio-position">suspended</span>
+                <span id="beat-dot" title="Onset detected"></span>
+              </div>
+              <div class="meters">
+                <span class="version">level</span>
+                <div class="meter level" id="meter-level"></div>
+                <span class="version">bass</span>
+                <div class="meter" id="meter-bass"></div>
+                <span class="version">mid</span>
+                <div class="meter" id="meter-mid"></div>
+                <span class="version">treble</span>
+                <div class="meter" id="meter-treble"></div>
+              </div>
+            </div>
+          </details>
+
+          <details class="panel" open>
+            <summary>Patch shelf</summary>
+            <div class="body" id="patch-shelf"></div>
+          </details>
+
+          <details class="panel" open>
+            <summary>Scene — <span id="scene-name">—</span></summary>
+            <div class="body" id="scene-strip"></div>
+          </details>
+
+          <details class="panel">
+            <summary>Parameters</summary>
+            <div class="body" id="param-list"></div>
+          </details>
+
+          <details class="panel" open>
+            <summary>Messages</summary>
+            <div class="body" id="diagnostics-list"></div>
+          </details>
+
+          <details class="panel">
+            <summary>History</summary>
+            <div class="body" id="history-list"></div>
+          </details>
+        </div>
+
+        <!-- RUNTIME MONITOR (§10.1) -->
+        <div id="runtime-bar">
+          <span><span class="label">fps</span> <span class="value" id="stat-fps">0</span></span>
+          <span
+            ><span class="label">active</span> <span class="value" id="stat-patches">0/0</span></span
+          >
+          <span class="value" id="stat-status">ready</span>
+        </div>
+      </aside>
+    </div>
+
+    <script type="module" src="src/main.js"></script>
+  </body>
+</html>
