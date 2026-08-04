@@ -147,17 +147,24 @@ test.describe('multiple copies of one patch', () => {
 
   test('library patches insert, stack, and keep separate configs', async ({ page }) => {
     await boot(page);
-    await page.locator('details.panel', { hasText: 'Library' }).locator('summary').click();
+    // Library patches sit in the Patch shelf, listed as available — no separate panel.
+    await expect(page.locator('[data-available="ribbon"]')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Insert ribbon' }).click();
+    // The first press registers the patch...
+    await page.getByRole('button', { name: /^Add ribbon —/ }).click();
     await expect.poll(() => page.evaluate(() => window.Response.registry.hasPatch('ribbon'))).toBe(true);
 
-    // Two more copies, configured differently.
+    // ...after which it is an ordinary shelf row, with a version and a "+" of its own.
+    await expect(page.locator('[data-available="ribbon"]')).toHaveCount(0);
+    await expect(page.locator('[data-patch="ribbon"]')).toContainText('v1');
+    await page.getByRole('button', { name: 'Add another copy of ribbon to the scene' }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.Response.registry.activeInstancesOf('ribbon').length))
+      .toBe(2);
+
+    // A third, configured differently, so the copies are distinguishable.
     await page.evaluate(() =>
-      window.Response.evaluator.evaluate(
-        'add("ribbon", { y: 0.25, hue: 40 }); add("ribbon", { y: 0.75, hue: 300 });',
-        { label: 'test' },
-      ),
+      window.Response.evaluator.evaluate('add("ribbon", { y: 0.75, hue: 300 });', { label: 'test' }),
     );
     await expect
       .poll(() =>
@@ -165,7 +172,7 @@ test.describe('multiple copies of one patch', () => {
           window.Response.registry.activeInstancesOf('ribbon').map((i) => i.config.hue ?? null),
         ),
       )
-      .toEqual([null, 40, 300]);
+      .toEqual([null, null, 300]);
 
     // Replacing the patch changes all three; their states stay separate.
     await page.evaluate(() =>
@@ -269,6 +276,65 @@ test.describe('D-02 / D-03 project portability', () => {
     await expect
       .poll(() => page.evaluate(() => window.Response.registry.hasPatch('imported')))
       .toBe(true);
+  });
+
+  test('reset goes back to the starter without reloading the page', async ({ page }) => {
+    await boot(page);
+    await page.locator('details.panel', { hasText: 'Project & performance' }).locator('summary').click();
+
+    // Make a mess: a new patch, extra copies, a wrecked scene, accumulated state.
+    await page.evaluate(() =>
+      window.Response.evaluator.evaluate(
+        'patch("mess", () => { circle(5, 5, 5); }); add("rings"); add("rings");',
+        { label: 'test' },
+      ),
+    );
+    await page.waitForTimeout(500);
+    await page.evaluate(() => {
+      document.querySelector('#stage canvas').dataset.probe = 'original';
+    });
+    const before = await page.evaluate(() => ({
+      frameCount: window.frameCount,
+      hostTime: window.Response.host.time(),
+      patches: window.Response.registry.listPatches().length,
+    }));
+    expect(before.patches).toBe(4);
+
+    await page.getByRole('button', { name: 'Discard everything and go back to the starter project' }).click();
+    const dialog = page.locator('.dialog-backdrop');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.dialog-warning')).toContainText('no undo');
+
+    // Cancelling changes nothing.
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    expect(await page.evaluate(() => window.Response.registry.hasPatch('mess'))).toBe(true);
+
+    await page.getByRole('button', { name: 'Discard everything and go back to the starter project' }).click();
+    await dialog.getByRole('button', { name: 'Reset to starter' }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
+      .toEqual(['wash', 'rings', 'orbiters']);
+
+    const after = await page.evaluate(() => ({
+      hasMess: window.Response.registry.hasPatch('mess'),
+      stateKeys: window.Response.stateStore.names().sort(),
+      source: document.getElementById('code').value,
+      safeScene: window.Response.registry.safeSceneName(),
+      sameCanvas: document.querySelector('#stage canvas')?.dataset.probe === 'original',
+      frameCount: window.frameCount,
+      hostTime: window.Response.host.time(),
+    }));
+
+    expect(after.hasMess).toBe(false);
+    expect(after.stateKeys).toEqual(['orbiters', 'rings', 'wash']);
+    expect(after.source).toContain('RESPONSE — starter scene');
+    expect(after.safeScene).not.toBe(null);
+    // The point of doing this in place rather than reloading: the canvas and the
+    // clock are the same ones. Nothing the audience is looking at restarted.
+    expect(after.sameCanvas).toBe(true);
+    expect(after.frameCount).toBeGreaterThan(before.frameCount);
+    expect(after.hostTime).toBeGreaterThan(before.hostTime);
   });
 
   test('a file that is not a project is refused before any confirmation', async ({ page }) => {

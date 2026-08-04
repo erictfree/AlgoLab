@@ -92,6 +92,11 @@ const panels = createPanels({
   evaluator,
   editor,
   onRevert: (name, version, source) => projection.setActiveCode(source),
+  // The shelf lists the library's patches alongside the registered ones, so bringing
+  // one in is the same "+" as adding another copy of something already there.
+  library: LIBRARY,
+  onAddLibrary: (entry) => insertFromLibrary(entry.source, `patch ${entry.name}`),
+  onDemoScene: () => buildDemoScene(),
 });
 
 // --- p5 lifecycle ---------------------------------------------------------------
@@ -295,35 +300,7 @@ function insertFromLibrary(source, label) {
   return result;
 }
 
-const libraryList = document.getElementById('library-list');
-libraryList.replaceChildren(
-  ...LIBRARY.map((entry) => {
-    const row = document.createElement('div');
-    row.className = 'row';
-
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = entry.name;
-    name.title = entry.blurb;
-
-    const actions = document.createElement('span');
-    actions.className = 'actions';
-    const insert = document.createElement('button');
-    insert.type = 'button';
-    insert.textContent = 'insert';
-    insert.title = `Insert ${entry.name} — ${entry.blurb}`;
-    insert.setAttribute('aria-label', `Insert ${entry.name}`);
-    insert.addEventListener('click', () => {
-      insertFromLibrary(entry.source, `patch ${entry.name}`);
-    });
-    actions.append(insert);
-
-    row.append(name, actions);
-    return row;
-  }),
-);
-
-document.getElementById('library-demo').addEventListener('click', () => {
+function buildDemoScene() {
   // The demo scene names every library patch, so they all have to be registered
   // before it can be composed.
   for (const entry of LIBRARY) {
@@ -331,7 +308,7 @@ document.getElementById('library-demo').addEventListener('click', () => {
   }
   evaluator.applyPending();
   insertFromLibrary(LIBRARY_DEMO, 'scene stacked');
-});
+}
 
 // --- project export / import (D-02, D-03) ----------------------------------------
 
@@ -342,6 +319,41 @@ document.getElementById('export-project').addEventListener('click', () => {
 
 document.getElementById('import-project').addEventListener('click', () => {
   document.getElementById('import-file').click();
+});
+
+/**
+ * Start over — the counterpart to "↺" on a single patch.
+ *
+ * Deliberately NOT a page reload. Everything the performer authored goes, but the
+ * canvas, the host clock, and the music keep running, which is the same promise the
+ * rest of the system makes. It is behind a confirmation because it discards source
+ * that is not saved anywhere else.
+ */
+document.getElementById('reset-project').addEventListener('click', async () => {
+  const patchCount = registry.listPatches().length;
+  const confirmed = await dialog.ask({
+    title: 'Reset this project?',
+    body:
+      `This discards your editor contents, all ${patchCount} registered patch(es), ` +
+      `their versions and history, every scene, and all patch state, and goes back to ` +
+      `the starter project. The music and the canvas keep running.`,
+    warning: 'There is no undo for this. Export first if you might want it back.',
+    confirmLabel: 'Reset to starter',
+  });
+  if (!confirmed) return;
+
+  evaluator.discardPending();
+  projectStore.clear();
+  registry.reset();
+  stateStore.clear();
+  host.reset();
+
+  editor.value = STARTER_SOURCE;
+  evaluator.evaluate(STARTER_SOURCE, { label: 'starter' });
+  evaluator.applyPending();
+  registry.setSafeScene();
+  projection.setActiveCode('');
+  diagnostics.success('Project reset to the starter');
 });
 
 document.getElementById('import-file').addEventListener('change', async (event) => {

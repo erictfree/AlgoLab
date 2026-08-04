@@ -221,7 +221,20 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
     return { ok: true, phase: 'queued', staged: [name] };
   }
 
-  return { evaluate, applyPending, revert, pendingCount: () => queue.length };
+  /** Drop anything queued but not yet applied — used by "reset project". */
+  function discardPending() {
+    const dropped = queue.length;
+    queue.length = 0;
+    return dropped;
+  }
+
+  return {
+    evaluate,
+    applyPending,
+    discardPending,
+    revert,
+    pendingCount: () => queue.length,
+  };
 }
 
 /** Trim a stack down to the one line a performer can act on (§10.5). */

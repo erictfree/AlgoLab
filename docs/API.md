@@ -349,6 +349,27 @@ that seriously — see below.
 
 ---
 
+## Starting over
+
+There are two resets, and they are different sizes.
+
+**One patch: `↺` in the Patch shelf**, or `resetPatch("orbiters")`. Re-runs that
+patch's `state()` and nothing else — the trail empties, the code stays. If the patch
+has several copies, all of them reset. This is the deliberate counterpart to state
+surviving your edits: since re-evaluating *keeps* your array on purpose, there has to
+be an explicit way to say "no, start over".
+
+**The whole project: `reset` in Project & performance.** Discards your editor
+contents, every patch and its history, every scene, and all state, then loads the
+starter. It asks first, because none of that is saved anywhere else — export if you
+might want it back.
+
+Note what reset does *not* do: reload the page. The canvas, the host clock, and the
+music keep running straight through it. Losing your work should not also mean losing
+the room.
+
+---
+
 ## What this is not
 
 Response runs your JavaScript with `new Function`. That is a deliberate live-coding

@@ -346,6 +346,30 @@ details.panel > .body {
   font-size: 11px;
 }
 
+/* Library patches that have not been brought in yet: present, but clearly not live. */
+.patch.is-available .name {
+  color: var(--dim);
+}
+.section-label {
+  margin: 8px 0 2px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #4d4d58;
+}
+.name.dim {
+  color: var(--dim);
+}
+
+/* Glyph buttons: square, so a row of them lines up and stays hittable in a dark room. */
+button.icon {
+  min-width: 22px;
+  padding: 2px 0;
+  font-size: 13px;
+  line-height: 1.1;
+  text-align: center;
+}
+
 .dot {
   width: 8px;
   height: 8px;

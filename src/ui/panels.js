@@ -16,6 +16,9 @@ export function createPanels({
   evaluator,
   editor,
   onRevert,
+  library = [],
+  onAddLibrary,
+  onDemoScene,
 }) {
   const el = (id) => document.getElementById(id);
 
@@ -46,15 +49,80 @@ export function createPanels({
 
   // --- patch shelf --------------------------------------------------------------
 
+  /**
+   * The shelf lists every patch there is — the ones registered in this session, and
+   * the ready-made ones from the library that have not been brought in yet.
+   *
+   * One list, because from the performer's side "add rings again" and "add a swarm"
+   * are the same gesture. A library patch that has been added becomes an ordinary row
+   * with a version number, indistinguishable from one that was typed.
+   */
   function renderShelf() {
     const patches = registry.listPatches();
     const order = registry.activeOrder();
-    nodes.shelf.replaceChildren(
-      ...(patches.length
-        ? patches.map((record) => patchRow(record, registry.activeInstancesOf(record.name).length))
-        : [hint('No patches yet. Evaluate a patch(...) block with Cmd/Ctrl+Enter.')]),
+    const available = library.filter((entry) => !registry.hasPatch(entry.name));
+
+    const rows = patches.map((record) =>
+      patchRow(record, registry.activeInstancesOf(record.name).length),
     );
+    if (patches.length === 0) {
+      rows.push(hint('No patches yet. Evaluate a patch(...) block with Cmd/Ctrl+Enter.'));
+    }
+    if (available.length) {
+      rows.push(sectionLabel('available'), ...available.map(availableRow));
+    }
+    if (onDemoScene) rows.push(demoRow());
+
+    nodes.shelf.replaceChildren(...rows);
     nodes.patchCount.textContent = `${order.length}/${patches.length}`;
+  }
+
+  /** A library patch not yet brought in: no version, no state, one "+". */
+  function availableRow(entry) {
+    const row = document.createElement('div');
+    row.className = 'row patch is-available';
+    row.dataset.available = entry.name;
+
+    const dot = document.createElement('span');
+    dot.className = 'dot idle';
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = entry.name;
+    name.title = entry.blurb;
+
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    actions.append(icon('+', `Add ${entry.name} — ${entry.blurb}`, () => onAddLibrary?.(entry)));
+
+    row.append(dot, name, actions);
+    return row;
+  }
+
+  function sectionLabel(text) {
+    const label = document.createElement('div');
+    label.className = 'section-label';
+    label.textContent = text;
+    return label;
+  }
+
+  function demoRow() {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const name = document.createElement('span');
+    name.className = 'name dim';
+    name.textContent = 'demo scene';
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    actions.append(
+      button(
+        'stacked',
+        'Build a scene from several copies of the library patches',
+        () => onDemoScene(),
+      ),
+    );
+    row.append(name, actions);
+    return row;
   }
 
   /** @param {number} copies how many instances of this patch are on stage */
@@ -88,16 +156,16 @@ export function createPanels({
     const actions = document.createElement('span');
     actions.className = 'actions';
     actions.append(
-      // "add" always adds another copy — asking for a second swarm gets a second swarm.
-      button('add', `Add ${isActive ? 'another copy of ' : ''}${record.name} to the scene`, () => {
+      // "+" always adds another copy — asking for a second swarm gets a second swarm.
+      icon('+', `Add ${isActive ? 'another copy of ' : ''}${record.name} to the scene`, () => {
         const instance = registry.addToActiveScene(record.name);
         stateStore.ensure(instance.id, record.definition?.state);
         diagnostics.info(`Added ${instance.id}`);
       }),
-      button('remove', `Remove the last copy of ${record.name}`, () => {
+      icon('−', `Remove the last copy of ${record.name}`, () => {
         registry.removeFromActiveScene(record.name);
       }),
-      button('reset', `Reset ${record.name} state${copies > 1 ? ' (all copies)' : ''}`, () => {
+      icon('↺', `Reset ${record.name} state${copies > 1 ? ' (all copies)' : ''}`, () => {
         const n = stateStore.resetPatch(record.name, record.definition?.state);
         diagnostics.info(`${record.name} state reset${n > 1 ? ` (${n} copies)` : ''}`);
       }),
@@ -155,13 +223,13 @@ export function createPanels({
 
     chip.append(
       label,
-      button('↑', `Move ${id} earlier (drawn under)`, () =>
+      icon('↑', `Move ${id} earlier (drawn under)`, () =>
         registry.reorderActiveScene(id, index - 1),
       ),
-      button('↓', `Move ${id} later (drawn over)`, () =>
+      icon('↓', `Move ${id} later (drawn over)`, () =>
         registry.reorderActiveScene(id, index + 1),
       ),
-      button('×', `Remove ${id} from the scene`, () => registry.removeFromActiveScene(id)),
+      icon('×', `Remove ${id} from the scene`, () => registry.removeFromActiveScene(id)),
     );
     chip.querySelectorAll('button')[0].disabled = index === 0;
     chip.querySelectorAll('button')[1].disabled = index === total - 1;
@@ -305,6 +373,13 @@ export function createPanels({
   }
 
   // --- helpers ------------------------------------------------------------------
+
+  /** A glyph button. The title carries the meaning, so it is never guesswork. */
+  function icon(glyph, title, onClick) {
+    const b = button(glyph, title, onClick);
+    b.className = 'icon';
+    return b;
+  }
 
   function button(label, title, onClick) {
     const b = document.createElement('button');

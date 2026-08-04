@@ -349,7 +349,24 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     return target;
   }
 
+  /**
+   * Forget everything: patches, scenes, params, and the safe scene.
+   *
+   * Used only by the performer's explicit "reset project" action. It is deliberately
+   * a single call rather than something the evaluator can reach, because nothing a
+   * student evaluates should be able to empty the registry.
+   */
+  function reset() {
+    patches.clear();
+    scenes.clear();
+    params.clear();
+    activeSceneName = null;
+    safeSceneName = null;
+    notify();
+  }
+
   return {
+    reset,
     // patches
     stagePatch,
     confirmPatch,

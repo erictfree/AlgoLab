@@ -131,30 +131,12 @@
 
           <details class="panel" open>
             <summary>Patch shelf</summary>
-            <div class="body" id="patch-shelf"></div>
-          </details>
-
-          <details class="panel">
-            <summary>Library</summary>
             <div class="body">
               <div class="hint">
-                Insert a patch into the editor and register it. Then use
-                <strong>add</strong> in the Patch shelf for more copies.
+                <strong>+</strong> adds a copy to the scene · <strong>−</strong> removes
+                one · <strong>↺</strong> resets its state
               </div>
-              <div id="library-list"></div>
-              <div class="row">
-                <span class="name">demo scene</span>
-                <span class="actions">
-                  <button
-                    id="library-demo"
-                    type="button"
-                    title="Insert a scene built from several copies of the library patches"
-                    aria-label="Insert a scene built from several copies of the library patches"
-                  >
-                    stacked
-                  </button>
-                </span>
-              </div>
+              <div id="patch-shelf"></div>
             </div>
           </details>
 
@@ -192,6 +174,15 @@
                   </button>
                   <button id="import-project" type="button" title="Import a project file" aria-label="Import a project file">
                     import
+                  </button>
+                  <button
+                    id="reset-project"
+                    type="button"
+                    class="danger"
+                    title="Discard everything and go back to the starter project"
+                    aria-label="Discard everything and go back to the starter project"
+                  >
+                    reset
                   </button>
                 </span>
               </div>

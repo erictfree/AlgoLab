@@ -246,10 +246,24 @@ export function createHostLoop({
     }
   }
 
+  /**
+   * Forget which instances are on stage.
+   *
+   * Needed after a project reset: the starter re-registers `wash`, and if the old
+   * `wash` were still in `entered`, its enter() would never run again. Clocks are
+   * left alone on purpose — resetting the project is not a reload, so host time and
+   * the audio keep going.
+   */
+  function reset() {
+    entered.clear();
+    lastOrder = [];
+  }
+
   return {
     beginFrame,
     drawPatch,
     commitPendingChanges,
+    reset,
     fps,
     time: () => now() - startTime,
     fpsThreshold: () => performance_.fpsThreshold,
