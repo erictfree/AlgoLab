@@ -44,7 +44,10 @@ describe('D-01 local persistence', () => {
     const loaded = store.load();
 
     expect(loaded.source).toBe(SOURCE);
-    expect(loaded.scenes.find((s) => s.name === 'tunnel').order).toEqual(['wash', 'rings']);
+    expect(loaded.scenes.find((s) => s.name === 'tunnel').order.map((i) => i.id)).toEqual([
+      'wash',
+      'rings',
+    ]);
     expect(loaded.activeScene).toBe('tunnel');
     expect(loaded.safeScene).toBe('tunnel');
     expect(loaded.params[0]).toMatchObject({ name: 'trail', value: 0.08 });
@@ -126,7 +129,10 @@ describe('D-02 export is human-readable', () => {
     const data = JSON.parse(store.exportProject(SOURCE));
 
     expect(data.format).toBe('response-project');
-    expect(data.scenes.find((s) => s.name === 'tunnel').order).toEqual(['wash', 'rings']);
+    expect(data.scenes.find((s) => s.name === 'tunnel').order.map((i) => i.id)).toEqual([
+      'wash',
+      'rings',
+    ]);
     expect(data.safeScene).toBe('tunnel');
     expect(data.params[0].name).toBe('trail');
     expect(Date.parse(data.exportedAt)).not.toBeNaN();
@@ -140,7 +146,10 @@ describe('D-03 import parsing is separate from running', () => {
 
     expect(parsed.ok).toBe(true);
     expect(parsed.data.source).toBe(SOURCE);
-    expect(parsed.data.scenes.find((s) => s.name === 'tunnel').order).toEqual(['wash', 'rings']);
+    expect(parsed.data.scenes.find((s) => s.name === 'tunnel').order.map((i) => i.patch)).toEqual([
+      'wash',
+      'rings',
+    ]);
     expect(parsed.data.safeScene).toBe('tunnel');
   });
 

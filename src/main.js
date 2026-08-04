@@ -20,6 +20,7 @@ import { createProjection } from './ui/projection.js';
 import { createConfirmDialog } from './ui/confirmDialog.js';
 import { createProjectStore } from './persistence/projectStore.js';
 import { STARTER_SOURCE } from '../starter/starter.js';
+import { LIBRARY, LIBRARY_DEMO } from '../starter/library.js';
 
 const diagnostics = createDiagnostics();
 const registry = createRegistry();
@@ -277,6 +278,60 @@ function panic() {
 
 document.getElementById('set-safe').addEventListener('click', setSafeScene);
 document.getElementById('panic').addEventListener('click', panic);
+
+// --- patch library ---------------------------------------------------------------
+
+/**
+ * Insert a library patch into the editor and register it.
+ *
+ * It goes through the ordinary evaluation path — no privileged loading — so a library
+ * patch is exactly as replaceable as one the student typed, and appears in the shelf
+ * with a version number like any other.
+ */
+function insertFromLibrary(source, label) {
+  editor.value = `${editor.value.trimEnd()}\n\n${source}\n`;
+  const result = evaluator.evaluate(source, { label });
+  if (result.ok) projection.setActiveCode(source);
+  return result;
+}
+
+const libraryList = document.getElementById('library-list');
+libraryList.replaceChildren(
+  ...LIBRARY.map((entry) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = entry.name;
+    name.title = entry.blurb;
+
+    const actions = document.createElement('span');
+    actions.className = 'actions';
+    const insert = document.createElement('button');
+    insert.type = 'button';
+    insert.textContent = 'insert';
+    insert.title = `Insert ${entry.name} — ${entry.blurb}`;
+    insert.setAttribute('aria-label', `Insert ${entry.name}`);
+    insert.addEventListener('click', () => {
+      insertFromLibrary(entry.source, `patch ${entry.name}`);
+    });
+    actions.append(insert);
+
+    row.append(name, actions);
+    return row;
+  }),
+);
+
+document.getElementById('library-demo').addEventListener('click', () => {
+  // The demo scene names every library patch, so they all have to be registered
+  // before it can be composed.
+  for (const entry of LIBRARY) {
+    if (!registry.hasPatch(entry.name)) insertFromLibrary(entry.source, `patch ${entry.name}`);
+  }
+  evaluator.applyPending();
+  insertFromLibrary(LIBRARY_DEMO, 'scene stacked');
+});
 
 // --- project export / import (D-02, D-03) ----------------------------------------
 

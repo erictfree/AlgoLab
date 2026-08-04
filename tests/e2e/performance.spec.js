@@ -113,6 +113,78 @@ test.describe('P-01..P-03 projection view', () => {
   });
 });
 
+test.describe('multiple copies of one patch', () => {
+  test('the shelf adds copies and the scene strip removes them individually', async ({ page }) => {
+    await boot(page);
+    await expect
+      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
+      .toEqual(['wash', 'rings', 'orbiters']);
+
+    // "add" in the Patch shelf always makes another copy.
+    await page.getByRole('button', { name: 'Add another copy of rings to the scene' }).click();
+    await page.getByRole('button', { name: 'Add another copy of rings to the scene' }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
+      .toEqual(['wash', 'rings', 'orbiters', 'rings#2', 'rings#3']);
+
+    // The shelf shows the count; the scene strip shows the individual copies.
+    await expect(page.locator('[data-patch="rings"]')).toContainText('×3');
+    await expect(page.locator('[data-instance="rings#2"]')).toBeVisible();
+
+    // Each copy keeps its own state.
+    const independent = await page.evaluate(() => {
+      const s = window.Response.stateStore;
+      return s.get('rings') !== s.get('rings#2') && s.get('rings#2') !== s.get('rings#3');
+    });
+    expect(independent).toBe(true);
+
+    // Remove one specific copy from the middle.
+    await page.getByRole('button', { name: 'Remove rings#2 from the scene' }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
+      .toEqual(['wash', 'rings', 'orbiters', 'rings#3']);
+  });
+
+  test('library patches insert, stack, and keep separate configs', async ({ page }) => {
+    await boot(page);
+    await page.locator('details.panel', { hasText: 'Library' }).locator('summary').click();
+
+    await page.getByRole('button', { name: 'Insert ribbon' }).click();
+    await expect.poll(() => page.evaluate(() => window.Response.registry.hasPatch('ribbon'))).toBe(true);
+
+    // Two more copies, configured differently.
+    await page.evaluate(() =>
+      window.Response.evaluator.evaluate(
+        'add("ribbon", { y: 0.25, hue: 40 }); add("ribbon", { y: 0.75, hue: 300 });',
+        { label: 'test' },
+      ),
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.Response.registry.activeInstancesOf('ribbon').map((i) => i.config.hue ?? null),
+        ),
+      )
+      .toEqual([null, 40, 300]);
+
+    // Replacing the patch changes all three; their states stay separate.
+    await page.evaluate(() =>
+      window.Response.evaluator.evaluate('patch("ribbon", ({ state }) => { state.touched = true; });', {
+        label: 'patch ribbon',
+      }),
+    );
+    await expect.poll(() => page.evaluate(() => window.Response.registry.getPatch('ribbon').version)).toBe(2);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const s = window.Response.stateStore;
+          return ['ribbon', 'ribbon#2', 'ribbon#3'].every((id) => s.get(id)?.touched === true);
+        }),
+      )
+      .toBe(true);
+  });
+});
+
 test.describe('S-06 / P-05 panic', () => {
   test('returns to the safe scene from the keyboard with no editor focus', async ({ page }) => {
     await boot(page);

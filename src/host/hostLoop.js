@@ -9,6 +9,8 @@
 //
 // Drawing is injected through `drawing` so this file can be unit-tested without p5.
 
+import { patchOf } from './stateStore.js';
+
 const MAX_DT = 1 / 10; // S-08: after a stall, resumed state must not leap.
 const FPS_WINDOW = 60;
 const ERROR_REPEAT_FRAMES = 120; // Throttle a patch that throws every frame (§13.5).
@@ -46,8 +48,19 @@ export function createHostLoop({
     time: 0,
     sceneTime: 0,
     params: {},
+    config: {},
     controls,
   };
+
+  /**
+   * Instance ids that have run `enter` and not yet run `exit`.
+   *
+   * Lifecycle is per instance, not per patch: three ribbons each get their own enter
+   * and exit. Kept here rather than on the registry record because it is a property of
+   * being on stage, not of being registered.
+   */
+  const entered = new Set();
+  const EMPTY_CONFIG = Object.freeze({});
 
   /** Start a frame: advance clocks, refresh params, handle scene transitions. */
   function beginFrame(audio) {
@@ -76,16 +89,17 @@ export function createHostLoop({
     return context;
   }
 
-  /** `exit` runs when a patch leaves the active scene (§9.3). */
+  /** `exit` runs when an instance leaves the active scene (§9.3). */
   function runExitsForDepartedPatches() {
     const order = registry.activeOrder();
     if (lastOrder.length) {
-      for (const name of lastOrder) {
-        if (order.includes(name)) continue;
-        const record = registry.getPatch(name);
-        if (!record?.definition?.exit || !record.entered) continue;
-        record.entered = false;
-        context.state = stateStore.ensure(name, record.definition.state);
+      for (const id of lastOrder) {
+        if (order.includes(id)) continue;
+        entered.delete(id);
+        const record = registry.getPatch(patchOf(id));
+        if (!record?.definition?.exit) continue;
+        context.state = stateStore.ensure(id, record.definition.state);
+        context.config = EMPTY_CONFIG; // the instance is gone; its config went with it
         guard(record, 'exit', () => record.definition.exit(context));
       }
     }
@@ -100,19 +114,23 @@ export function createHostLoop({
    *   - an already-committed version throws -> it is marked failed, but the loop and
    *     every other patch keep running (S-04)
    */
-  function drawPatch(name, frame) {
-    const record = registry.getPatch(name);
+  function drawPatch(id, frame) {
+    const instance = registry.getInstance(id);
+    const patch = instance?.patch ?? patchOf(id);
+    const record = registry.getPatch(patch);
     if (!record?.definition) return;
 
     const definition = record.definition;
-    context.state = stateStore.ensure(name, definition.state);
+    // State and config are per instance; the definition is shared by all of them.
+    context.state = stateStore.ensure(id, definition.state);
+    context.config = instance?.config ?? EMPTY_CONFIG;
 
     let threw = null;
     drawing.push();
     drawing.resetDefaults();
     try {
-      if (!record.entered) {
-        record.entered = true;
+      if (!entered.has(id)) {
+        entered.add(id);
         if (definition.enter) definition.enter(context);
       }
       if (frame.audio?.beat && definition.beat) definition.beat(context);
@@ -126,19 +144,20 @@ export function createHostLoop({
     if (threw === null) {
       if (record.candidate) {
         const version = record.version;
-        registry.confirmPatch(name);
+        registry.confirmPatch(patch);
         record.errorSignature = null;
-        diagnostics?.success(`${name} v${version} active`);
+        diagnostics?.success(`${patch} v${version} active`);
       }
       return;
     }
 
     if (record.candidate) {
-      const result = registry.rollbackPatch(name, threw);
-      stateStore.restore(name, result.stateSnapshot);
-      record.entered = result.record.definition !== null;
+      const result = registry.rollbackPatch(patch, threw);
+      // Replacing a patch replaced the behavior of every instance of it, so the
+      // rollback has to put every instance's state back, not just this one's.
+      stateStore.restorePatch(patch, result.stateSnapshot);
       diagnostics?.error(
-        `${name} v${result.failedVersion} threw on its first frame — rolled back to v${result.restoredVersion}`,
+        `${patch} v${result.failedVersion} threw on its first frame — rolled back to v${result.restoredVersion}`,
         `${threw.name}: ${threw.message}`,
       );
     } else {
@@ -174,9 +193,9 @@ export function createHostLoop({
    * queued transactions so they take effect at the next frame boundary (R-03).
    */
   function commitPendingChanges() {
-    const order = registry.activeOrder();
     for (const record of registry.listPatches()) {
-      if (!record.candidate || order.includes(record.name)) continue;
+      // A patch with any instance on stage gets tested by that instance's first draw.
+      if (!record.candidate || registry.activeInstancesOf(record.name).length > 0) continue;
       // Not in the running scene, so there was no frame to survive. Nothing on stage
       // is at risk; accept it and let it prove itself when the scene includes it.
       const version = record.version;

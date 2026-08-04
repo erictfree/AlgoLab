@@ -174,8 +174,8 @@ export function createProjection({ registry, diagnostics }) {
     title.className = 'trace-title';
     title.textContent = `scene: ${registry.activeSceneName() ?? '—'}`;
 
-    const rows = registry.activeOrder().map((name, index) => {
-      const record = registry.getPatch(name);
+    const rows = registry.activeInstances().map((instance, index) => {
+      const record = registry.getPatch(instance.patch);
       const row = win.document.createElement('div');
       row.className = 'trace-row';
 
@@ -185,7 +185,7 @@ export function createProjection({ registry, diagnostics }) {
 
       const label = win.document.createElement('span');
       label.className = 'trace-name';
-      label.textContent = `${name} v${record?.version ?? 0}`;
+      label.textContent = `${instance.id} v${record?.version ?? 0}`;
 
       const map = win.document.createElement('span');
       map.className = 'trace-map';

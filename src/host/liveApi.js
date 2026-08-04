@@ -16,6 +16,7 @@ export const LIVE_API_NAMES = [
   'go',
   'add',
   'remove',
+  'removeAll',
   'clearScene',
   'resetPatch',
   'param',
@@ -55,7 +56,30 @@ function assertName(fnName, name) {
   if (typeof name !== 'string' || name.trim() === '') {
     throw new TypeError(`${fnName}() needs a non-empty name as its first argument`);
   }
+  // "#" separates a patch name from its instance number (`swarm#2`), so allowing it
+  // in names would make `a#2` ambiguous between a patch and an instance.
+  if (name.includes('#')) {
+    throw new TypeError(`${fnName}("${name}"): patch and scene names may not contain "#"`);
+  }
   return name;
+}
+
+/**
+ * A scene entry is a patch name, or `{ patch, config }` when the same patch appears
+ * more than once and the copies need to differ.
+ */
+function normalizeEntry(sceneName, entry) {
+  if (typeof entry === 'string') return assertName('scene', entry) && { patch: entry, config: {} };
+  if (entry === null || typeof entry !== 'object') {
+    throw new TypeError(
+      `scene("${sceneName}", ...) entries must be a patch name or { patch, config }`,
+    );
+  }
+  assertName('scene', entry.patch);
+  if (entry.config !== undefined && (entry.config === null || typeof entry.config !== 'object')) {
+    throw new TypeError(`scene("${sceneName}", ...): config for "${entry.patch}" must be an object`);
+  }
+  return { id: entry.id, patch: entry.patch, config: entry.config ?? {} };
 }
 
 /**
@@ -75,13 +99,16 @@ export function createTransaction(source = '') {
       return name;
     },
 
-    scene(name, patchNames) {
+    scene(name, entries) {
       assertName('scene', name);
-      if (!Array.isArray(patchNames)) {
+      if (!Array.isArray(entries)) {
         throw new TypeError(`scene("${name}", [...]) needs an array of patch names`);
       }
-      for (const patchName of patchNames) assertName('scene', patchName);
-      operations.push({ type: 'scene', name, patchNames: [...patchNames] });
+      operations.push({
+        type: 'scene',
+        name,
+        entries: entries.map((entry) => normalizeEntry(name, entry)),
+      });
       return name;
     },
 
@@ -91,15 +118,29 @@ export function createTransaction(source = '') {
       return name;
     },
 
-    add(name) {
+    /** `add("swarm")` always creates another copy; `add("swarm", {hue: 40})` configures it. */
+    add(name, config = {}) {
       assertName('add', name);
-      operations.push({ type: 'add', name });
+      if (config === null || typeof config !== 'object') {
+        throw new TypeError(`add("${name}", ...) config must be an object`);
+      }
+      operations.push({ type: 'add', name, config });
       return name;
     },
 
-    remove(name) {
-      assertName('remove', name);
-      operations.push({ type: 'remove', name });
+    /** Takes a patch name (removes its last copy) or an instance id like "swarm#2". */
+    remove(nameOrId) {
+      if (typeof nameOrId !== 'string' || nameOrId.trim() === '') {
+        throw new TypeError('remove() needs a patch name or instance id');
+      }
+      operations.push({ type: 'remove', name: nameOrId });
+      return nameOrId;
+    },
+
+    /** Remove every copy of a patch at once. */
+    removeAll(name) {
+      assertName('removeAll', name);
+      operations.push({ type: 'removeAll', name });
       return name;
     },
 
@@ -107,6 +148,7 @@ export function createTransaction(source = '') {
       operations.push({ type: 'clearScene' });
     },
 
+    /** Resets every copy of the patch — one name, one meaning. */
     resetPatch(name) {
       assertName('resetPatch', name);
       operations.push({ type: 'resetPatch', name });

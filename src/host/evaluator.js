@@ -19,9 +19,10 @@
 // is deliberate live-coding, not a sandbox. An infinite loop still freezes the tab.
 
 import { createTransaction, LIVE_API_NAMES } from './liveApi.js';
+import { patchOf } from './stateStore.js';
 
 /** Operations that name something which must already exist (or be created by this block). */
-const TARGETED_OPS = new Set(['go', 'add', 'remove', 'resetPatch']);
+const TARGETED_OPS = new Set(['go', 'add', 'remove', 'removeAll', 'resetPatch']);
 
 export function createEvaluator({ registry, stateStore, diagnostics }) {
   /** @type {Array<{transaction: object, label: string}>} */
@@ -73,7 +74,8 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
     // 4 + 5. Snapshot state and queue for the frame boundary. The snapshot is taken
     // now, before the candidate has had any chance to mutate state.
     for (const [name, staged] of transaction.stagedPatches) {
-      staged.stateSnapshot = stateStore.snapshot(name);
+      // Every instance of this patch, since replacing it replaces all of them.
+      staged.stateSnapshot = stateStore.snapshotPatch(name);
     }
     queue.push({ transaction, label });
 
@@ -91,18 +93,21 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
     for (const op of transaction.operations) {
       if (op.type === 'scene') {
         sceneNames.add(op.name);
-        const missing = op.patchNames.filter((n) => !patchNames.has(n));
+        const missing = op.entries.map((e) => e.patch).filter((n) => !patchNames.has(n));
         if (missing.length) {
+          const unique = [...new Set(missing)];
           return new Error(
-            `scene("${op.name}", ...) refers to undefined patch${missing.length > 1 ? 'es' : ''}: ` +
-              `${missing.join(', ')}. Define ${missing.length > 1 ? 'them' : 'it'} first, or ` +
+            `scene("${op.name}", ...) refers to undefined patch${unique.length > 1 ? 'es' : ''}: ` +
+              `${unique.join(', ')}. Define ${unique.length > 1 ? 'them' : 'it'} first, or ` +
               `evaluate the whole buffer with Cmd/Ctrl+Shift+Enter.`,
           );
         }
       } else if (op.type === 'go') {
         if (!sceneNames.has(op.name)) return new Error(`go("${op.name}") — no scene by that name`);
       } else if (TARGETED_OPS.has(op.type)) {
-        if (!patchNames.has(op.name)) {
+        // `remove` also accepts an instance id ("swarm#2"), so validate its base name.
+        const base = patchOf(op.name);
+        if (!patchNames.has(base)) {
           return new Error(`${op.type}("${op.name}") — no patch by that name`);
         }
       }
@@ -129,10 +134,14 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
       for (const [name, entry] of transaction.stagedPatches) {
         const isNew = !registry.hasPatch(name);
         registry.stagePatch(name, entry.definition, entry.source, entry.stateSnapshot);
-        // Create state once, from this version's factory, if it has none yet.
-        stateStore.ensure(name, entry.definition.state);
-        // A brand-new patch joins the running scene so it is visible immediately.
-        if (isNew && !composed.has(name)) registry.addToActiveScene(name);
+        // Create state for every instance from this version's factory, if it has none
+        // yet. A patch with no instances still gets its bare one, so a registered but
+        // unstaged patch has somewhere to keep state.
+        const ids = registry.activeInstancesOf(name).map((i) => i.id);
+        for (const id of ids.length ? ids : [name]) stateStore.ensure(id, entry.definition.state);
+        // A brand-new patch joins the running scene so it is visible immediately —
+        // once only, so re-evaluating never quietly stacks up copies.
+        if (isNew && !composed.has(name)) registry.addToActiveScene(name, {}, { once: true });
         staged.push(name);
       }
       for (const op of transaction.operations) applyOperation(op, label);
@@ -145,7 +154,7 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
   function composedNames(transaction) {
     const names = new Set();
     for (const op of transaction.operations) {
-      if (op.type === 'scene') for (const name of op.patchNames) names.add(name);
+      if (op.type === 'scene') for (const entry of op.entries) names.add(entry.patch);
       else if (op.type === 'add') names.add(op.name);
     }
     return names;
@@ -154,24 +163,34 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
   function applyOperation(op, label) {
     switch (op.type) {
       case 'scene':
-        registry.defineScene(op.name, op.patchNames);
+        registry.defineScene(op.name, op.entries);
+        // A scene may have introduced new instances; give each one its own state.
+        for (const instance of registry.activeInstances()) {
+          stateStore.ensure(instance.id, registry.getPatch(instance.patch)?.definition?.state);
+        }
         break;
       case 'go':
         registry.go(op.name);
         break;
-      case 'add':
-        registry.addToActiveScene(op.name);
+      case 'add': {
+        const instance = registry.addToActiveScene(op.name, op.config);
+        stateStore.ensure(instance.id, registry.getPatch(op.name)?.definition?.state);
+        if (instance.id !== op.name) diagnostics?.info(`Added ${instance.id}`);
         break;
+      }
       case 'remove':
         registry.removeFromActiveScene(op.name);
+        break;
+      case 'removeAll':
+        registry.removeAllFromActiveScene(op.name);
         break;
       case 'clearScene':
         registry.clearActiveScene();
         break;
       case 'resetPatch': {
         const record = registry.getPatch(op.name);
-        stateStore.reset(op.name, record?.definition?.state);
-        diagnostics?.info(`${op.name} state reset`);
+        const count = stateStore.resetPatch(op.name, record?.definition?.state);
+        diagnostics?.info(`${op.name} state reset${count > 1 ? ` (${count} copies)` : ''}`);
         break;
       }
       case 'param':
@@ -196,7 +215,7 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
     transaction.stagedPatches.set(name, {
       definition: entry.definition,
       source: entry.source,
-      stateSnapshot: stateStore.snapshot(name),
+      stateSnapshot: stateStore.snapshotPatch(name),
     });
     queue.push({ transaction, label: `${name} v${version}` });
     return { ok: true, phase: 'queued', staged: [name] };

@@ -10,6 +10,8 @@
 //
 // No p5, no DOM — this file is unit-testable in plain Node.
 
+import { instanceId } from './stateStore.js';
+
 const DEFAULT_HISTORY_LIMIT = 12; // S-05 requires at least ten.
 const DEFAULT_SCENE = 'main';
 
@@ -48,8 +50,6 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
       candidate: null,
       status: 'empty', // 'empty' | 'ok' | 'failed'
       lastError: null,
-      /** Cleared each time a scene activates the patch, so `enter` runs once. */
-      entered: false,
     };
     patches.set(name, record);
     return record;
@@ -78,8 +78,6 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     record.version += 1;
     record.status = 'ok';
     record.lastError = null;
-    // A brand-new patch has never run `enter`; a replacement has already entered.
-    if (record.candidate.previousDefinition === null) record.entered = false;
     notify();
     return record;
   }
@@ -138,30 +136,73 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     notify();
   }
 
-  // --- scenes -------------------------------------------------------------------
+  // --- scenes and instances -----------------------------------------------------
+  //
+  // A scene is an ordered list of INSTANCES, not of patch names, because the same
+  // patch may appear more than once — two swarms with different configs, three
+  // ribbons at different heights. An instance is `{ id, patch, config }`.
+  //
+  // The first instance of a patch takes the bare patch name as its id, so a scene
+  // that uses each patch once is indistinguishable from the old name-list model.
+  // Extras are `swarm#2`, `swarm#3`.
 
-  function defineScene(name, patchNames) {
-    scenes.set(name, [...patchNames]);
+  /** Allocate the lowest unused instance id for `patch` within `order`. */
+  function nextInstanceId(order, patch) {
+    const taken = new Set(order.map((entry) => entry.id));
+    for (let n = 1; ; n++) {
+      const id = instanceId(patch, n);
+      if (!taken.has(id)) return id;
+    }
+  }
+
+  /**
+   * Normalize one scene entry into an instance.
+   * Accepts `"swarm"` or `{ patch: "swarm", config: {...} }`.
+   */
+  function toInstance(order, entry) {
+    const patch = typeof entry === 'string' ? entry : entry.patch;
+    const config = typeof entry === 'string' ? {} : (entry.config ?? {});
+    // An explicit id is honoured when it is free, so a saved or exported project
+    // reloads with the ids it was saved under rather than being renumbered.
+    const wanted = typeof entry === 'string' ? null : entry.id;
+    const free = wanted && !order.some((i) => i.id === wanted);
+    return { id: free ? wanted : nextInstanceId(order, patch), patch, config };
+  }
+
+  function defineScene(name, entries) {
+    /** @type {Array<{id: string, patch: string, config: object}>} */
+    const order = [];
+    for (const entry of entries) order.push(toInstance(order, entry));
+    scenes.set(name, order);
     if (activeSceneName === null) activeSceneName = name;
     notify();
-    return scenes.get(name);
+    return order;
   }
 
   function go(name) {
     if (!scenes.has(name)) throw new Error(`No scene named "${name}"`);
     activeSceneName = name;
-    // Re-entering a scene re-runs each patch's `enter` handler.
-    for (const patchName of scenes.get(name)) {
-      const record = patches.get(patchName);
-      if (record) record.entered = false;
-    }
     notify();
     return name;
   }
 
+  /** Instance ids, in layer order. The host draws these, in this order. */
   function activeOrder() {
+    return activeInstances().map((instance) => instance.id);
+  }
+
+  function activeInstances() {
     if (activeSceneName === null) return [];
     return scenes.get(activeSceneName) ?? [];
+  }
+
+  function getInstance(id) {
+    return activeInstances().find((instance) => instance.id === id) ?? null;
+  }
+
+  /** Every instance of a patch in the active scene — one patch, possibly many copies. */
+  function activeInstancesOf(patch) {
+    return activeInstances().filter((instance) => instance.patch === patch);
   }
 
   // --- safe scene (S-06, P-05) --------------------------------------------------
@@ -196,30 +237,63 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
   }
 
   /**
-   * A newly-named patch joins the running scene automatically.
+   * Add an instance of a patch to the running scene.
    *
-   * Without this, a student's first `patch("mine", ...)` evaluates successfully and
-   * draws nothing, which reads as "the system is broken" rather than "you have not
-   * composed a scene yet" (§15 asks for a first success within 15 minutes).
-   * Re-evaluating an existing patch never changes scene membership.
+   * Called two ways, and the difference matters:
+   *
+   *  - automatically, when a newly-named patch is registered. Without this, a
+   *    student's first `patch("mine", ...)` evaluates successfully and draws nothing,
+   *    which reads as "the system is broken" rather than "you have not composed a
+   *    scene yet" (§15 asks for a first success within 15 minutes). That path passes
+   *    `once: true`, so re-evaluating an existing patch never re-adds it.
+   *
+   *  - deliberately, via `add("swarm")` or the Patch shelf. That path always creates
+   *    a new instance, so asking for a second swarm gets you a second swarm.
    */
-  function addToActiveScene(name) {
+  function addToActiveScene(patch, config = {}, { once = false } = {}) {
     const sceneName = ensureActiveScene();
     const order = scenes.get(sceneName);
-    if (!order.includes(name)) order.push(name);
+    if (once && order.some((instance) => instance.patch === patch)) return null;
+    const instance = toInstance(order, { patch, config });
+    order.push(instance);
+    notify();
+    return instance;
+  }
+
+  /**
+   * Remove by instance id (`swarm#2`) or by patch name.
+   *
+   * A bare patch name removes that patch's LAST instance rather than all of them, so
+   * repeated `remove("swarm")` peels copies off one at a time and mirrors repeated
+   * `add("swarm")`. Removing every copy at once is `removeAll`.
+   */
+  function removeFromActiveScene(idOrPatch) {
+    const sceneName = ensureActiveScene();
+    const order = scenes.get(sceneName);
+
+    // "swarm" and "swarm#2" mean different things, and "swarm" is ambiguous on its
+    // own — it is both the patch name and the first instance's id. The "#" settles
+    // it: with one, target that exact instance; without one, treat it as a patch name
+    // and peel off its last copy, so repeated remove() undoes repeated add().
+    const index = idOrPatch.includes('#')
+      ? order.findIndex((instance) => instance.id === idOrPatch)
+      : order.map((instance) => instance.patch).lastIndexOf(idOrPatch);
+    if (index === -1) return order;
+    order.splice(index, 1);
+    // The host uses its own record of what was on stage last frame to notice the
+    // departure and run exit() (L-07), so nothing lifecycle-related happens here.
     notify();
     return order;
   }
 
-  function removeFromActiveScene(name) {
+  function removeAllFromActiveScene(patch) {
     const sceneName = ensureActiveScene();
-    const order = scenes.get(sceneName).filter((n) => n !== name);
-    scenes.set(sceneName, order);
-    // `entered` is deliberately left alone: the host uses it to notice that this
-    // patch has departed and to run its exit() handler on the next frame (L-07).
-    // Clearing it here would silently swallow every exit.
+    scenes.set(
+      sceneName,
+      scenes.get(sceneName).filter((instance) => instance.patch !== patch),
+    );
     notify();
-    return order;
+    return scenes.get(sceneName);
   }
 
   function clearActiveScene() {
@@ -229,16 +303,25 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     return [];
   }
 
-  /** Live layer reordering (L-06) — move one patch to a new index in the active scene. */
-  function reorderActiveScene(name, toIndex) {
+  /** Live layer reordering (L-06) — move one instance to a new index. */
+  function reorderActiveScene(id, toIndex) {
     const sceneName = ensureActiveScene();
     const order = scenes.get(sceneName);
-    const from = order.indexOf(name);
+    const from = order.findIndex((instance) => instance.id === id);
     if (from === -1) return order;
-    order.splice(from, 1);
-    order.splice(Math.max(0, Math.min(toIndex, order.length)), 0, name);
+    const [moved] = order.splice(from, 1);
+    order.splice(Math.max(0, Math.min(toIndex, order.length)), 0, moved);
     notify();
     return order;
+  }
+
+  /** Per-instance settings, live (§9.7's params are workspace-wide; this is not). */
+  function configureInstance(id, changes) {
+    const instance = getInstance(id);
+    if (!instance) return null;
+    instance.config = { ...instance.config, ...changes };
+    notify();
+    return instance;
   }
 
   // --- params (§9.7) ------------------------------------------------------------
@@ -278,15 +361,20 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     listPatches: () => [...patches.values()],
     patchNames: () => [...patches.keys()],
 
-    // scenes
+    // scenes and instances
     defineScene,
     go,
     activeOrder,
+    activeInstances,
+    activeInstancesOf,
+    getInstance,
     ensureActiveScene,
     addToActiveScene,
     removeFromActiveScene,
+    removeAllFromActiveScene,
     clearActiveScene,
     reorderActiveScene,
+    configureInstance,
     listScenes: () => [...scenes.entries()].map(([name, order]) => ({ name, order: [...order] })),
     activeSceneName: () => activeSceneName,
     setSafeScene,

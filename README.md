@@ -33,8 +33,8 @@ change something → `Cmd/Ctrl+Enter`.
 ## Test it
 
 ```sh
-npm test             # 64 unit tests — registry, rollback, state, audio, blocks, project
-npm run test:e2e     # 10 browser tests, including the PRD §12 Degree 3 scenario
+npm test             # 82 unit tests — registry, rollback, state, instances, audio, project
+npm run test:e2e     # 12 browser tests, including the PRD §12 Degree 3 scenario
 ```
 
 The E2E tests need Chromium once: `npx playwright install chromium`.
@@ -69,6 +69,7 @@ stateful patches, syntax errors, and first-frame crashes. Last full run:
 | **`docs/ARCHITECTURE.md`** | How it works and why it's shaped this way. |
 | `src/main.js` | The whole draw loop, in about ten lines. |
 | `starter/starter.js` | The starter scene, which doubles as the tutorial. |
+| `starter/library.js` | Five more patches, written to be stacked in copies. |
 | `tests/spike.html` | The PRD §16 technical spike, kept as an executable record. |
 
 ---
@@ -83,6 +84,10 @@ p5.sound analysis · shared normalized audio snapshot · block evaluation · nam
 registration and atomic replacement · per-patch persistent state · named scenes and
 live recomposition · syntax and registration rejection · first-frame runtime rollback ·
 version history and one-click revert · local project persistence.
+
+*Beyond the PRD:* a scene can hold several copies of the same patch — `ribbon`,
+`ribbon#2`, `ribbon#3` — each with its own state and its own config, plus a library of
+five ready-to-stack patches.
 
 *P1, course-ready performance:* microphone and line input with device selection ·
 live smoothing and auto-gain controls · silence fallback on any input failure ·

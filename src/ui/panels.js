@@ -51,13 +51,15 @@ export function createPanels({
     const order = registry.activeOrder();
     nodes.shelf.replaceChildren(
       ...(patches.length
-        ? patches.map((record) => patchRow(record, order.includes(record.name)))
+        ? patches.map((record) => patchRow(record, registry.activeInstancesOf(record.name).length))
         : [hint('No patches yet. Evaluate a patch(...) block with Cmd/Ctrl+Enter.')]),
     );
     nodes.patchCount.textContent = `${order.length}/${patches.length}`;
   }
 
-  function patchRow(record, isActive) {
+  /** @param {number} copies how many instances of this patch are on stage */
+  function patchRow(record, copies) {
+    const isActive = copies > 0;
     const row = document.createElement('div');
     row.className = `row patch ${isActive ? 'is-active' : 'is-idle'}`;
     row.dataset.patch = record.name;
@@ -69,6 +71,15 @@ export function createPanels({
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = record.name;
+    // A patch on stage more than once says so, since the scene strip below is where
+    // the individual copies live.
+    if (copies > 1) {
+      const badge = document.createElement('span');
+      badge.className = 'copies';
+      badge.textContent = `×${copies}`;
+      badge.title = `${copies} copies in the scene`;
+      name.append(' ', badge);
+    }
 
     const version = document.createElement('span');
     version.className = 'version';
@@ -77,15 +88,21 @@ export function createPanels({
     const actions = document.createElement('span');
     actions.className = 'actions';
     actions.append(
-      button(isActive ? 'remove' : 'add', isActive ? 'Remove from scene' : 'Add to scene', () => {
-        if (isActive) registry.removeFromActiveScene(record.name);
-        else registry.addToActiveScene(record.name);
+      // "add" always adds another copy — asking for a second swarm gets a second swarm.
+      button('add', `Add ${isActive ? 'another copy of ' : ''}${record.name} to the scene`, () => {
+        const instance = registry.addToActiveScene(record.name);
+        stateStore.ensure(instance.id, record.definition?.state);
+        diagnostics.info(`Added ${instance.id}`);
       }),
-      button('reset', 'Reset this patch state', () => {
-        stateStore.reset(record.name, record.definition?.state);
-        diagnostics.info(`${record.name} state reset`);
+      button('remove', `Remove the last copy of ${record.name}`, () => {
+        registry.removeFromActiveScene(record.name);
+      }),
+      button('reset', `Reset ${record.name} state${copies > 1 ? ' (all copies)' : ''}`, () => {
+        const n = stateStore.resetPatch(record.name, record.definition?.state);
+        diagnostics.info(`${record.name} state reset${n > 1 ? ` (${n} copies)` : ''}`);
       }),
     );
+    actions.querySelectorAll('button')[1].disabled = !isActive;
 
     row.append(dot, name, version, actions);
     if (record.status === 'failed' && record.lastError) {
@@ -100,13 +117,13 @@ export function createPanels({
   // --- scene strip --------------------------------------------------------------
 
   function renderScene() {
-    const order = registry.activeOrder();
+    const instances = registry.activeInstances();
     const active = registry.activeSceneName();
     const safe = registry.safeSceneName();
     nodes.sceneName.textContent = active ?? '—';
     nodes.scene.replaceChildren(
-      ...(order.length
-        ? order.map((name, index) => sceneChip(name, index, order.length))
+      ...(instances.length
+        ? instances.map((instance, index) => sceneChip(instance, index, instances.length))
         : [hint('Scene is empty.')]),
     );
     nodes.safeNote.textContent =
@@ -117,19 +134,34 @@ export function createPanels({
           : `Safe scene: ${safe} — press 0 or "panic" to return to it.`;
   }
 
-  function sceneChip(name, index, total) {
+  /** One chip per INSTANCE, so three swarms are three separately-movable chips. */
+  function sceneChip(instance, index, total) {
+    const { id } = instance;
     const chip = document.createElement('div');
     chip.className = 'chip';
+    chip.dataset.instance = id;
+
     const label = document.createElement('span');
-    label.textContent = `${index + 1}. ${name}`;
+    label.textContent = `${index + 1}. ${id}`;
+    const configKeys = Object.keys(instance.config ?? {});
+    if (configKeys.length) {
+      label.title = configKeys.map((k) => `${k}: ${instance.config[k]}`).join(', ');
+      label.append(' ');
+      const mark = document.createElement('span');
+      mark.className = 'copies';
+      mark.textContent = '⚙';
+      label.append(mark);
+    }
+
     chip.append(
       label,
-      button('↑', `Move ${name} earlier (drawn under)`, () =>
-        registry.reorderActiveScene(name, index - 1),
+      button('↑', `Move ${id} earlier (drawn under)`, () =>
+        registry.reorderActiveScene(id, index - 1),
       ),
-      button('↓', `Move ${name} later (drawn over)`, () =>
-        registry.reorderActiveScene(name, index + 1),
+      button('↓', `Move ${id} later (drawn over)`, () =>
+        registry.reorderActiveScene(id, index + 1),
       ),
+      button('×', `Remove ${id} from the scene`, () => registry.removeFromActiveScene(id)),
     );
     chip.querySelectorAll('button')[0].disabled = index === 0;
     chip.querySelectorAll('button')[1].disabled = index === total - 1;

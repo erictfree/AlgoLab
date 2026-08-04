@@ -207,6 +207,8 @@ describe('a new patch becomes visible without composing a scene by hand', () => 
     h.frame(3);
 
     expect(h.registry.activeOrder()).toEqual(['chaos']);
-    expect(h.registry.listScenes().find((s) => s.name === 'calm').order).toEqual(['wash']);
+    expect(h.registry.listScenes().find((s) => s.name === 'calm').order.map((i) => i.id)).toEqual([
+      'wash',
+    ]);
   });
 });

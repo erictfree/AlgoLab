@@ -77,9 +77,10 @@ patch("orbiters", {
 
 ### The state rule
 
-`state()` runs **once per name**, not once per evaluation. Re-evaluating a patch gives
+`state()` runs **once per copy**, not once per evaluation. Re-evaluating a patch gives
 it new code and hands it back the *same state object*. That is how a trail array
-survives an edit.
+survives an edit. (If a patch is in the scene once — the usual case — "once per copy"
+and "once per name" are the same thing. See Scenes for more than one copy.)
 
 If you want it gone, say so:
 
@@ -107,6 +108,7 @@ Every handler receives one object:
 | `time` | Seconds since Response started |
 | `sceneTime` | Seconds since the current scene was entered |
 | `params` | Current values of anything declared with `param()` |
+| `config` | This copy's settings, from `add("x", {...})` — see Scenes |
 | `controls` | `{ keys, shift, alt }` — keyboard state |
 
 Use `dt` for motion rather than a fixed step. It keeps your patch moving at the same
@@ -167,10 +169,78 @@ Re-evaluating a `scene(...)` changes the composition without touching the patche
 themselves or their state. While running:
 
 ```js
-add("sparks");     // append to the active scene
-remove("wash");    // take it out (its state is kept)
+add("sparks");     // add a copy to the active scene
+remove("wash");    // take one out (its state is kept)
+removeAll("wash"); // take every copy out
 clearScene();      // empty the active scene
 ```
+
+### More than one copy
+
+A scene can hold the same patch several times. Each copy is an **instance** with its
+own state and its own settings:
+
+```js
+add("ribbon", { y: 0.3, hue: 190 });
+add("ribbon", { y: 0.7, hue: 40, mirror: true });
+```
+
+The first copy of a patch is called by its plain name; extras get a number:
+
+```
+ribbon    ribbon#2    ribbon#3
+```
+
+So `stateStore` for a single `orbiters` is exactly what it always was — the numbering
+only appears once you ask for a second copy.
+
+The same works directly in a scene:
+
+```js
+scene("stacked", [
+  "wash",
+  { patch: "grid",   config: { cols: 14, hue: 220 } },
+  { patch: "grid",   config: { cols: 7,  hue: 320, rotate: 0.05 } },
+  "pulse",
+]);
+```
+
+| You write | What happens |
+| --- | --- |
+| `add("ribbon")` | Adds another copy, always |
+| `remove("ribbon")` | Removes the **last** copy — undoes one `add` |
+| `remove("ribbon#2")` | Removes that specific copy |
+| `removeAll("ribbon")` | Removes every copy |
+| `resetPatch("ribbon")` | Resets **all** copies' state — one name, one meaning |
+
+Editing `patch("ribbon", ...)` changes every copy at once, because they all share one
+definition. Only their state and config are separate. If a new version throws on its
+first frame, all copies roll back together.
+
+You can do all of this from the panels too: **add** in the Patch shelf makes another
+copy, and each chip in the Scene strip has its own **×**.
+
+### Config
+
+`config` is whatever object you passed to `add()` or put in the scene entry, handed to
+your patch on every call:
+
+```js
+patch("ribbon", ({ audio, config }) => {
+  const y = height * (config.y ?? 0.5);   // always provide a default
+  // ...
+});
+```
+
+Config is per copy. `param()` is workspace-wide and gets a slider. Use config for
+what makes two copies *different*, and params for what you want to perform.
+
+### The library
+
+The **Library** panel has five ready patches — `bars`, `ribbon`, `swarm`, `pulse`,
+`grid` — all written to be stacked. **insert** drops one into your editor and
+registers it; it is then an ordinary patch you can rewrite. The **stacked** button
+builds a scene from several copies of them, as a worked example.
 
 A patch you register for the first time joins the running scene automatically, so a
 new `patch("mine", ...)` is visible immediately. Two things that convenience will not

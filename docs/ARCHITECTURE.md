@@ -48,7 +48,11 @@ src/ui/
   styles.css          dark performance theme
 
 src/persistence/
-  projectStore.js     localStorage: source, scenes, params
+  projectStore.js     localStorage: source, scenes (as instances), params
+
+starter/
+  starter.js          the three teaching patches loaded on first run
+  library.js          five more (bars, ribbon, swarm, pulse, grid), built to stack
 ```
 
 `src/host/*` and `src/audio/features.js` contain **no p5 and no DOM**. That is not
@@ -125,13 +129,48 @@ that isn't drawing.
 
 ## State identity
 
-`stateStore` is a `Map<patchName, object>`. The factory in `state: () => ({...})` runs
-**once per name, ever**. Re-evaluating a patch does not re-run it.
+`stateStore` is a `Map<instanceId, object>`. The factory in `state: () => ({...})` runs
+**once per instance, ever**. Re-evaluating a patch does not re-run it.
 
 This is the mechanism behind PRD §7's "state has an identity". The function object is
-discarded and replaced on every evaluation; the state object is found again by name.
-It is also why `resetPatch(name)` has to exist as an explicit act — there is no other
-way to get a fresh one.
+discarded and replaced on every evaluation; the state object is found again by
+identity. It is also why `resetPatch(name)` has to exist as an explicit act — there is
+no other way to get a fresh one.
+
+## Instances
+
+A scene is an ordered list of `{ id, patch, config }`, not of patch names, because the
+same patch may appear several times — two grids at different scales, three ribbons at
+different heights.
+
+**The first instance of a patch takes the bare patch name as its id.** That one
+decision is what kept this from being a breaking change: a scene using each patch once
+produces exactly the id list the old name-based model produced, so `activeOrder()`,
+every stored project, and every existing test stayed valid. Extras are `swarm#2`,
+`swarm#3` — and `#` is therefore forbidden in patch names, or `a#2` would be ambiguous
+between a patch and an instance.
+
+What is shared and what is not:
+
+| | Shared across copies | Per copy |
+| --- | --- | --- |
+| definition, version, history | ✓ | |
+| state | | ✓ |
+| config | | ✓ |
+| `enter` / `exit` / `beat` | | ✓ |
+
+The consequence that matters for recovery: replacing a patch replaces the behavior of
+every copy at once, so `stateStore.snapshotPatch` / `restorePatch` cover all of them.
+A rollback that restored only the copy that happened to throw would leave the others
+running the failed version's state — including copies that never executed, because the
+rollback lands mid-frame and later copies draw with the already-restored definition.
+
+`remove()` disambiguates on `#`: with one, it targets that exact instance; without
+one, it treats the argument as a patch name and peels off the last copy, so repeated
+`remove("swarm")` undoes repeated `add("swarm")`.
+
+Lifecycle is tracked in a `Set` of instance ids in `hostLoop`, not on the registry
+record — being on stage is a property of the instance, not of the registration.
 
 Snapshots use `structuredClone`, which is why §13.4 asks for JSON-shaped state. A
 value that can't be cloned produces a warning and a `null` snapshot, and `restore`

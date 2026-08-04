@@ -13,7 +13,10 @@
 // with a broken page.
 
 const KEY = 'response.project.v1';
-const SCHEMA = 1;
+// v2 stores scenes as instances ({id, patch, config}) rather than bare patch names,
+// so a scene holding the same patch more than once round-trips faithfully.
+const SCHEMA = 2;
+const READABLE_SCHEMAS = new Set([1, 2]);
 
 export function createProjectStore({ registry, diagnostics, storage = globalThis.localStorage } = {}) {
   let timer = null;
@@ -64,11 +67,11 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
 
     try {
       const data = JSON.parse(raw);
-      if (data?.schema !== SCHEMA || typeof data.source !== 'string') {
+      if (!READABLE_SCHEMAS.has(data?.schema) || typeof data.source !== 'string') {
         diagnostics?.warn('Saved project is from an older format — starting fresh');
         return null;
       }
-      return data;
+      return { ...data, scenes: (data.scenes ?? []).map(upgradeScene) };
     } catch (error) {
       diagnostics?.warn('Saved project was unreadable — starting fresh', error.message);
       return null;
@@ -89,7 +92,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
       // Only patches that actually came back from the source belong in a scene.
       registry.defineScene(
         scene.name,
-        scene.order.filter((name) => registry.hasPatch(name)),
+        upgradeOrder(scene.order).filter((entry) => registry.hasPatch(entry.patch)),
       );
     }
     if (data.activeScene && data.scenes?.some((s) => s.name === data.activeScene)) {
@@ -102,6 +105,17 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
       // explicitly — the performer's tuning outranks the source's default.
       registry.setParam(param.name, param.value);
     }
+  }
+
+  const upgradeScene = (scene) => ({ ...scene, order: upgradeOrder(scene.order) });
+
+  /** Accept both v1 (`["wash", "rings"]`) and v2 (instance objects) scene orders. */
+  function upgradeOrder(order) {
+    return (order ?? []).map((entry) =>
+      typeof entry === 'string'
+        ? { patch: entry, config: {} }
+        : { id: entry.id, patch: entry.patch, config: entry.config ?? {} },
+    );
   }
 
   function clear() {
@@ -177,8 +191,11 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     if (data?.format !== 'response-project') {
       return { ok: false, error: 'Not a Response project file' };
     }
-    if (data.schema !== SCHEMA) {
-      return { ok: false, error: `Project uses format version ${data.schema}, this build reads ${SCHEMA}` };
+    if (!READABLE_SCHEMAS.has(data.schema)) {
+      return {
+        ok: false,
+        error: `Project uses format version ${data.schema}, this build reads ${[...READABLE_SCHEMAS].join(' and ')}`,
+      };
     }
     const source = Array.isArray(data.source) ? data.source.join('\n') : data.source;
     if (typeof source !== 'string') {
@@ -188,7 +205,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
       ok: true,
       data: {
         source,
-        scenes: Array.isArray(data.scenes) ? data.scenes : [],
+        scenes: (Array.isArray(data.scenes) ? data.scenes : []).map(upgradeScene),
         activeScene: data.activeScene ?? null,
         safeScene: data.safeScene ?? null,
         params: Array.isArray(data.params) ? data.params : [],
