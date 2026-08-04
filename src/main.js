@@ -90,6 +90,7 @@ const panels = createPanels({
   host,
   evaluator,
   editor,
+  onRevert: (name, version, source) => projection.setActiveCode(source),
 });
 
 // --- p5 lifecycle ---------------------------------------------------------------
@@ -323,6 +324,7 @@ document.getElementById('import-file').addEventListener('change', async (event) 
   evaluator.evaluate(parsed.data.source, { label: file.name });
   evaluator.applyPending();
   projectStore.restoreComposition(parsed.data);
+  projection.setActiveCode(parsed.data.source);
   diagnostics.success(`Imported ${file.name}`);
 });
 

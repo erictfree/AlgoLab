@@ -86,6 +86,11 @@ test.describe('P-01..P-03 projection view', () => {
     await expect(projector.locator('#overlay')).toContainText('circle(200, 200, 90)');
     await expect(projector.locator('#overlay')).not.toContainText('totally broken');
 
+    // A revert is an evaluation too, so the overlay must follow it.
+    await page.locator('details.panel', { hasText: 'History' }).locator('summary').click();
+    await page.getByRole('button', { name: 'Make rings v1 active again' }).click();
+    await expect(projector.locator('#overlay')).toContainText('map(audio.bass');
+
     await projector.close();
   });
 

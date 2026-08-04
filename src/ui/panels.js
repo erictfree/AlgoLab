@@ -7,7 +7,16 @@
 
 const METER_HZ = 15;
 
-export function createPanels({ registry, stateStore, diagnostics, audio, host, evaluator, editor }) {
+export function createPanels({
+  registry,
+  stateStore,
+  diagnostics,
+  audio,
+  host,
+  evaluator,
+  editor,
+  onRevert,
+}) {
   const el = (id) => document.getElementById(id);
 
   const nodes = {
@@ -194,6 +203,9 @@ export function createPanels({ registry, stateStore, diagnostics, audio, host, e
       button('revert', `Make ${entry.name} v${entry.version} active again`, () => {
         evaluator.revert(entry.name, entry.version);
         editor.replaceBlockFor(entry.name, entry.source);
+        // A revert is an evaluation, so anything watching evaluations — the
+        // projection's code overlay in particular — has to hear about it too.
+        onRevert?.(entry.name, entry.version, entry.source);
       }),
     );
     return row;
