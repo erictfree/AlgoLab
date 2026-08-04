@@ -42,6 +42,10 @@ async function setBufferAndCursor(page, buffer, cursorNeedle) {
   );
 }
 
+/** The newest performer-facing message — the system's own "this is committed" signal. */
+const latestMessage = (page) =>
+  page.evaluate(() => window.Response.diagnostics.latest()?.message ?? '');
+
 const snapshot = (page) =>
   page.evaluate(() => {
     const R = window.Response;
@@ -102,7 +106,10 @@ test('Degree 3: visual logic is replaceable while everything else stays alive', 
   await setBufferAndCursor(page, edited, 'stroke(255, 120, 0)');
   await page.locator('#code').press('Control+Enter');
 
-  await expect.poll(() => page.evaluate(() => window.Response.registry.getPatch('rings').version)).toBe(2);
+  // Wait for the COMMIT, not the staging. `version` bumps as soon as a candidate is
+  // installed — one frame before it has survived its first invocation — so polling on
+  // it can win while the patch is still provisional.
+  await expect.poll(() => latestMessage(page)).toBe('rings v2 active');
   const afterEdit = await snapshot(page);
 
   expect(afterEdit.ringsSource).toContain('stroke(255, 120, 0)');
@@ -137,9 +144,7 @@ test('Degree 3: visual logic is replaceable while everything else stays alive', 
     'missingThing',
   );
   await page.locator('#code').press('Control+Enter');
-  await expect
-    .poll(() => page.evaluate(() => window.Response.diagnostics.latest()?.message ?? ''))
-    .toContain('rolled back');
+  await expect.poll(() => latestMessage(page)).toContain('rolled back');
 
   const afterRollback = await snapshot(page);
   expect(afterRollback.ringsVersion).toBe(2); // restored
@@ -159,6 +164,9 @@ test('Degree 3: visual logic is replaceable while everything else stays alive', 
   await page.locator('details.panel', { hasText: 'History' }).locator('summary').click();
   await page.getByRole('button', { name: 'Make rings v1 active again' }).click();
 
+  // A revert is an ordinary evaluation: it becomes a candidate and must survive a
+  // frame like anything else, so wait for its commit message too.
+  await expect.poll(() => latestMessage(page)).toBe('rings v3 active');
   await expect
     .poll(() => page.evaluate(() => window.Response.registry.getPatch('rings').source))
     .toContain('map(audio.bass, 0, 1, 40, width * 0.8)'); // the starter's original rings
