@@ -120,13 +120,19 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
     const staged = [];
 
     for (const { transaction, label } of queue) {
+      // Names this block places into a scene itself. The convenience of auto-adding a
+      // new patch must defer to explicit composition: a block that says
+      //   patch("chaos", ...); scene("wild", ["chaos"]); go("wild");
+      // means chaos belongs to "wild", not also to whatever happened to be running.
+      const composed = composedNames(transaction);
+
       for (const [name, entry] of transaction.stagedPatches) {
         const isNew = !registry.hasPatch(name);
         registry.stagePatch(name, entry.definition, entry.source, entry.stateSnapshot);
         // Create state once, from this version's factory, if it has none yet.
         stateStore.ensure(name, entry.definition.state);
         // A brand-new patch joins the running scene so it is visible immediately.
-        if (isNew) registry.addToActiveScene(name);
+        if (isNew && !composed.has(name)) registry.addToActiveScene(name);
         staged.push(name);
       }
       for (const op of transaction.operations) applyOperation(op, label);
@@ -134,6 +140,15 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
 
     queue.length = 0;
     return staged;
+  }
+
+  function composedNames(transaction) {
+    const names = new Set();
+    for (const op of transaction.operations) {
+      if (op.type === 'scene') for (const name of op.patchNames) names.add(name);
+      else if (op.type === 'add') names.add(op.name);
+    }
+    return names;
   }
 
   function applyOperation(op, label) {

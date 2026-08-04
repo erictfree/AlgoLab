@@ -44,6 +44,27 @@ describe('normalized bands', () => {
     expect(last).toBeGreaterThan(0.8);
   });
 
+  it('A-06: auto-gain can be turned off mid-set', () => {
+    const fx = createFeatureExtractor();
+    for (let i = 0; i < 200; i++) fx.compute(frame({ bass: 10 }));
+    expect(fx.compute(frame({ bass: 10 })).bass).toBeGreaterThan(0.8);
+
+    fx.configure({ autoGain: false });
+    // Now the raw proportion comes through: 10/255 is genuinely quiet.
+    expect(fx.compute(frame({ bass: 10 })).bass).toBeLessThan(0.1);
+
+    // And back on again, without having to reload or reset.
+    fx.configure({ autoGain: true });
+    expect(fx.compute(frame({ bass: 10 })).bass).toBeGreaterThan(0.8);
+  });
+
+  it('A-06: smoothing is adjustable and bounded to known keys', () => {
+    const fx = createFeatureExtractor();
+    expect(fx.configure({ smoothing: 0.9 }).smoothing).toBe(0.9);
+    // An unknown key is ignored rather than quietly added to the option set.
+    expect(fx.configure({ notAnOption: 1 }).notAnOption).toBeUndefined();
+  });
+
   it('returns a frozen snapshot so one patch cannot alter another’s audio (A-05)', () => {
     const fx = createFeatureExtractor();
     const s = fx.compute(frame({ bass: 100 }));

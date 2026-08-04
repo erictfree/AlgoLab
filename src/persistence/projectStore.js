@@ -25,6 +25,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
       source: editorSource,
       scenes: registry.listScenes(),
       activeScene: registry.activeSceneName(),
+      safeScene: registry.safeSceneName(),
       params: registry.listParams().map(({ name, value, min, max, step }) => ({
         name,
         value,
@@ -94,6 +95,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     if (data.activeScene && data.scenes?.some((s) => s.name === data.activeScene)) {
       registry.go(data.activeScene);
     }
+    if (data.safeScene) registry.setSafeScene(data.safeScene);
     for (const param of data.params ?? []) {
       registry.declareParam(param.name, param.value, param);
       // declareParam deliberately keeps an existing value, so set the saved one
@@ -110,5 +112,98 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     }
   }
 
-  return { save, saveSoon, load, restoreComposition, clear };
+  // --- export / import (D-02, D-03) ----------------------------------------------
+
+  /**
+   * D-02: "a human-readable project containing source, scene definitions, and
+   * configuration."
+   *
+   * Pretty-printed JSON, with the source split into lines. A single escaped string
+   * with `\n` in it is technically readable and practically not — an instructor
+   * reading a student's submitted project, or diffing two of them, needs to see the
+   * code as code.
+   */
+  function exportProject(editorSource, extra = {}) {
+    const data = snapshot(editorSource);
+    return JSON.stringify(
+      {
+        format: 'response-project',
+        schema: SCHEMA,
+        exportedAt: new Date(data.savedAt).toISOString(),
+        source: data.source.split('\n'),
+        scenes: data.scenes,
+        activeScene: data.activeScene,
+        safeScene: data.safeScene,
+        params: data.params,
+        ...extra,
+      },
+      null,
+      2,
+    );
+  }
+
+  function download(editorSource, extra = {}) {
+    const blob = new Blob([exportProject(editorSource, extra)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `response-project-${new Date().toISOString().slice(0, 10)}.json`;
+    // Chromium ignores a synthetic click on an anchor that is not in the document, so
+    // attach it for the duration of the click.
+    link.style.display = 'none';
+    document.body.append(link);
+    link.click();
+    link.remove();
+    // Revoke on the next task so the click has actually been dispatched.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    return link.download;
+  }
+
+  /**
+   * Parse an exported project. Returns `{ ok, data }` or `{ ok: false, error }`.
+   *
+   * Parsing is separate from applying on purpose: D-03 requires an explicit
+   * trusted-code confirmation, and the performer cannot meaningfully confirm anything
+   * until they can be shown what is in the file. So this validates and hands back the
+   * contents; running it is a second, deliberate step.
+   */
+  function parseProject(text) {
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      return { ok: false, error: `Not a valid project file — ${error.message}` };
+    }
+    if (data?.format !== 'response-project') {
+      return { ok: false, error: 'Not a Response project file' };
+    }
+    if (data.schema !== SCHEMA) {
+      return { ok: false, error: `Project uses format version ${data.schema}, this build reads ${SCHEMA}` };
+    }
+    const source = Array.isArray(data.source) ? data.source.join('\n') : data.source;
+    if (typeof source !== 'string') {
+      return { ok: false, error: 'Project file has no source' };
+    }
+    return {
+      ok: true,
+      data: {
+        source,
+        scenes: Array.isArray(data.scenes) ? data.scenes : [],
+        activeScene: data.activeScene ?? null,
+        safeScene: data.safeScene ?? null,
+        params: Array.isArray(data.params) ? data.params : [],
+      },
+    };
+  }
+
+  return {
+    save,
+    saveSoon,
+    load,
+    restoreComposition,
+    clear,
+    exportProject,
+    download,
+    parseProject,
+  };
 }

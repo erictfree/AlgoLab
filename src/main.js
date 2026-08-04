@@ -16,6 +16,8 @@ import { createHostLoop } from './host/hostLoop.js';
 import { createAudioEngine } from './audio/audioEngine.js';
 import { createEditor } from './ui/editor.js';
 import { createPanels } from './ui/panels.js';
+import { createProjection } from './ui/projection.js';
+import { createConfirmDialog } from './ui/confirmDialog.js';
 import { createProjectStore } from './persistence/projectStore.js';
 import { STARTER_SOURCE } from '../starter/starter.js';
 
@@ -57,13 +59,23 @@ const drawing = {
 
 const host = createHostLoop({ registry, stateStore, evaluator, diagnostics, drawing, controls });
 const projectStore = createProjectStore({ registry, diagnostics });
+const projection = createProjection({ registry, diagnostics });
+const dialog = createConfirmDialog();
 
 // --- editor + panels ------------------------------------------------------------
 
+const stage = document.getElementById('stage');
+
 const editor = createEditor(document.getElementById('code'), {
-  onEvaluate: (source, label) => evaluator.evaluate(source, { label }),
+  onEvaluate: (source, label) => {
+    const result = evaluator.evaluate(source, { label });
+    // P-02: the projection's code layout shows the block that was actually accepted,
+    // never a failed candidate — the audience should not be shown a broken edit.
+    if (result.ok) projection.setActiveCode(source);
+    return result;
+  },
   onChange: (source) => projectStore.saveSoon(source),
-  onEscape: () => document.getElementById('stage').focus(),
+  onEscape: () => stage.focus(),
 });
 
 // D-01 covers the patch registry and scenes, not just the editor text — so a scene
@@ -102,6 +114,9 @@ window.setup = function setup() {
   // so a hand-reordered scene is not overwritten by the scene(...) call in the source.
   evaluator.applyPending();
   projectStore.restoreComposition(saved);
+  // Panic needs somewhere to go from the first minute, not only after the performer
+  // has thought to designate a safe scene (S-06).
+  if (registry.safeSceneName() === null) registry.setSafeScene();
 
   diagnostics.info(
     saved ? 'Restored your saved project' : 'Starter project loaded',
@@ -119,6 +134,9 @@ window.draw = function draw() {
 
   host.commitPendingChanges();
   panels.setSnapshot(snapshot);
+
+  // The audience's copy of this frame. No-op unless the projection window is open.
+  projection.render(drawingContext.canvas);
 };
 
 window.windowResized = function windowResized() {
@@ -157,7 +175,7 @@ async function chooseFile(input) {
 for (const id of ['audio-file', 'audio-file-2']) {
   document.getElementById(id).addEventListener('change', (event) => chooseFile(event.target));
 }
-document.getElementById('file-label-2').addEventListener('click', () => {
+document.getElementById('load-audio').addEventListener('click', () => {
   document.getElementById('audio-file-2').click();
 });
 document.getElementById('start-audio').addEventListener('click', startAudio);
@@ -167,11 +185,148 @@ let looping = false;
 document.getElementById('loop-toggle').addEventListener('click', (event) => {
   looping = !looping;
   audio.setLoop(looping);
-  event.currentTarget.style.borderColor = looping ? 'var(--ok)' : '';
+  event.currentTarget.classList.toggle('is-on', looping);
+});
+
+// --- live input (A-02) -----------------------------------------------------------
+
+const deviceSelect = document.getElementById('input-device');
+
+async function startMicrophone(deviceId) {
+  const ok = await audio.useMicrophone(deviceId);
+  if (!ok) return false;
+  overlay.hidden = true;
+  // Device labels are empty until permission has been granted once, so the picker is
+  // only worth populating after a successful start.
+  const inputs = await audio.listInputs();
+  deviceSelect.replaceChildren(
+    new Option('(default input)', ''),
+    ...inputs.map((d) => new Option(d.label, d.deviceId)),
+  );
+  if (deviceId) deviceSelect.value = deviceId;
+  return true;
+}
+
+document.getElementById('use-mic').addEventListener('click', () => startMicrophone());
+document.getElementById('start-mic').addEventListener('click', () => startMicrophone());
+deviceSelect.addEventListener('change', (event) => {
+  if (event.target.value) startMicrophone(event.target.value);
+});
+
+// --- analysis controls (A-06) ----------------------------------------------------
+
+const smoothingInput = document.getElementById('smoothing');
+const smoothingValue = document.getElementById('smoothing-value');
+smoothingInput.addEventListener('input', () => {
+  const value = Number(smoothingInput.value);
+  audio.configure({ smoothing: value });
+  smoothingValue.textContent = value.toFixed(2);
+});
+document.getElementById('auto-gain').addEventListener('change', (event) => {
+  audio.configure({ autoGain: event.target.checked });
+  diagnostics.info(`Auto-gain ${event.target.checked ? 'on' : 'off'}`);
+});
+
+// --- projection, fullscreen, safe scene, panic -----------------------------------
+
+const projectionButton = document.getElementById('projection-open');
+const layoutSelect = document.getElementById('projection-layout');
+
+projectionButton.addEventListener('click', () => {
+  if (projection.isOpen()) {
+    projection.close();
+  } else {
+    projection.open();
+    projection.setLayout(layoutSelect.value);
+  }
+  projectionButton.classList.toggle('is-on', projection.isOpen());
+});
+layoutSelect.addEventListener('change', () => projection.setLayout(layoutSelect.value));
+
+document.getElementById('fullscreen-toggle').addEventListener('click', async () => {
+  // R-06: fullscreen changes the canvas size, never the registrations or their state.
+  if (document.fullscreenElement) await document.exitFullscreen();
+  else await stage.requestFullscreen().catch((error) => diagnostics.warn('Fullscreen refused', error.message));
+});
+document.addEventListener('fullscreenchange', () => {
+  document.getElementById('fullscreen-toggle').classList.toggle('is-on', !!document.fullscreenElement);
+  // Wait a frame so the stage has been laid out at its new size before measuring it.
+  requestAnimationFrame(() => resizeCanvas(stage.clientWidth, stage.clientHeight));
+});
+
+const fpsThresholdInput = document.getElementById('fps-threshold');
+fpsThresholdInput.addEventListener('change', () => {
+  const value = Number(fpsThresholdInput.value);
+  if (!Number.isFinite(value) || value <= 0) return;
+  host.setFpsThreshold(value); // S-07 calls the threshold configurable
+  diagnostics.info(`Frame rate warning set to ${value} FPS`);
+});
+
+function setSafeScene() {
+  const name = registry.setSafeScene();
+  if (name) diagnostics.success(`Safe scene set to "${name}"`, 'Press 0 or "panic" to return here.');
+  else diagnostics.warn('No active scene to mark as safe');
+}
+
+function panic() {
+  const name = registry.panic();
+  if (name) diagnostics.success(`Panic — returned to "${name}"`);
+  else diagnostics.warn('No safe scene set', 'Press "set safe" while a scene you trust is active.');
+}
+
+document.getElementById('set-safe').addEventListener('click', setSafeScene);
+document.getElementById('panic').addEventListener('click', panic);
+
+// --- project export / import (D-02, D-03) ----------------------------------------
+
+document.getElementById('export-project').addEventListener('click', () => {
+  const name = projectStore.download(editor.value);
+  diagnostics.success(`Exported ${name}`);
+});
+
+document.getElementById('import-project').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+
+document.getElementById('import-file').addEventListener('change', async (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = ''; // so importing the same file twice still fires
+  if (!file) return;
+
+  const parsed = projectStore.parseProject(await file.text());
+  if (!parsed.ok) {
+    diagnostics.error(`Could not import ${file.name}`, parsed.error);
+    return;
+  }
+
+  // D-03: importing runs someone else's JavaScript on this machine. §13.3 is explicit
+  // that error boundaries are not a sandbox, so the confirmation shows the actual
+  // source and defaults to Cancel.
+  const confirmed = await dialog.ask({
+    title: `Import "${file.name}"?`,
+    body:
+      `This project contains ${parsed.data.source.split('\n').length} lines of JavaScript ` +
+      `and ${parsed.data.scenes.length} scene definition(s). Importing replaces your current ` +
+      `editor contents and runs this code immediately.`,
+    preview: parsed.data.source.slice(0, 1200),
+    warning:
+      'Response runs imported code with the same privileges as your own. It is not a ' +
+      'sandbox — imported code can freeze this tab. Only import projects from someone you trust.',
+    confirmLabel: 'Import and run',
+  });
+  if (!confirmed) {
+    diagnostics.info('Import cancelled');
+    return;
+  }
+
+  editor.value = parsed.data.source;
+  evaluator.evaluate(parsed.data.source, { label: file.name });
+  evaluator.applyPending();
+  projectStore.restoreComposition(parsed.data);
+  diagnostics.success(`Imported ${file.name}`);
 });
 
 // Drop an audio file anywhere on the stage (§10.2 step 2).
-const stage = document.getElementById('stage');
 stage.addEventListener('dragover', (event) => event.preventDefault());
 stage.addEventListener('drop', async (event) => {
   event.preventDefault();
@@ -195,9 +350,14 @@ window.addEventListener('keydown', (event) => {
   const inEditor = document.activeElement?.tagName === 'TEXTAREA';
   if (inEditor || event.metaKey || event.ctrlKey) return;
 
+  // P-04: performer shortcuts stay live once editor focus is released.
   if (event.key === ' ') {
     event.preventDefault();
     audio.toggle();
+  }
+  if (event.key === '0') {
+    event.preventDefault();
+    panic(); // S-06 / P-05: one action, back to a scene the performer trusts
   }
 });
 window.addEventListener('keyup', (event) => {
@@ -211,4 +371,14 @@ window.addEventListener('beforeunload', () => projectStore.save(editor.value));
 
 // Exposed for the automated acceptance test (tests/e2e/degree3.spec.js) and for
 // students who want to poke at the running system from the browser console.
-window.Response = { registry, stateStore, evaluator, host, audio, diagnostics, editor };
+window.Response = {
+  registry,
+  stateStore,
+  evaluator,
+  host,
+  audio,
+  diagnostics,
+  editor,
+  projection,
+  projectStore,
+};

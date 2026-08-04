@@ -7,7 +7,8 @@
 
     <!--
       p5 and p5.sound are pinned course builds, vendored locally so the project runs
-      with no network access (PRD §8, D-05).
+      with no network access (PRD §8, D-05). There is no CDN reference anywhere in
+      this page, and no other origin is contacted at any point.
 
       They must be classic scripts, and they must come before the module below. p5's
       global mode binds window.setup / window.draw on the window `load` event; module
@@ -25,11 +26,14 @@
         <div id="start-overlay">
           <h1>RESPONSE</h1>
           <p>
-            Choose an audio file, then start the audio context. Browsers require a
-            click before any sound can play.
+            Choose an audio file or use live input, then start the audio context.
+            Browsers require a click before any sound can play.
           </p>
-          <label id="file-label" for="audio-file">choose audio file…</label>
-          <input id="audio-file" type="file" accept="audio/*" />
+          <div class="start-actions">
+            <label id="file-label" for="audio-file">choose audio file…</label>
+            <input id="audio-file" type="file" accept="audio/*" />
+            <button id="start-mic" type="button">use microphone</button>
+          </div>
           <button id="start-audio" type="button">start</button>
           <p id="start-note">You can also start without audio and edit against silence.</p>
         </div>
@@ -38,12 +42,37 @@
       <aside id="side">
         <div id="transport">
           <span class="brand">RESPONSE</span>
-          <label id="file-label-2" class="file-label" for="audio-file-2">load audio</label>
+          <button id="load-audio" type="button" title="Load an audio file" aria-label="Load an audio file">load audio</button>
           <input id="audio-file-2" type="file" accept="audio/*" hidden />
-          <button id="play-toggle" type="button" title="Play / pause the audio source">
+          <button id="use-mic" type="button" title="Switch to microphone or line input" aria-label="Switch to microphone or line input">
+            live input
+          </button>
+          <button id="play-toggle" type="button" title="Play / pause the audio source" aria-label="Play / pause the audio source">
             play/pause
           </button>
-          <button id="loop-toggle" type="button" title="Loop the audio source">loop</button>
+          <button id="loop-toggle" type="button" title="Loop the audio source" aria-label="Loop the audio source">loop</button>
+        </div>
+
+        <!-- PERFORMANCE CONTROLS (§10.6, S-06, P-05) -->
+        <div id="stagebar">
+          <button id="projection-open" type="button" title="Open the audience projection window" aria-label="Open the audience projection window">
+            projection
+          </button>
+          <select id="projection-layout" title="What the audience sees" aria-label="Projection layout">
+            <option value="canvas">canvas</option>
+            <option value="code">canvas + code</option>
+            <option value="trace">canvas + trace</option>
+          </select>
+          <button id="fullscreen-toggle" type="button" title="Fullscreen the stage" aria-label="Fullscreen the stage">
+            fullscreen
+          </button>
+          <span class="spacer"></span>
+          <button id="set-safe" type="button" title="Mark the current scene as the safe scene" aria-label="Mark the current scene as the safe scene">
+            set safe
+          </button>
+          <button id="panic" type="button" class="danger" title="Return to the safe scene (0)" aria-label="Return to the safe scene (0)">
+            panic
+          </button>
         </div>
 
         <!-- CODE EDITOR (§10.1) -->
@@ -56,8 +85,9 @@
             aria-label="Live code editor"
           ></textarea>
           <div id="editor-hint">
-            <strong>Cmd/Ctrl+Enter</strong> evaluate block ·
-            <strong>Shift</strong> for whole buffer · <strong>Esc</strong> release focus
+            <strong>Cmd/Ctrl+Enter</strong> evaluate block · <strong>Shift</strong> for whole
+            buffer · <strong>Esc</strong> release focus · then <strong>Space</strong> play,
+            <strong>0</strong> panic
           </div>
         </div>
 
@@ -70,6 +100,13 @@
                 <span class="version" id="audio-position">suspended</span>
                 <span id="beat-dot" title="Onset detected"></span>
               </div>
+              <div id="audio-error" class="row-error" hidden></div>
+              <label class="row">
+                <span class="name">input</span>
+                <select id="input-device" aria-label="Audio input device">
+                  <option value="">(file or default)</option>
+                </select>
+              </label>
               <div class="meters">
                 <span class="version">level</span>
                 <div class="meter level" id="meter-level"></div>
@@ -80,6 +117,15 @@
                 <span class="version">treble</span>
                 <div class="meter" id="meter-treble"></div>
               </div>
+              <label class="row param">
+                <span class="name">smoothing</span>
+                <span class="version" id="smoothing-value">0.6</span>
+                <input id="smoothing" type="range" min="0" max="0.95" step="0.05" value="0.6" />
+              </label>
+              <label class="row">
+                <span class="name">auto-gain</span>
+                <input id="auto-gain" type="checkbox" checked />
+              </label>
             </div>
           </details>
 
@@ -90,7 +136,10 @@
 
           <details class="panel" open>
             <summary>Scene — <span id="scene-name">—</span></summary>
-            <div class="body" id="scene-strip"></div>
+            <div class="body">
+              <div id="scene-strip"></div>
+              <div class="hint" id="safe-scene-note">No safe scene set.</div>
+            </div>
           </details>
 
           <details class="panel">
@@ -106,6 +155,28 @@
           <details class="panel">
             <summary>History</summary>
             <div class="body" id="history-list"></div>
+          </details>
+
+          <details class="panel">
+            <summary>Project &amp; performance</summary>
+            <div class="body">
+              <div class="row">
+                <span class="name">project file</span>
+                <span class="actions">
+                  <button id="export-project" type="button" title="Export this project as JSON" aria-label="Export this project as JSON">
+                    export
+                  </button>
+                  <button id="import-project" type="button" title="Import a project file" aria-label="Import a project file">
+                    import
+                  </button>
+                </span>
+              </div>
+              <input id="import-file" type="file" accept="application/json,.json" hidden />
+              <label class="row">
+                <span class="name">warn below FPS</span>
+                <input id="fps-threshold" type="number" min="1" max="120" step="1" value="30" />
+              </label>
+            </div>
           </details>
         </div>
 

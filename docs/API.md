@@ -16,8 +16,15 @@ underneath it without the canvas ever going away.
 | --- | --- |
 | `Cmd/Ctrl + Enter` | Evaluate the block your cursor is in |
 | `Cmd/Ctrl + Shift + Enter` | Evaluate the whole editor as one transaction |
-| `Esc` | Release editor focus (then `Space` toggles playback) |
+| `Esc` | Release editor focus |
 | `Tab` | Insert two spaces |
+
+With editor focus released:
+
+| Key | What it does |
+| --- | --- |
+| `Space` | Play / pause the audio source |
+| `0` | **Panic** — return to the safe scene |
 
 A "block" is one top-level statement — usually one `patch(...)` call. If Response
 can't tell where the block boundaries are, it evaluates the whole buffer instead.
@@ -130,6 +137,16 @@ The top-level band values are **smoothed and auto-gained** into 0..1, so
 want the unprocessed p5.sound numbers — the 0–255 band energies and the centroid in
 Hz — they are under `audio.raw`.
 
+Both are adjustable live from the Audio panel. Turn **auto-gain** off if you want a
+patch to respond to absolute loudness rather than relative dynamics, and raise
+**smoothing** if a mapping feels twitchy. Neither affects `beat`, which is measured on
+the raw signal so that it keeps working however you set them.
+
+The source can be an audio file or **live input** — microphone, or a line input
+selected from the device list. The first time you choose live input, the browser asks
+permission; if you decline, the sketch keeps running on silence and says so in the
+Messages panel rather than stopping.
+
 Every patch in a frame gets the same frozen snapshot. Analysis runs once per frame no
 matter how many patches are drawing, and you should never construct your own
 `p5.FFT`.
@@ -156,8 +173,24 @@ clearScene();      // empty the active scene
 ```
 
 A patch you register for the first time joins the running scene automatically, so a
-new `patch("mine", ...)` is visible immediately. Re-evaluating an existing patch never
-changes scene membership — if you removed it, it stays removed.
+new `patch("mine", ...)` is visible immediately. Two things that convenience will not
+do: re-evaluating an existing patch never changes scene membership (if you removed it,
+it stays removed), and a block that composes the patch itself wins outright —
+
+```js
+patch("chaos", () => { /* ... */ });
+scene("wild", ["chaos"]);
+go("wild");
+```
+
+puts `chaos` in `wild` and nowhere else.
+
+### The safe scene
+
+Pick a scene you trust, press **set safe**, and `0` will bring you back to it from
+anywhere. Panic changes the active scene and does *nothing else* — no state reset, no
+re-evaluation, no effect on the audio. That is the point: mid-show, you need one key
+with an outcome you already know the look of.
 
 ---
 
@@ -214,6 +247,38 @@ patch — it will be reset for the next one.
 
 ---
 
+---
+
+## Showing it to an audience
+
+**Projection** opens a second window for the projector. Three layouts, switchable from
+either window (`Tab` cycles them from inside the projection window):
+
+| Layout | What the audience sees |
+| --- | --- |
+| `canvas` | The visual output, and nothing else |
+| `canvas + code` | Plus the most recently *accepted* block — a failed edit is never projected |
+| `canvas + trace` | Plus patch names, layer order, and which audio feature each patch reads |
+
+Your editor, your meters, your error messages, and your file names never appear there.
+The trace layout is the one worth trying if the audience can't tell what you're doing:
+it names the link between what they're hearing and what they're seeing.
+
+**Fullscreen** blows up the stage in this window instead. Resizing either way keeps
+every patch, every version, and all their state.
+
+---
+
+## Sharing a project
+
+**Export** writes a `.json` file containing your source (as lines, so it stays
+readable), your scenes, your safe scene, and your parameter values.
+
+**Import** asks you to confirm first, and shows you the code it is about to run. Take
+that seriously — see below.
+
+---
+
 ## What this is not
 
 Response runs your JavaScript with `new Function`. That is a deliberate live-coding
@@ -221,4 +286,6 @@ decision, and it is **not a security sandbox**. Error boundaries catch exception
 they cannot catch an infinite loop, and a `while (true)` in your patch will freeze the
 tab. Bound your loops and bound your arrays.
 
-Only run code you wrote or that your instructor gave you.
+This is why import asks you to confirm, and why the confirmation shows you the source.
+Imported code runs with exactly the privileges your own code has. Only import projects
+from someone you trust.

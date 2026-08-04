@@ -43,6 +43,8 @@ src/audio/
 src/ui/
   editor.js           textarea + top-level block scanner + key bindings
   panels.js           patch shelf, scene strip, meters, history, messages
+  projection.js       the audience window: canvas / code / trace layouts
+  confirmDialog.js    the trusted-code confirmation shown before an import
   styles.css          dark performance theme
 
 src/persistence/
@@ -159,6 +161,27 @@ structurally rather than by discipline.
 
 ---
 
+## Projection
+
+`projection.js` opens a popup, gives it a plain 2D canvas, and copies each frame
+across with `drawImage`.
+
+The obvious alternative — moving the p5 canvas into the popup — was rejected. It works
+until the popup is closed, at which point the running sketch loses its drawing surface
+mid-set, which is precisely the class of failure this whole system exists to prevent.
+A copy costs well under a millisecond at 1280×720, only happens while the window is
+open, and leaves the performer's stage intact so both views show the work.
+
+P-01 is a prohibition as much as a feature: no editor errors, file paths, transport
+controls, or private notes. Nothing in `projection.js` reads the diagnostics bus, so
+there is no path from a stack trace to the projector even by accident. The code layout
+is fed only from *successful* evaluations, so a failed edit is never projected.
+
+The trace layout recovers each patch's audio mappings by scanning its stored source
+for `audio.<feature>`. That is what makes it worth projecting — it names the link
+between what the audience is hearing and what they are seeing, which is otherwise
+invisible about this kind of performance.
+
 ## Where the course concepts actually live
 
 | Concept | Where |
@@ -207,8 +230,11 @@ unbounded memory growth. The things that keep that true:
 
 ---
 
-## Not yet built (PRD P1/P2)
+## Not yet built (PRD P2)
 
-Microphone and line input, auto-gain UI, the projection window with code/trace
-overlays, safe-scene and panic control, FPS warnings, project import/export, the
-offline course bundle, and Web MIDI. The P0 core they attach to is done and tested.
+Web MIDI mapping, crossfades and transition objects, stronger runtime isolation
+(sandboxed frame / worker / `OffscreenCanvas`), WebGL and shader patch lifecycles,
+collaborative rooms, student-defined language adapters, performance recording and
+annotated replay, and export to a standalone conventional p5.js sketch.
+
+P0 and P1 are implemented and tested.

@@ -123,6 +123,119 @@ input:focus-visible {
   display: none;
 }
 
+.start-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* --- performance controls ------------------------------------------------------ */
+
+#stagebar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+#stagebar .spacer {
+  flex: 1;
+}
+button.danger {
+  border-color: #5a2a30;
+  color: #ffb3bb;
+}
+button.danger:hover:not(:disabled) {
+  background: #3a1a20;
+  border-color: var(--bad);
+  color: #fff;
+}
+button.is-on {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+select,
+input[type='number'] {
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 2px 4px;
+  max-width: 160px;
+}
+input[type='number'] {
+  width: 64px;
+}
+
+/* --- trusted-code confirmation (D-03) ------------------------------------------ */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 4, 6, 0.8);
+  padding: 24px;
+}
+.dialog-backdrop[hidden] {
+  display: none;
+}
+.dialog {
+  width: min(560px, 100%);
+  max-height: 80vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 18px 20px;
+}
+.dialog h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: var(--text);
+}
+.dialog p {
+  margin: 0 0 10px;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.dialog .dialog-warning {
+  color: var(--warn);
+  border-left: 2px solid var(--warn);
+  padding-left: 10px;
+}
+.dialog .dialog-preview {
+  max-height: 30vh;
+  overflow: auto;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  background: #0d0d10;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  color: var(--text);
+}
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.dialog-actions button {
+  padding: 6px 14px;
+}
+.dialog-confirm {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
 /* --- editor ------------------------------------------------------------------ */
 
 #editor-wrap {

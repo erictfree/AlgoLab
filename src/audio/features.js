@@ -14,18 +14,30 @@
 
 const EPSILON = 1e-6;
 
-export function createFeatureExtractor({
-  smoothing = 0.6, // 0 = no smoothing, ->1 = heavy
-  gainDecay = 0.4, // how fast the auto-gain ceiling falls, per second
-  gainFloor = 0.02, // never divide by something tiny and turn silence into noise
-  beatThreshold = 1.3, // bass must exceed this multiple of its recent average
-  beatFloor = 0.08, // ...and be at least this loud, so silence never beats
-  beatRise = 0.05, // ...and must actually have risen since the previous frame
-  beatMemory = 0.35, // seconds of bass history the average covers
-  minBeatInterval = 0.12, // seconds; ~500 BPM ceiling, filters double-triggers
-} = {}) {
+export const FEATURE_DEFAULTS = Object.freeze({
+  smoothing: 0.6, // 0 = no smoothing, ->1 = heavy
+  gainDecay: 0.4, // how fast the auto-gain ceiling falls, per second
+  gainFloor: 0.02, // never divide by something tiny and turn silence into noise
+  autoGain: true, // A-06: off means "divide by nothing", raw 0..1 passes through
+  beatThreshold: 1.3, // bass must exceed this multiple of its recent average
+  beatFloor: 0.08, // ...and be at least this loud, so silence never beats
+  beatRise: 0.05, // ...and must actually have risen since the previous frame
+  beatMemory: 0.35, // seconds of bass history the average covers
+  minBeatInterval: 0.12, // seconds; ~500 BPM ceiling, filters double-triggers
+});
+
+export function createFeatureExtractor(overrides = {}) {
+  // Held in one mutable object rather than closed-over constants, so the performer
+  // can tune smoothing and auto-gain from the Audio panel mid-set (A-06).
+  const options = { ...FEATURE_DEFAULTS, ...overrides };
+
   const smoothed = { level: 0, bass: 0, mid: 0, treble: 0, centroid: 0 };
-  const ceiling = { level: gainFloor, bass: gainFloor, mid: gainFloor, treble: gainFloor };
+  const ceiling = {
+    level: options.gainFloor,
+    bass: options.gainFloor,
+    mid: options.gainFloor,
+    treble: options.gainFloor,
+  };
   let bassAverage = 0;
   let previousBass = 0;
   let sinceBeat = 999;
@@ -53,13 +65,13 @@ export function createFeatureExtractor({
 
     // Exponential smoothing, made frame-rate independent so a 30 FPS laptop and a
     // 60 FPS one feel the same.
-    const alpha = smoothing <= 0 ? 1 : 1 - Math.pow(smoothing, dt * 60);
+    const alpha = options.smoothing <= 0 ? 1 : 1 - Math.pow(options.smoothing, dt * 60);
     smoothed.level += (raw.level - smoothed.level) * alpha;
     smoothed.bass += (raw.bass - smoothed.bass) * alpha;
     smoothed.mid += (raw.mid - smoothed.mid) * alpha;
     smoothed.treble += (raw.treble - smoothed.treble) * alpha;
 
-    const decay = Math.pow(1 - clamp(gainDecay, 0, 0.99), dt);
+    const decay = Math.pow(1 - clamp(options.gainDecay, 0, 0.99), dt);
     const level = normalize('level', smoothed.level, decay);
     const bass = normalize('bass', smoothed.bass, decay);
     const mid = normalize('mid', smoothed.mid, decay);
@@ -87,12 +99,12 @@ export function createFeatureExtractor({
     //   average — the rise has to be large relative to the recent past, not just any
     //             wobble
     sinceBeat += dt;
-    const memoryAlpha = beatMemory <= 0 ? 1 : clamp(dt / beatMemory, 0, 1);
+    const memoryAlpha = options.beatMemory <= 0 ? 1 : clamp(dt / options.beatMemory, 0, 1);
     const beat =
-      raw.bass > beatFloor &&
-      raw.bass - previousBass > beatRise &&
-      raw.bass > bassAverage * beatThreshold &&
-      sinceBeat >= minBeatInterval;
+      raw.bass > options.beatFloor &&
+      raw.bass - previousBass > options.beatRise &&
+      raw.bass > bassAverage * options.beatThreshold &&
+      sinceBeat >= options.minBeatInterval;
     if (beat) sinceBeat = 0;
     bassAverage += (raw.bass - bassAverage) * memoryAlpha;
     previousBass = raw.bass;
@@ -120,8 +132,11 @@ export function createFeatureExtractor({
   /** Decaying-peak auto-gain: the ceiling jumps up instantly and sags back slowly. */
   function normalize(band, value, decay) {
     const current = ceiling[band];
-    const next = Math.max(value, Math.max(gainFloor, current * decay));
+    const next = Math.max(value, Math.max(options.gainFloor, current * decay));
     ceiling[band] = next;
+    // With auto-gain off the ceiling still tracks, so switching it back on mid-set
+    // resumes from a sensible level rather than from silence.
+    if (!options.autoGain) return clamp(value, 0, 1);
     return clamp(value / (next + EPSILON), 0, 1);
   }
 
@@ -141,13 +156,23 @@ export function createFeatureExtractor({
     });
   }
 
-  return { compute, silence, reset: () => {
+  /** Tune smoothing / auto-gain live from the Audio panel (A-06). */
+  function configure(changes = {}) {
+    for (const [key, value] of Object.entries(changes)) {
+      if (key in FEATURE_DEFAULTS) options[key] = value;
+    }
+    return { ...options };
+  }
+
+  function reset() {
     smoothed.level = smoothed.bass = smoothed.mid = smoothed.treble = smoothed.centroid = 0;
-    ceiling.level = ceiling.bass = ceiling.mid = ceiling.treble = gainFloor;
+    ceiling.level = ceiling.bass = ceiling.mid = ceiling.treble = options.gainFloor;
     bassAverage = 0;
     previousBass = 0;
     sinceBeat = 999;
-  } };
+  }
+
+  return { compute, silence, reset, configure, options: () => ({ ...options }) };
 }
 
 function clamp(value, min, max) {

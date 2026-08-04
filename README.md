@@ -33,16 +33,18 @@ change something → `Cmd/Ctrl+Enter`.
 ## Test it
 
 ```sh
-npm test             # 41 unit tests — registry, rollback, state, audio, block scanner
-npm run test:e2e     # the PRD §12 Degree 3 acceptance scenario, end to end
+npm test             # 64 unit tests — registry, rollback, state, audio, blocks, project
+npm run test:e2e     # 10 browser tests, including the PRD §12 Degree 3 scenario
 ```
 
-The E2E test needs Chromium once: `npx playwright install chromium`.
+The E2E tests need Chromium once: `npx playwright install chromium`.
 
-`npm run test:e2e` walks all ten steps of the acceptance test in a real browser with
+The headline one walks all ten steps of the acceptance test in a real browser with
 real audio analysis — including introducing a syntax error and a first-frame crash and
 asserting that the canvas element, `frameCount`, host clock, playback position, and
-accumulated patch state all survive.
+accumulated patch state all survive. The rest cover the projection window (including
+that a stack trace can never reach it), panic, import confirmation, and that the page
+loads with every non-local request blocked.
 
 ---
 
@@ -60,17 +62,23 @@ accumulated patch state all survive.
 
 ## Scope
 
-This is the **P0 core** from PRD §14 — everything required to pass the Degree 3
-acceptance test, plus a working performer interface:
+**P0 and P1 from PRD §14** are implemented and tested — the full §20 release criterion
+for a course pilot.
 
-persistent canvas and host loop · audio-file playback and p5.sound analysis · shared
-normalized audio snapshot · block evaluation · named patch registration and atomic
-replacement · per-patch persistent state · named scenes and live recomposition ·
-syntax and registration rejection · first-frame runtime rollback · version history and
-one-click revert · local project persistence · starter project and API docs.
+*P0, the Degree 3 core:* persistent canvas and host loop · audio-file playback and
+p5.sound analysis · shared normalized audio snapshot · block evaluation · named patch
+registration and atomic replacement · per-patch persistent state · named scenes and
+live recomposition · syntax and registration rejection · first-frame runtime rollback ·
+version history and one-click revert · local project persistence.
 
-Not yet built (P1/P2): microphone input, the projection window, safe-scene/panic, FPS
-warnings, project import/export, the offline course bundle, Web MIDI.
+*P1, course-ready performance:* microphone and line input with device selection ·
+live smoothing and auto-gain controls · silence fallback on any input failure ·
+projection window with canvas / code / trace layouts · fullscreen · safe scene and
+one-key panic · frame-rate warnings · project export and import behind a trusted-code
+confirmation · offline course bundle.
+
+Not built (P2): Web MIDI, crossfades, stronger runtime isolation, WebGL/shader
+patches, collaborative rooms, language adapters, recording and replay.
 
 ## One warning
 

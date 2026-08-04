@@ -12,6 +12,7 @@
 const MAX_DT = 1 / 10; // S-08: after a stall, resumed state must not leap.
 const FPS_WINDOW = 60;
 const ERROR_REPEAT_FRAMES = 120; // Throttle a patch that throws every frame (§13.5).
+const SLOW_SECONDS = 5; // S-07: sustained, not a single bad frame.
 
 export function createHostLoop({
   registry,
@@ -20,8 +21,10 @@ export function createHostLoop({
   diagnostics,
   drawing,
   controls = {},
+  fpsThreshold = 30, // S-07 calls this configurable; the panel writes to it
   now = () => performance.now() / 1000,
 }) {
+  const performance_ = { fpsThreshold, slowSince: null, warned: false };
   const startTime = now();
   let lastFrameAt = startTime;
   let sceneEnteredAt = startTime;
@@ -63,6 +66,7 @@ export function createHostLoop({
     }
 
     runExitsForDepartedPatches();
+    checkFrameRate(t);
 
     context.audio = audio;
     context.dt = dt;
@@ -189,11 +193,51 @@ export function createHostLoop({
     return total / fpsFilled;
   }
 
+  /**
+   * S-07: warn when average FPS stays below the threshold for five seconds.
+   *
+   * The five seconds matter. A single slow frame is a garbage collection or a window
+   * resize; five seconds of them is a patch that is too expensive, and that is worth
+   * interrupting a performer to say. Warn once per episode, not once per frame.
+   */
+  function checkFrameRate(t) {
+    if (fpsFilled < FPS_WINDOW) return; // not enough history to judge
+    const current = fps();
+
+    if (current >= performance_.fpsThreshold) {
+      if (performance_.warned) {
+        diagnostics?.success(`Frame rate recovered — ${current.toFixed(0)} FPS`);
+      }
+      performance_.slowSince = null;
+      performance_.warned = false;
+      return;
+    }
+
+    if (performance_.slowSince === null) {
+      performance_.slowSince = t;
+      return;
+    }
+    if (!performance_.warned && t - performance_.slowSince >= SLOW_SECONDS) {
+      performance_.warned = true;
+      diagnostics?.warn(
+        `Frame rate below ${performance_.fpsThreshold} FPS for ${SLOW_SECONDS}s`,
+        `Currently ${current.toFixed(0)} FPS. Check for an unbounded array, a large ` +
+          `loop, or too many active patches.`,
+      );
+    }
+  }
+
   return {
     beginFrame,
     drawPatch,
     commitPendingChanges,
     fps,
     time: () => now() - startTime,
+    fpsThreshold: () => performance_.fpsThreshold,
+    setFpsThreshold(value) {
+      performance_.fpsThreshold = value;
+      performance_.slowSince = null;
+      performance_.warned = false;
+    },
   };
 }

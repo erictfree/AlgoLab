@@ -26,6 +26,8 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
   /** @type {Map<string, {value: any, min?: number, max?: number, step?: number}>} */
   const params = new Map();
   let activeSceneName = null;
+  /** The scene panic returns to (S-06, P-05). */
+  let safeSceneName = null;
   const listeners = new Set();
 
   function notify() {
@@ -162,6 +164,29 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     return scenes.get(activeSceneName) ?? [];
   }
 
+  // --- safe scene (S-06, P-05) --------------------------------------------------
+
+  /** Designate a scene as the one to fall back to. Defaults to the active scene. */
+  function setSafeScene(name = activeSceneName) {
+    if (name === null || !scenes.has(name)) return null;
+    safeSceneName = name;
+    notify();
+    return name;
+  }
+
+  /**
+   * Return to the safe scene in one action.
+   *
+   * Deliberately does nothing else — it does not reset state, re-evaluate code, or
+   * touch the audio. Panic is for the moment when the visuals have gone somewhere
+   * unusable in front of an audience, and the recovery has to be one keystroke with
+   * an outcome the performer already knows the look of.
+   */
+  function panic() {
+    if (safeSceneName === null || !scenes.has(safeSceneName)) return null;
+    return go(safeSceneName);
+  }
+
   function ensureActiveScene() {
     if (activeSceneName === null) {
       if (!scenes.has(DEFAULT_SCENE)) scenes.set(DEFAULT_SCENE, []);
@@ -264,6 +289,9 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     reorderActiveScene,
     listScenes: () => [...scenes.entries()].map(([name, order]) => ({ name, order: [...order] })),
     activeSceneName: () => activeSceneName,
+    setSafeScene,
+    panic,
+    safeSceneName: () => safeSceneName,
 
     // params
     declareParam,

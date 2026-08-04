@@ -195,4 +195,18 @@ describe('a new patch becomes visible without composing a scene by hand', () => 
     h.frame(2);
     expect(h.registry.activeOrder()).not.toContain('first');
   });
+
+  it('defers to explicit composition in the same block', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate('patch("wash", () => {}); scene("calm", ["wash"]); go("calm");');
+    h.frame(3);
+
+    // This block composes "chaos" into its own scene, so the convenience auto-add
+    // must not also append it to whatever scene happens to be running.
+    h.evaluator.evaluate('patch("chaos", () => {}); scene("wild", ["chaos"]); go("wild");');
+    h.frame(3);
+
+    expect(h.registry.activeOrder()).toEqual(['chaos']);
+    expect(h.registry.listScenes().find((s) => s.name === 'calm').order).toEqual(['wash']);
+  });
 });

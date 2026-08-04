@@ -22,7 +22,9 @@ export function createPanels({ registry, stateStore, diagnostics, audio, host, e
     status: el('stat-status'),
     audioSource: el('audio-source'),
     audioPosition: el('audio-position'),
+    audioError: el('audio-error'),
     beatDot: el('beat-dot'),
+    safeNote: el('safe-scene-note'),
     meters: {
       level: el('meter-level'),
       bass: el('meter-bass'),
@@ -90,12 +92,20 @@ export function createPanels({ registry, stateStore, diagnostics, audio, host, e
 
   function renderScene() {
     const order = registry.activeOrder();
-    nodes.sceneName.textContent = registry.activeSceneName() ?? '—';
+    const active = registry.activeSceneName();
+    const safe = registry.safeSceneName();
+    nodes.sceneName.textContent = active ?? '—';
     nodes.scene.replaceChildren(
       ...(order.length
         ? order.map((name, index) => sceneChip(name, index, order.length))
         : [hint('Scene is empty.')]),
     );
+    nodes.safeNote.textContent =
+      safe === null
+        ? 'No safe scene set — press "set safe" so panic has somewhere to go.'
+        : safe === active
+          ? `Safe scene: ${safe} (currently active)`
+          : `Safe scene: ${safe} — press 0 or "panic" to return to it.`;
   }
 
   function sceneChip(name, index, total) {
@@ -232,9 +242,15 @@ export function createPanels({ registry, stateStore, diagnostics, audio, host, e
 
     const status = audio.status();
     nodes.audioSource.textContent = status.source === 'none' ? 'no source' : status.source;
-    nodes.audioPosition.textContent = status.loaded
-      ? `${formatTime(status.position)} / ${formatTime(status.duration)}${status.playing ? '' : ' (paused)'}`
-      : status.contextState;
+    nodes.audioPosition.textContent =
+      status.kind === 'mic'
+        ? 'live'
+        : status.loaded
+          ? `${formatTime(status.position)} / ${formatTime(status.duration)}${status.playing ? '' : ' (paused)'}`
+          : status.contextState;
+    // A-07: an input failure is visible to the performer and nowhere else.
+    nodes.audioError.hidden = !status.error;
+    nodes.audioError.textContent = status.error ?? '';
 
     const s = lastSnapshot;
     if (!s) return;
