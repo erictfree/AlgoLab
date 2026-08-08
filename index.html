@@ -179,9 +179,49 @@
           </label>
         </div>
 
+        <div id="tool-tabs" class="tool-tabs" role="tablist" aria-label="Performer tools">
+          <button
+            id="tools-tab-audio"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="audio-panel"
+            data-tool-view="audio"
+          >Audio</button>
+          <button
+            id="tools-tab-library"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="library-panel"
+            data-tool-view="library"
+          >Library <span id="library-tab-count" class="tab-count">0</span></button>
+          <button
+            id="tools-tab-messages"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="messages-panel"
+            data-tool-view="messages"
+          >Messages <span id="messages-tab-count" class="tab-count" hidden>0</span></button>
+          <button
+            id="tools-tab-project"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="project-panel"
+            data-tool-view="project"
+          >Project</button>
+        </div>
+
         <div id="panels">
-          <details class="panel" open>
-            <summary>Audio</summary>
+          <section
+            class="tool-view"
+            id="audio-panel"
+            role="tabpanel"
+            aria-labelledby="tools-tab-audio"
+            data-tool-panel="audio"
+          >
             <div class="body">
               <div class="row">
                 <span class="name" id="audio-source">no source</span>
@@ -215,25 +255,22 @@
                 </label>
               </details>
             </div>
-          </details>
+          </section>
 
-          <details class="panel" id="scene-panel" open>
-            <summary>Scene — <span id="scene-name">—</span></summary>
+          <section
+            class="tool-view"
+            id="library-panel"
+            role="tabpanel"
+            aria-labelledby="tools-tab-library"
+            data-tool-panel="library"
+            hidden
+          >
             <div class="body">
-              <div id="scene-strip"></div>
-              <div class="hint scene-eval-note">
-                Scene edits run after <strong>Cmd/Ctrl+Enter</strong> in the scene cell.
-              </div>
-              <div class="hint" id="safe-scene-note">No safe snapshot yet.</div>
-              <div class="row scene-actions">
-                <span class="name">Recovery point</span>
-                <span class="actions">
-                  <button id="set-safe" type="button" title="Capture source, installed patch versions, active scene, parameters and runtime state" aria-label="Set safe state">Set safe</button>
-                  <button id="restore-safe" type="button" title="Restore the last complete safe state" aria-label="Restore safe state" disabled>Restore</button>
-                </span>
+              <div class="hint">
+                Install adds source. Add to scene edits the scene array in the code; press <strong>Cmd/Ctrl+Enter</strong> there to run it.
               </div>
               <div class="row" id="demo-scene-row">
-                <span class="name">Demo scene</span>
+                <span class="name">Configured starter scene</span>
                 <span class="actions">
                   <button
                     id="insert-demo-scene"
@@ -242,15 +279,6 @@
                     aria-label="Insert a configured library scene into the source"
                   >Insert demo</button>
                 </span>
-              </div>
-            </div>
-          </details>
-
-          <details class="panel" id="library-panel">
-            <summary>Patch library <span class="summary-count" id="library-summary-count">0/0 installed</span></summary>
-            <div class="body">
-              <div class="hint">
-                Install adds source. Add to scene edits the scene; press <strong>Cmd/Ctrl+Enter</strong> to run it.
               </div>
               <div id="library-filters" class="filter-tabs" role="group" aria-label="Filter patch library">
                 <button type="button" data-library-filter="all" aria-pressed="true">All <span id="library-count-all">0</span></button>
@@ -268,25 +296,50 @@
                 </div>
               </details>
             </div>
-          </details>
+            <section class="tool-section" id="parameters-panel" hidden>
+              <h2>Live parameters <span class="summary-count" id="parameter-summary-count">0</span></h2>
+              <div class="body" id="param-list"></div>
+            </section>
+          </section>
 
-          <details class="panel" id="parameters-panel">
-            <summary>Parameters <span class="summary-count" id="parameter-summary-count">0</span></summary>
-            <div class="body" id="param-list"></div>
-          </details>
-
-          <details class="panel" id="messages-panel">
-            <summary>Messages</summary>
+          <section
+            class="tool-view"
+            id="messages-panel"
+            role="tabpanel"
+            aria-labelledby="tools-tab-messages"
+            data-tool-panel="messages"
+            hidden
+          >
             <div class="body" id="diagnostics-list"></div>
-          </details>
+            <section class="tool-section">
+              <h2>Evaluation history</h2>
+              <div class="body" id="history-list"></div>
+            </section>
+          </section>
 
-          <details class="panel">
-            <summary>History</summary>
-            <div class="body" id="history-list"></div>
-          </details>
-
-          <details class="panel">
-            <summary>Project &amp; performance</summary>
+          <section
+            class="tool-view"
+            id="project-panel"
+            role="tabpanel"
+            aria-labelledby="tools-tab-project"
+            data-tool-panel="project"
+            hidden
+          >
+            <section class="tool-section recovery-section">
+              <h2>Safe state</h2>
+              <div class="body">
+                <div class="hint" id="safe-scene-note">No safe snapshot yet.</div>
+                <div class="row scene-actions">
+                  <span class="name">Recovery point</span>
+                  <span class="actions">
+                    <button id="set-safe" type="button" title="Capture source, installed patch versions, active scene, parameters and runtime state" aria-label="Set safe state">Set safe</button>
+                    <button id="restore-safe" type="button" title="Restore the last complete safe state" aria-label="Restore safe state" disabled>Restore</button>
+                  </span>
+                </div>
+              </div>
+            </section>
+            <section class="tool-section">
+              <h2>Project file</h2>
             <div class="body">
               <div class="row">
                 <span class="name">project file</span>
@@ -327,7 +380,8 @@
                 />
               </label>
             </div>
-          </details>
+            </section>
+          </section>
         </div>
       </aside>
 

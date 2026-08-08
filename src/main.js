@@ -168,7 +168,6 @@ const panels = createPanels({
   library: PATCH_LIBRARY,
   onInsertLibrary: installFromLibrary,
   onAddToScene: addPatchToScene,
-  onInsertExample: buildDemoScene,
   onRestoreSafe: restoreSafeState,
   onLocateStrategy: (name) => {
     if (editor.revealStrategy(name)) toggleReference(true);

@@ -16,26 +16,24 @@ export function createPanels({
   library = [],
   onInsertLibrary,
   onAddToScene,
-  onInsertExample,
   onRevert,
   onLocateStrategy,
   onRestoreSafe,
 }) {
   const el = (id) => document.getElementById(id);
   const nodes = {
+    toolTabs: el('tool-tabs'),
+    toolPanels: [...document.querySelectorAll('[data-tool-panel]')],
     references: el('strategy-reference-list'),
     library: el('strategy-library'),
     libraryFilters: el('library-filters'),
     libraryAllCount: el('library-count-all'),
     libraryInstalledCount: el('library-count-installed'),
     libraryActiveCount: el('library-count-active'),
-    librarySummaryCount: el('library-summary-count'),
-    scene: el('scene-strip'),
-    sceneName: el('scene-name'),
-    demoSceneRow: el('demo-scene-row'),
+    libraryTabCount: el('library-tab-count'),
+    messagesTabCount: el('messages-tab-count'),
     history: el('history-list'),
     diagnostics: el('diagnostics-list'),
-    messagesPanel: el('messages-panel'),
     params: el('param-list'),
     paramsPanel: el('parameters-panel'),
     paramsSummaryCount: el('parameter-summary-count'),
@@ -53,7 +51,25 @@ export function createPanels({
     restoreSafe: el('restore-safe'),
   };
   let libraryFilter = 'all';
+  let activeToolView = 'audio';
+  let diagnosticsInitialized = false;
+  let latestDiagnosticKey = null;
   const libraryOpenGroups = new Set();
+
+  function selectToolView(view, { focus = false } = {}) {
+    const selected = nodes.toolTabs.querySelector(`[data-tool-view="${view}"]`);
+    if (!selected) return;
+    activeToolView = view;
+    for (const tab of nodes.toolTabs.querySelectorAll('[data-tool-view]')) {
+      const active = tab === selected;
+      tab.setAttribute('aria-selected', String(active));
+      tab.tabIndex = active ? 0 : -1;
+    }
+    for (const panel of nodes.toolPanels) {
+      panel.hidden = panel.dataset.toolPanel !== view;
+    }
+    if (focus) selected.focus();
+  }
 
   function renderStrategies(snapshot) {
     const expanded = new Set(
@@ -81,7 +97,8 @@ export function createPanels({
     nodes.libraryAllCount.textContent = String(library.length);
     nodes.libraryInstalledCount.textContent = String(installedCount);
     nodes.libraryActiveCount.textContent = String(activeCount);
-    nodes.librarySummaryCount.textContent = `${installedCount}/${library.length} installed`;
+    nodes.libraryTabCount.textContent = String(installedCount);
+    nodes.libraryTabCount.title = `${installedCount} of ${library.length} patches installed`;
     for (const button of nodes.libraryFilters.querySelectorAll('button[data-library-filter]')) {
       button.setAttribute('aria-pressed', String(button.dataset.libraryFilter === libraryFilter));
     }
@@ -288,15 +305,8 @@ export function createPanels({
     return row;
   }
 
-  function renderScene(snapshot) {
-    const { scene, safeState } = snapshot;
-    nodes.sceneName.textContent = scene.name ?? '—';
-    nodes.scene.replaceChildren(
-      ...(scene.order.length
-        ? scene.order.map((instance, index) => sceneChip(instance, index))
-        : [emptySceneState()]),
-    );
-    nodes.demoSceneRow.hidden = scene.order.length === 0;
+  function renderSafeState(snapshot) {
+    const { safeState } = snapshot;
     if (!safeState.exists) {
       nodes.safeNote.textContent = 'No safe snapshot yet. Set safe captures the working source, patch versions, scene, parameters and state.';
     } else {
@@ -310,34 +320,6 @@ export function createPanels({
         (safeState.dirty ? 'current project differs' : 'current project matches');
     }
     nodes.restoreSafe.disabled = !safeState.exists;
-  }
-
-  function emptySceneState() {
-    const empty = document.createElement('div');
-    empty.className = 'empty-scene';
-    const title = document.createElement('strong');
-    title.textContent = 'No active patches';
-    const explanation = document.createElement('p');
-    explanation.textContent =
-      'Installed means the source is in this project. It renders only after that source evaluates and a patch instance is added to the scene.';
-    const action = button(
-      'Add configured example',
-      'Insert a configured example scene into the editor source',
-      () => onInsertExample?.(),
-    );
-    empty.append(title, explanation, action);
-    return empty;
-  }
-
-  function sceneChip(instance, index) {
-    const chip = document.createElement('div');
-    chip.className = 'chip';
-    chip.dataset.instance = instance.id;
-    const label = document.createElement('span');
-    label.textContent = `${index + 1}. ${instance.id}`;
-    label.title = 'Scene order comes from the active JavaScript array';
-    chip.append(label);
-    return chip;
   }
 
   function renderParams(snapshot) {
@@ -410,12 +392,19 @@ export function createPanels({
         ? snapshot.diagnostics.map(diagnosticRow)
         : [hint('Nothing to report.')]),
     );
+    nodes.messagesTabCount.textContent = String(snapshot.diagnostics.length);
+    nodes.messagesTabCount.hidden = snapshot.diagnostics.length === 0;
     const latest = snapshot.diagnostics[0];
     if (latest) {
       nodes.status.textContent = latest.message;
       nodes.status.className = `value ${latest.level}`;
-      if (latest.level === 'error' || latest.level === 'warn') nodes.messagesPanel.open = true;
+      const key = `${latest.at ?? ''}:${latest.level}:${latest.message}`;
+      if (diagnosticsInitialized && key !== latestDiagnosticKey && latest.level === 'error') {
+        selectToolView('messages');
+      }
+      latestDiagnosticKey = key;
     }
+    diagnosticsInitialized = true;
   }
 
   function diagnosticRow(entry) {
@@ -479,7 +468,7 @@ export function createPanels({
   function renderAll(snapshot = controller.snapshot()) {
     renderStrategies(snapshot);
     renderLibrary(snapshot);
-    renderScene(snapshot);
+    renderSafeState(snapshot);
     renderParams(snapshot);
     renderHistory(snapshot);
     renderDiagnostics(snapshot);
@@ -523,6 +512,22 @@ export function createPanels({
     `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 
   const unsubscribe = controller.subscribe(renderAll);
+  nodes.toolTabs.addEventListener('click', (event) => {
+    const tab = event.target.closest('[data-tool-view]');
+    if (tab) selectToolView(tab.dataset.toolView);
+  });
+  nodes.toolTabs.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = [...nodes.toolTabs.querySelectorAll('[data-tool-view]')];
+    const current = tabs.findIndex((tab) => tab.dataset.toolView === activeToolView);
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    selectToolView(tabs[next].dataset.toolView, { focus: true });
+  });
   nodes.libraryFilters.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-library-filter]');
     if (!button) return;
@@ -530,6 +535,7 @@ export function createPanels({
     renderLibrary(controller.snapshot());
   });
   nodes.restoreSafe.addEventListener('click', () => onRestoreSafe?.());
+  selectToolView(activeToolView);
   renderAll();
   const timer = setInterval(updateMeters, 1000 / METER_HZ);
 

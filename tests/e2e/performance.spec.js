@@ -38,16 +38,20 @@ async function openTools(page) {
 }
 
 async function openLibrary(page) {
-  const panel = page.locator('#library-panel');
-  if (!(await panel.evaluate((element) => element.open))) {
-    await panel.locator(':scope > summary').click();
-  }
+  await selectTool(page, 'Library');
+  await expect(page.locator('#library-panel')).toBeVisible();
   const groups = page.locator('[data-library-group]');
   const count = await groups.count();
   for (let index = 0; index < count; index++) {
     const group = groups.nth(index);
     if (!(await group.evaluate((element) => element.open))) await group.locator('summary').click();
   }
+}
+
+async function selectTool(page, name) {
+  const tab = page.getByRole('tab', { name: new RegExp(`^${name}`) });
+  if ((await tab.getAttribute('aria-selected')) !== 'true') await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
 }
 
 async function openReference(page) {
@@ -94,7 +98,8 @@ test.describe('P-01..P-03 projection view', () => {
       window.AlgoLab.evaluator.evaluate('const rings = { draw() { ((( broken', { label: 'strategy rings' }),
     );
     await expect(page.locator('#diagnostics-list')).toContainText('Syntax error');
-    await expect(page.locator('#messages-panel')).toHaveJSProperty('open', true);
+    await expect(page.getByRole('tab', { name: /^Messages/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#messages-panel')).toBeVisible();
 
     const [projector] = await Promise.all([
       context.waitForEvent('page'),
@@ -169,7 +174,7 @@ test.describe('P-01..P-03 projection view', () => {
     await expect(projector.locator('#overlay')).not.toContainText('totally broken');
 
     // A revert is an evaluation too, so the overlay must follow it.
-    await page.locator('details.panel', { hasText: 'History' }).locator('summary').click();
+    await selectTool(page, 'Messages');
     await page.getByRole('button', { name: 'Make rings v1 active again' }).click();
     await expect(projector.locator('#overlay')).toContainText('circle(200, 200, 90)');
 
@@ -209,9 +214,14 @@ test.describe('multiple copies of one strategy', () => {
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
       .toEqual(['plasma', 'plasma#2', 'plasma#3']);
 
-    // The shelf shows the count; the scene strip shows the individual copies.
+    // The reference shows the count; the scene itself remains authoritative in code.
     await expect(page.locator('[data-strategy="plasma"]')).toContainText('×3');
-    await expect(page.locator('[data-instance="plasma#2"]')).toBeVisible();
+    await expect(page.locator('#scene-panel')).toHaveCount(0);
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual([
+      'plasma',
+      'plasma#2',
+      'plasma#3',
+    ]);
 
     // Each copy keeps its own state.
     const independent = await page.evaluate(() => {
@@ -536,9 +546,10 @@ test.describe('the demo scene', () => {
       R.stateStore.clear();
     });
     expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('plasma'))).toBe(false);
-    await expect(page.locator('#scene-strip')).toContainText('No active patches');
-    await expect(page.locator('#scene-strip')).toContainText(
-      'Installed means the source is in this project. It renders only after',
+    await openLibrary(page);
+    await expect(page.locator('#scene-panel')).toHaveCount(0);
+    await expect(page.locator('#library-panel')).toContainText(
+      'Add to scene edits the scene array in the code',
     );
     await expect(page.getByRole('button', { name: 'Insert a configured library scene into the source' })).toBeVisible();
 
@@ -1115,7 +1126,7 @@ test.describe('the minimal display', () => {
     expect(style.backdrop).toContain('blur');
 
     // The slider actually changes it, live.
-    await page.locator('details.panel', { hasText: 'Project & performance' }).locator('summary').click();
+    await selectTool(page, 'Project');
     await page.locator('#tools-opacity').fill('0.25');
     await expect
       .poll(() => page.evaluate(() => getComputedStyle(document.getElementById('side')).backgroundColor))
@@ -1133,17 +1144,24 @@ test.describe('the minimal display', () => {
     expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
   });
 
-  test('the drawer prioritizes the active scene and keeps setup detail quiet', async ({ page }) => {
+  test('the drawer separates audio, library, messages and project without duplicating the scene', async ({ page }) => {
     await boot(page, { tools: false });
     await page.locator('#tools-toggle').click();
 
-    await expect(page.locator('#scene-panel')).toHaveJSProperty('open', true);
-    await expect(page.locator('#library-panel')).toHaveJSProperty('open', false);
-    await expect(page.locator('#messages-panel')).toHaveJSProperty('open', false);
+    await expect(page.getByRole('tab', { name: 'Audio' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#audio-panel')).toBeVisible();
+    await expect(page.locator('#library-panel')).toBeHidden();
+    await expect(page.locator('#messages-panel')).toBeHidden();
+    await expect(page.locator('#project-panel')).toBeHidden();
+    await expect(page.locator('#scene-panel')).toHaveCount(0);
+    await expect(page.locator('#code')).toHaveValue(/const scene = \[/);
     await expect(page.locator('#parameters-panel')).toBeHidden();
-    await expect(page.locator('#library-summary-count')).toHaveText('1/17 installed');
+    await expect(page.locator('#library-tab-count')).toHaveText('1');
     await expect(page.locator('#stagebar')).not.toContainText('set safe');
-    await expect(page.locator('#scene-panel')).toContainText('Recovery point');
+
+    await page.getByRole('tab', { name: 'Project' }).click();
+    await expect(page.locator('#project-panel')).toBeVisible();
+    await expect(page.locator('#project-panel')).toContainText('Recovery point');
   });
 
   test('fullscreen keeps the code over the canvas', async ({ page }) => {
@@ -1218,8 +1236,7 @@ test.describe('S-06 / P-05 safe-state recovery', () => {
 test.describe('D-02 / D-03 project portability', () => {
   test('exports a readable project file', async ({ page }) => {
     await boot(page);
-    // The panel ships collapsed; a performer opens it before reaching the button.
-    await page.locator('details.panel', { hasText: 'Project & performance' }).locator('summary').click();
+    await selectTool(page, 'Project');
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
@@ -1274,7 +1291,7 @@ test.describe('D-02 / D-03 project portability', () => {
 
   test('reset goes back to the starter without reloading the page', async ({ page }) => {
     await boot(page);
-    await page.locator('details.panel', { hasText: 'Project & performance' }).locator('summary').click();
+    await selectTool(page, 'Project');
 
     // Make a mess: a new strategy, extra copies, a wrecked scene, accumulated state.
     await page.evaluate(() =>
