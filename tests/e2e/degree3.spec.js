@@ -177,7 +177,8 @@ test('Degree 3: visual logic is replaceable while everything else stays alive', 
     .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
     .toEqual(['baseFade', 'trailDots', 'laserFan', 'plasma']);
 
-  await page.locator('details.panel', { hasText: 'History' }).locator('summary').click();
+  await page.getByRole('tab', { name: /^Messages/ }).click();
+  await expect(page.locator('#history-list')).toBeVisible();
   await page.getByRole('button', { name: 'Make laserFan v1 active again' }).click();
   await expect.poll(() => latestMessage(page)).toBe('laserFan v3 active');
   await expect

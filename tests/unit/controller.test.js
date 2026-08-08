@@ -185,6 +185,38 @@ const broken = { draw() { ((( } };`);
     h.controller.dispose();
   });
 
+  it('restores a private transaction checkpoint without replacing the safe state', () => {
+    const h = setup();
+    let source = `
+      const trustedPatch = {
+        state() { return { frames: 0 }; },
+        draw({ state }) { state.frames++; },
+      };
+      const trusted = [trustedPatch];
+      go(trusted);
+      param("energy", 0.75);
+    `;
+    h.controller.setSourceProvider(() => source);
+    h.evaluator.evaluate(source);
+    h.frame(5);
+    const safe = h.controller.actions.setSafeState();
+    const checkpoint = h.controller.checkpoint();
+    const trustedFrames = h.stateStore.get('trustedPatch').frames;
+
+    source = 'const temporary = { draw() {} }; const other = [temporary]; go(other);';
+    h.evaluator.evaluate(source);
+    h.frame(2);
+    expect(h.registry.activeSceneName()).toBe('other');
+
+    const restored = h.controller.restoreCheckpoint(checkpoint);
+    expect(restored).toMatchObject({ ok: true, source: checkpoint.source, sceneName: 'trusted' });
+    expect(h.registry.activeOrder()).toEqual(['trustedPatch']);
+    expect(h.registry.listParams()[0].value).toBe(0.75);
+    expect(h.stateStore.get('trustedPatch').frames).toBe(trustedFrames);
+    expect(h.controller.snapshot().safeState.createdAt).toBe(safe.createdAt);
+    h.controller.dispose();
+  });
+
   it('notifies views without handing them model objects', () => {
     const h = setup();
     const received = [];

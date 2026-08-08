@@ -88,13 +88,15 @@
                 <button id="start-mic" type="button">use microphone</button>
                 <button id="start-audio" type="button">enter with silence</button>
               </div>
-              <div id="start-load-state" class="audio-load-state welcome-load-state" hidden role="status" aria-live="polite">
-                <span id="start-load-label">Loading audio…</span>
-                <progress id="start-load-progress" max="1"></progress>
+              <div class="welcome-feedback">
+                <div id="start-load-state" class="audio-load-state welcome-load-state" hidden role="status" aria-live="polite">
+                  <span id="start-load-label">Loading audio…</span>
+                  <progress id="start-load-progress" max="1"></progress>
+                </div>
+                <p id="start-note">
+                  Audio files stay in this browser. Sound cannot begin until you choose an option.
+                </p>
               </div>
-              <p id="start-note">
-                Audio files stay in this browser. Sound cannot begin until you choose an option.
-              </p>
             </footer>
           </article>
         </div>
@@ -325,6 +327,26 @@
             data-tool-panel="project"
             hidden
           >
+            <section class="tool-section performance-section">
+              <h2>Performances</h2>
+              <div class="body">
+                <p class="hint performance-hint">
+                  Named local recall points for the complete working window. Audio files remain separate.
+                </p>
+                <form id="save-performance-form" class="performance-save-row">
+                  <input
+                    id="performance-name"
+                    type="text"
+                    maxlength="60"
+                    autocomplete="off"
+                    placeholder="Performance name"
+                    aria-label="Performance name"
+                  />
+                  <button id="save-performance" type="submit">Save current</button>
+                </form>
+                <div id="performance-list" class="performance-list" aria-live="polite"></div>
+              </div>
+            </section>
             <section class="tool-section recovery-section">
               <h2>Safe state</h2>
               <div class="body">

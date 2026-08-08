@@ -19,6 +19,7 @@ import { createPanels } from './ui/panels.js';
 import { createProjection } from './ui/projection.js';
 import { createConfirmDialog } from './ui/confirmDialog.js';
 import { createProjectStore } from './persistence/projectStore.js';
+import { createPerformanceStore } from './persistence/performanceStore.js';
 import { createAppController } from './app/controller.js';
 import { evaluateStartupProject } from './app/startupRecovery.js';
 import { STARTER_SOURCE, upgradeLegacyPlasma } from '../starter/starter.js';
@@ -103,6 +104,7 @@ const host = createHostLoop({
 });
 const controller = createAppController({ registry, stateStore, diagnostics, evaluator, audio, host });
 const projectStore = createProjectStore({ registry, diagnostics });
+const performanceStore = createPerformanceStore({ diagnostics });
 const projection = createProjection({
   controller,
   onBlocked: () =>
@@ -286,16 +288,29 @@ const welcomeLoadLabel = document.getElementById('start-load-label');
 const welcomeLoadProgress = document.getElementById('start-load-progress');
 const welcomeNote = document.getElementById('start-note');
 const loadAudioButton = document.getElementById('load-audio');
+const WELCOME_LOAD_DELAY_MS = 250;
+const WELCOME_NOTE = welcomeNote.textContent.trim();
+let welcomeLoadTimer = null;
+let welcomeLoadVisible = false;
+
+function cancelWelcomeLoadTimer() {
+  if (welcomeLoadTimer !== null) clearTimeout(welcomeLoadTimer);
+  welcomeLoadTimer = null;
+}
+
+function resetWelcomeLoadStatus() {
+  cancelWelcomeLoadTimer();
+  welcomeLoadVisible = false;
+  welcomeLoadState.hidden = true;
+}
 
 function renderAudioLoadStatus(status) {
   loadAudioButton.classList.toggle('is-loading', status.loading);
   loadAudioButton.setAttribute('aria-busy', String(status.loading));
-  welcomeLoadState.hidden = !status.loading;
 
   if (status.loading) {
     welcomeNote.classList.remove('is-error');
-    welcomeNote.textContent =
-      'Audio files stay in this browser. Sound cannot begin until loading finishes.';
+    welcomeNote.textContent = WELCOME_NOTE;
     welcomeLoadLabel.textContent =
       status.loadPhase === 'decoding'
         ? `Decoding ${status.source}…`
@@ -307,12 +322,26 @@ function renderAudioLoadStatus(status) {
     } else {
       welcomeLoadProgress.removeAttribute('value');
     }
+    if (!overlay.hidden && !welcomeLoadVisible && welcomeLoadTimer === null) {
+      // Fast local files should open directly instead of flashing a progress row.
+      // Slow files still get feedback, in a reserved slot that cannot resize the card.
+      welcomeLoadTimer = setTimeout(() => {
+        welcomeLoadTimer = null;
+        if (overlay.hidden || !loadAudioButton.classList.contains('is-loading')) return;
+        welcomeLoadVisible = true;
+        welcomeLoadState.hidden = false;
+      }, WELCOME_LOAD_DELAY_MS);
+    }
     return;
   }
 
+  cancelWelcomeLoadTimer();
   if (status.error && !overlay.hidden) {
+    resetWelcomeLoadStatus();
     welcomeNote.textContent = `${status.error}. Choose another audio file or enter with silence.`;
     welcomeNote.classList.add('is-error');
+  } else if (!welcomeLoadVisible) {
+    welcomeLoadState.hidden = true;
   }
 }
 
@@ -320,10 +349,12 @@ async function startAudio() {
   try {
     const state = await audio.start();
     overlay.hidden = true;
+    resetWelcomeLoadStatus();
     diagnostics.success(`Audio context ${state}`);
   } catch (error) {
     // A-07: an audio failure is a message, not a stopped draw loop.
     overlay.hidden = true;
+    resetWelcomeLoadStatus();
     diagnostics.error('Could not start audio', `${error.message} — running on silence.`);
   }
 }
@@ -384,6 +415,7 @@ async function startMicrophone(deviceId) {
   const ok = await audio.useMicrophone(deviceId);
   if (!ok) return false;
   overlay.hidden = true;
+  resetWelcomeLoadStatus();
   // Device labels are empty until permission has been granted once, so the picker is
   // only worth populating after a successful start.
   const inputs = await audio.listInputs();
@@ -560,6 +592,234 @@ fpsThresholdInput.addEventListener('change', () => {
   host.setFpsThreshold(value); // S-07 calls the threshold configurable
   diagnostics.info(`Frame rate warning set to ${value} FPS`);
 });
+
+// --- named performance recall ---------------------------------------------------
+
+const performanceNameInput = document.getElementById('performance-name');
+const performanceList = document.getElementById('performance-list');
+let performanceRecallSequence = 0;
+
+function performanceSnapshot(name) {
+  return {
+    name,
+    source: editor.value,
+    sceneName: registry.activeSceneName(),
+    safeScene: registry.safeSceneName(),
+    params: registry.listParams().map(({ name: paramName, value, min, max, step }) => ({
+      name: paramName,
+      value,
+      min,
+      max,
+      step,
+    })),
+    audio: {
+      analysis: audio.featureOptions(),
+      loop: looping,
+    },
+    view: {
+      folded: editor.isFolded(),
+      codeHidden: codeLayer.classList.contains('is-hidden'),
+      projectionLayout: layoutSelect.value,
+      fpsThreshold: Number(fpsThresholdInput.value),
+      toolsOpacity: Number(opacityInput.value),
+    },
+  };
+}
+
+function renderPerformances() {
+  const performances = performanceStore.list();
+  performanceList.replaceChildren();
+  if (performances.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'performance-empty';
+    empty.textContent = 'No saved performances yet.';
+    performanceList.append(empty);
+    return;
+  }
+
+  for (const performance of performances) {
+    const row = document.createElement('div');
+    row.className = 'performance-row';
+    row.dataset.performanceId = performance.id;
+
+    const copy = document.createElement('div');
+    copy.className = 'performance-copy';
+    const title = document.createElement('div');
+    title.className = 'performance-title';
+    title.textContent = performance.name;
+    const meta = document.createElement('div');
+    meta.className = 'performance-meta';
+    const saved = new Date(performance.updatedAt).toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    meta.textContent = `${performance.sceneName ?? 'no active scene'} · ${saved}`;
+    copy.append(title, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'performance-actions';
+    for (const [action, label] of [
+      ['recall', 'Recall'],
+      ['update', 'Update'],
+      ['delete', 'Delete'],
+    ]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.performanceAction = action;
+      button.textContent = label;
+      button.title = action === 'recall'
+        ? `Recall ${performance.name}`
+        : action === 'update'
+          ? `Replace ${performance.name} with the current window`
+          : `Delete ${performance.name}`;
+      if (action === 'delete') button.className = 'danger';
+      actions.append(button);
+    }
+    row.append(copy, actions);
+    performanceList.append(row);
+  }
+}
+
+function applyPerformanceSettings(performance) {
+  projectStore.restoreSettings(performance);
+
+  const analysis = audio.configure(performance.audio?.analysis ?? {});
+  smoothingInput.value = analysis.smoothing;
+  smoothingValue.textContent = Number(analysis.smoothing).toFixed(2);
+  document.getElementById('auto-gain').checked = Boolean(analysis.autoGain);
+
+  looping = Boolean(performance.audio?.loop);
+  audio.setLoop(looping);
+  document.getElementById('loop-toggle').classList.toggle('is-on', looping);
+
+  const view = performance.view ?? {};
+  if (typeof view.folded === 'boolean') editor.setFolded(view.folded);
+  if (typeof view.codeHidden === 'boolean') toggleCode(view.codeHidden);
+  if ([...layoutSelect.options].some((option) => option.value === view.projectionLayout)) {
+    layoutSelect.value = view.projectionLayout;
+    projection.setLayout(view.projectionLayout);
+  }
+  if (Number.isFinite(view.fpsThreshold) && view.fpsThreshold > 0) {
+    fpsThresholdInput.value = view.fpsThreshold;
+    host.setFpsThreshold(view.fpsThreshold);
+  }
+  if (Number.isFinite(view.toolsOpacity)) {
+    opacityInput.value = view.toolsOpacity;
+    setToolsOpacity(view.toolsOpacity);
+  }
+}
+
+function restoreBeforePerformance(checkpoint, performance, detail) {
+  const restored = controller.restoreCheckpoint(checkpoint);
+  if (restored.ok) {
+    editor.value = restored.source;
+    projection.setActiveCode(restored.source);
+    projectStore.saveSoon(restored.source, 0);
+    controller.sourceChanged();
+  }
+  diagnostics.error(
+    `Could not recall ${performance.name} — previous performance restored`,
+    detail,
+  );
+}
+
+function recallPerformance(performance) {
+  const checkpoint = controller.checkpoint();
+  const sequence = ++performanceRecallSequence;
+
+  evaluator.discardPending();
+  evaluator.clearBindings();
+  host.reset();
+  registry.reset();
+  stateStore.clear();
+  editor.value = performance.source;
+  const result = evaluator.evaluate(performance.source, { label: `performance ${performance.name}` });
+  if (!result.ok) {
+    restoreBeforePerformance(checkpoint, performance, result.error?.message ?? result.phase);
+    return result;
+  }
+  evaluator.applyPending();
+  applyPerformanceSettings(performance);
+  projection.setActiveCode(performance.source);
+  projectStore.saveSoon(performance.source, 0);
+  controller.sourceChanged();
+  diagnostics.success(
+    `Performance recalled — ${performance.name}`,
+    `${performance.sceneName ?? 'No named scene'} · source, parameters, audio analysis and view restored.`,
+  );
+
+  // First-frame patch failures happen after evaluation. Give the host two frames to
+  // confirm every active candidate, then put the exact preceding runtime back if one
+  // rolled back or failed. A newer recall supersedes this check.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (sequence !== performanceRecallSequence) return;
+    const failed = registry.activeInstances().find(
+      (instance) => registry.getStrategy(instance.strategy)?.status !== 'ok',
+    );
+    if (failed) {
+      restoreBeforePerformance(
+        checkpoint,
+        performance,
+        `${failed.strategy} failed on its first rendered frame.`,
+      );
+    }
+  }));
+  return result;
+}
+
+document.getElementById('save-performance-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const name = performanceNameInput.value.trim();
+  if (!name) {
+    diagnostics.warn('Name the performance before saving it');
+    performanceNameInput.focus();
+    return;
+  }
+  const result = performanceStore.save(performanceSnapshot(name));
+  if (!result.ok) {
+    diagnostics.error('Could not save performance', result.reason);
+    return;
+  }
+  performanceNameInput.value = '';
+  renderPerformances();
+  diagnostics.success(`Performance saved — ${name}`);
+});
+
+performanceList.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-performance-action]');
+  const row = button?.closest('[data-performance-id]');
+  if (!button || !row) return;
+  const performance = performanceStore.get(row.dataset.performanceId);
+  if (!performance) {
+    renderPerformances();
+    return;
+  }
+  if (button.dataset.performanceAction === 'recall') {
+    recallPerformance(performance);
+  } else if (button.dataset.performanceAction === 'update') {
+    const result = performanceStore.save(performanceSnapshot(performance.name), {
+      id: performance.id,
+    });
+    if (result.ok) diagnostics.success(`Performance updated — ${performance.name}`);
+    else diagnostics.error(`Could not update ${performance.name}`, result.reason);
+    renderPerformances();
+  } else if (button.dataset.performanceAction === 'delete') {
+    const confirmed = await dialog.ask({
+      title: `Delete “${performance.name}”?`,
+      body: 'This removes the local recall point. It does not change the performance currently running.',
+      warning: 'There is no undo, though exported project files are unaffected.',
+      confirmLabel: 'Delete performance',
+    });
+    if (confirmed && performanceStore.remove(performance.id)) {
+      diagnostics.info(`Performance deleted — ${performance.name}`);
+      renderPerformances();
+    }
+  }
+});
+
+renderPerformances();
 
 function setSafeScene() {
   return controller.actions.setSafeState();
@@ -874,6 +1134,7 @@ window.AlgoLab = {
   editor,
   projection,
   projectStore,
+  performanceStore,
 };
 // Keep already-open console snippets and course test harnesses alive through the
 // product renames. New material uses window.AlgoLab.

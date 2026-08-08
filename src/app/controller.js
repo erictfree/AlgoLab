@@ -168,6 +168,49 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
     });
   }
 
+  /**
+   * An in-memory transaction checkpoint. Unlike a persisted Performance, this keeps
+   * the exact live definitions and state objects needed to roll back a failed recall.
+   * It is never exposed through the read-only view snapshot or written to storage.
+   */
+  function captureRuntimeCheckpoint({ createdAt = Date.now() } = {}) {
+    const source = sourceProvider();
+    return {
+      createdAt,
+      source,
+      registry: registry.snapshotRuntime(),
+      states: stateStore.snapshotAll(),
+      bindings: evaluator.snapshotBindings(),
+      signature: projectSignature(source),
+    };
+  }
+
+  function restoreRuntimeCheckpoint(checkpoint) {
+    if (!checkpoint?.registry || typeof checkpoint.source !== 'string') {
+      return { ok: false, reason: 'invalid-checkpoint' };
+    }
+    evaluator.discardPending();
+    const preserved = new Set(
+      checkpoint.registry.strategies.map((record) => record.definition).filter(Boolean),
+    );
+    host.reset({ preserveDefinitions: preserved });
+    registry.restoreRuntime(checkpoint.registry);
+    evaluator.restoreBindings(checkpoint.bindings);
+    const stateResult = stateStore.restoreAll(checkpoint.states);
+    const missing = [...new Set([...(checkpoint.states?.skipped ?? []), ...stateResult.skipped])];
+    return {
+      ok: true,
+      source: checkpoint.source,
+      sceneName: checkpoint.registry.configuration.activeSceneName,
+      restored: {
+        patches: checkpoint.registry.strategies.length,
+        states: stateResult.restored.length,
+        params: checkpoint.registry.configuration.params.length,
+      },
+      skipped: missing,
+    };
+  }
+
   function installedSourceNames(source = sourceProvider()) {
     return findCells(source).flatMap((cell) => {
       const match = /^(?:strategy|patch)\s+([A-Za-z_$][\w$]*)$/.exec(cell.label);
@@ -191,7 +234,6 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
   }
 
   function captureSafeState({ automatic = false, createdAt = Date.now() } = {}) {
-    const source = sourceProvider();
     const sceneName = registry.activeSceneName();
     const provisional =
       evaluator.pendingCount() > 0 || registry.listStrategies().some((record) => record.candidate);
@@ -214,15 +256,8 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
     }
 
     registry.setSafeScene(sceneName);
-    const states = stateStore.snapshotAll();
-    safeSnapshot = {
-      createdAt,
-      source,
-      registry: registry.snapshotRuntime(),
-      states,
-      bindings: evaluator.snapshotBindings(),
-      signature: projectSignature(source),
-    };
+    safeSnapshot = captureRuntimeCheckpoint({ createdAt });
+    const states = safeSnapshot.states;
 
     const detail =
       `${safeSnapshot.registry.strategies.length} installed patches, ` +
@@ -240,20 +275,12 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
       return { ok: false, reason: 'missing' };
     }
 
-    evaluator.discardPending();
-    const preserved = new Set(
-      safeSnapshot.registry.strategies.map((record) => record.definition).filter(Boolean),
-    );
-    host.reset({ preserveDefinitions: preserved });
-    registry.restoreRuntime(safeSnapshot.registry);
-    evaluator.restoreBindings(safeSnapshot.bindings);
-    const stateResult = stateStore.restoreAll(safeSnapshot.states);
-
-    const missing = [...new Set([...safeSnapshot.states.skipped, ...stateResult.skipped])];
+    const restored = restoreRuntimeCheckpoint(safeSnapshot);
+    const missing = restored.skipped;
     const detail = missing.length
       ? `Restored source, scene, patch versions and parameters. State unavailable for: ${missing.join(', ')}.`
       : `Restored ${safeSnapshot.registry.strategies.length} patches, ` +
-        `${stateResult.restored.length} state objects and ` +
+        `${restored.restored.states} state objects and ` +
         `${safeSnapshot.registry.configuration.params.length} parameters.`;
     diagnostics.success(
       `Safe state restored — ${safeSnapshot.registry.configuration.activeSceneName}`,
@@ -264,11 +291,7 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
       ok: true,
       source: safeSnapshot.source,
       sceneName: safeSnapshot.registry.configuration.activeSceneName,
-      restored: {
-        patches: safeSnapshot.registry.strategies.length,
-        states: stateResult.restored.length,
-        params: safeSnapshot.registry.configuration.params.length,
-      },
+      restored: restored.restored,
       skipped: missing,
     };
   }
@@ -376,6 +399,14 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
     actions,
     snapshot,
     safeStateStatus,
+    checkpoint() {
+      return captureRuntimeCheckpoint();
+    },
+    restoreCheckpoint(checkpoint) {
+      const result = restoreRuntimeCheckpoint(checkpoint);
+      if (result.ok) notify();
+      return result;
+    },
     ensureSafeState() {
       return safeSnapshot ? { ok: true, ...safeStateStatus() } : captureSafeState({ automatic: true });
     },

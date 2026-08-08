@@ -666,6 +666,8 @@ test.describe('the minimal display', () => {
 
   test('shows transfer and decoding progress while an audio file loads', async ({ page }) => {
     await boot(page, { tools: false, folded: true, welcome: true });
+    const welcome = page.getByRole('dialog', { name: 'ALGOLAB' });
+    const initialHeight = await welcome.evaluate((element) => element.getBoundingClientRect().height);
     await page.evaluate(() => {
       window.loadSound = (_url, onSuccess, onFailure, onProgress) => {
         window.__testAudioLoad = { onSuccess, onFailure, onProgress };
@@ -680,6 +682,8 @@ test.describe('the minimal display', () => {
     const loadState = page.locator('#start-load-state');
     await expect(loadState).toBeVisible();
     await expect(page.locator('#start-load-label')).toHaveText('Loading long-set.mp3…');
+    const loadingHeight = await welcome.evaluate((element) => element.getBoundingClientRect().height);
+    expect(Math.abs(loadingHeight - initialHeight)).toBeLessThanOrEqual(1);
 
     await page.evaluate(() => window.__testAudioLoad.onProgress(0.42));
     await expect(page.locator('#start-load-label')).toHaveText('Loading long-set.mp3 — 42%');
@@ -1230,6 +1234,102 @@ test.describe('S-06 / P-05 safe-state recovery', () => {
     expect(restored.source).not.toContain('const chaos');
     expect(restored.safe).toMatchObject({ exists: true, sceneName: 'scene', dirty: false });
     await expect(page.locator('#diagnostics-list')).toContainText('Safe state restored');
+  });
+});
+
+test.describe('named Performance recall', () => {
+  test('saves and recalls source, scene, parameters, audio analysis and view settings', async ({ page }) => {
+    await boot(page);
+    await selectTool(page, 'Project');
+
+    await page.locator('#smoothing').evaluate((input) => {
+      input.value = '0.35';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.locator('#auto-gain').evaluate((input) => {
+      input.checked = false;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.locator('#performance-name').fill('Opening look');
+    await page.getByRole('button', { name: 'Save current' }).click();
+    await expect(page.locator('.performance-row')).toContainText('Opening look');
+    await expect(page.locator('.performance-row')).toContainText('scene');
+
+    const alternate = [
+      '// %% patch alternate',
+      'const alternate = { draw() { circle(40, 40, 20); } };',
+      '// %% scene other',
+      'const other = [alternate];',
+      'param("energy", 0.2, { min: 0, max: 1 });',
+      'go(other);',
+    ].join('\n');
+    await page.evaluate((source) => {
+      window.AlgoLab.editor.value = source;
+      window.AlgoLab.editor.evaluateBuffer();
+    }, alternate);
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('other');
+    await page.locator('#smoothing').evaluate((input) => {
+      input.value = '0.9';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.locator('#auto-gain').evaluate((input) => {
+      input.checked = true;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    await page.locator('.performance-row').getByRole('button', { name: 'Recall' }).click();
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('scene');
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+    expect(await page.locator('#smoothing').inputValue()).toBe('0.35');
+    expect(await page.locator('#auto-gain').isChecked()).toBe(false);
+    expect(await page.locator('#code').inputValue()).toContain('ALGOLAB — starter scene');
+
+    // Named performances are browser-local recall points, independent of the current
+    // project's automatic save, and remain available after a refresh.
+    await page.reload();
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder().length))
+      .toBeGreaterThan(0);
+    await page.evaluate(() => {
+      document.getElementById('start-overlay').hidden = true;
+      window.AlgoLab.editor.setFolded(false);
+    });
+    await openTools(page);
+    await selectTool(page, 'Project');
+    await expect(page.locator('.performance-row')).toContainText('Opening look');
+  });
+
+  test('a broken saved performance leaves the previous render and source running', async ({ page }) => {
+    await boot(page);
+    await selectTool(page, 'Project');
+    await page.locator('#performance-name').fill('Broken slot');
+    await page.getByRole('button', { name: 'Save current' }).click();
+
+    const keeper = [
+      '// %% patch keeper',
+      'const keeper = { draw() { circle(80, 80, 30); } };',
+      '// %% scene keeperScene',
+      'const keeperScene = [keeper];',
+      'go(keeperScene);',
+    ].join('\n');
+    await page.evaluate((source) => {
+      window.AlgoLab.editor.value = source;
+      window.AlgoLab.editor.evaluateBuffer();
+    }, keeper);
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('keeperScene');
+
+    // Corrupt the local slot after it has rendered. Recall reads storage at click time.
+    await page.evaluate(() => {
+      const key = 'algolab.performances.v1';
+      const data = JSON.parse(localStorage.getItem(key));
+      data.performances[0].source = 'class Broken { draw() { ((( } }';
+      localStorage.setItem(key, JSON.stringify(data));
+    });
+    await page.locator('.performance-row').getByRole('button', { name: 'Recall' }).click();
+
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('keeperScene');
+    expect(await page.locator('#code').inputValue()).toContain('const keeperScene');
+    await expect(page.locator('#diagnostics-list')).toContainText('previous performance restored');
   });
 });
 
