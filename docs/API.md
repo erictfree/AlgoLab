@@ -1,389 +1,402 @@
-# The Response authoring API
+# Writing AlgoLab programs
 
-Everything you write is ordinary JavaScript and ordinary p5.js. This page documents
-the small number of functions that get added on top, and — more importantly — the
-rules about what survives when you re-evaluate your code.
+AlgoLab code is ordinary JavaScript. You write patches and place them in an array;
+AlgoLab keeps p5's main `draw()` loop alive and invokes those patches in array order.
+There is no registration wrapper and no string name to keep synchronized. The host
+uses “strategy” as an internal architecture term; the student-facing object is a patch.
 
-You never write `setup()` or `draw()`. Response owns those, and keeps them running.
-That is the whole trick: because the host owns the loop, your code can be replaced
-underneath it without the canvas ever going away.
+## The patch lifecycle
 
----
+- **Available** means the patch exists in the library.
+- **Installed** means its source has been added to this project.
+- **Active** means a patch instance is in the current scene array.
+- **Running** means that active instance evaluated and rendered successfully.
 
-## Evaluating
+Installing a patch never activates it. “Add to scene” edits the visible scene array;
+press `Cmd/Ctrl+Enter` in that scene cell to evaluate the edit and make the patch Active.
+It becomes Running only after its first successful render.
 
-| Key | What it does |
-| --- | --- |
-| `Cmd/Ctrl + Enter` | Evaluate the block your cursor is in |
-| `Cmd/Ctrl + Shift + Enter` | Evaluate the whole editor as one transaction |
-| `Esc` | Release editor focus |
-| `Tab` | Insert two spaces |
+## Three ways to write a patch
 
-With editor focus released:
-
-| Key | What it does |
-| --- | --- |
-| `Space` | Play / pause the audio source |
-| `0` | **Panic** — return to the safe scene |
-| `\` | Hide / show the tools, to see the whole canvas |
-
-A "block" is one top-level statement — usually one `patch(...)` call. If Response
-can't tell where the block boundaries are, it evaluates the whole buffer instead.
-
-Nothing happens instantly. A successful evaluation takes effect at the **next frame
-boundary**, never in the middle of a rendered frame.
-
----
-
-## `patch(name, drawFunction)`
-
-The short form. One function, called once per frame.
+A plain function is the smallest form:
 
 ```js
-patch("rings", ({ audio }) => {
-  const diameter = map(audio.bass, 0, 1, 40, width * 0.8);
-
-  noFill();
-  stroke(255);
-  strokeWeight(3);
-  circle(width / 2, height / 2, diameter);
-});
+const waveScope = ({ audio }) => {
+  beginShape();
+  audio.waveform.forEach((sample, index) => vertex(index, sample * 100));
+  endShape();
+};
 ```
 
-Evaluating a new `patch("rings", ...)` replaces the `rings` behavior. It does not
-reload the page, restart the music, or disturb any other patch.
-
-## `patch(name, { state, enter, draw, beat, exit })`
-
-The long form, for patches that remember something.
+An object literal adds properties, helper methods, and normal `this` behavior:
 
 ```js
-patch("orbiters", {
-  state: () => ({ angle: 0, trail: [] }),
+const laserFan = {
+  beams: 13,
+  spread: 0.72,
 
-  draw({ audio, state, dt }) {
-    state.angle += dt * map(audio.treble, 0, 1, 0.2, 2.4);
-    // ...
+  addBeams(amount) {
+    this.beams += amount;
   },
-});
+
+  draw({ audio }) {
+    for (let i = 0; i < this.beams; i++) {
+      line(width / 2, height, i * this.spread * 50, audio.treble * height);
+    }
+  },
+};
+
+laserFan.addBeams(2);
 ```
 
-| Key | When it runs |
-| --- | --- |
-| `state` | **Once**, the first time this name is ever registered |
-| `enter` | When a scene activates the patch |
-| `draw` | Once per rendered frame — the only required one |
-| `beat` | Once on the rising edge of a detected onset |
-| `exit` | When the patch leaves the active scene |
-
-### The state rule
-
-`state()` runs **once per copy**, not once per evaluation. Re-evaluating a patch gives
-it new code and hands it back the *same state object*. That is how a trail array
-survives an edit. (If a patch is in the scene once — the usual case — "once per copy"
-and "once per name" are the same thing. See Scenes for more than one copy.)
-
-If you want it gone, say so:
+A class instance adds constructors, private fields, and resource lifecycle:
 
 ```js
-resetPatch("orbiters");
+// %% patch neonTunnel
+class NeonTunnel {
+  constructor({ rings = 16, sides = 6 } = {}) {
+    this.rings = rings;
+    this.sides = sides;
+  }
+
+  draw({ audio, time }) {
+    // this.rings and this.sides belong to this instance
+  }
+}
+
+const neonTunnel = new NeonTunnel({ rings: 20, sides: 8 });
 ```
 
-State should be numbers, strings, booleans, arrays, and plain objects. Response
-snapshots your state before running new code so it can put it back if that code
-throws — and it can only snapshot things that are JSON-shaped. If you store a
-`p5.Image` or a function in state, you'll get a warning in the Messages panel saying
-that this patch's state can no longer be rolled back.
+The exact object is retained—not copied or flattened—so prototypes, getters, private
+fields, data, helper methods, and `this` all behave like normal JavaScript. AlgoLab
+invokes an object as `strategy.draw(drawInputs)`, so `this` is the strategy object.
+Avoid arrow functions for object methods when you need `this`.
 
----
+## Draw inputs and normal parameters
 
-## The draw context
-
-Every handler receives one object:
-
-| Property | Meaning |
-| --- | --- |
-| `audio` | Read-only audio for this frame (below) |
-| `state` | Persistent state owned by this patch name |
-| `dt` | Seconds since the previous frame, capped after a stall |
-| `time` | Seconds since Response started |
-| `sceneTime` | Seconds since the current scene was entered |
-| `params` | Current values of anything declared with `param()` |
-| `config` | This copy's settings, from `add("x", {...})` — see Scenes |
-| `controls` | `{ keys, shift, alt }` — keyboard state |
-
-Use `dt` for motion rather than a fixed step. It keeps your patch moving at the same
-speed on a 30 FPS laptop and a 60 FPS one, and it is capped so a stall doesn't
-teleport everything across the screen.
-
----
-
-## The audio snapshot
+`{ audio, time }` is one normal parameter using object destructuring. These are
+equivalent:
 
 ```js
-audio = {
-  level,      // 0..1, smoothed amplitude
-  bass,       // 0..1
-  mid,        // 0..1
-  treble,     // 0..1
-  centroid,   // 0..1, brightness, on a log scale
-  beat,       // true for exactly one frame on an onset
-  sinceBeat,  // seconds since the last onset
-  waveform,   // p5.FFT waveform values, about -1..1
-  spectrum,   // p5.FFT spectrum values, 0..255
-  raw: { level, bass, mid, treble, centroid },  // p5.sound's own scales
+draw(inputs) {
+  const audio = inputs.audio;
+  const time = inputs.time;
 }
 ```
 
-The top-level band values are **smoothed and auto-gained** into 0..1, so
-`map(audio.bass, 0, 1, ...)` behaves the same on a quiet track and a loud one. If you
-want the unprocessed p5.sound numbers — the 0–255 band energies and the centroid in
-Hz — they are under `audio.raw`.
-
-Both are adjustable live from the Audio panel. Turn **auto-gain** off if you want a
-patch to respond to absolute loudness rather than relative dynamics, and raise
-**smoothing** if a mapping feels twitchy. Neither affects `beat`, which is measured on
-the raw signal so that it keeps working however you set them.
-
-The source can be an audio file or **live input** — microphone, or a line input
-selected from the device list. The first time you choose live input, the browser asks
-permission; if you decline, the sketch keeps running on silence and says so in the
-Messages panel rather than stopping.
-
-Every patch in a frame gets the same frozen snapshot. Analysis runs once per frame no
-matter how many patches are drawing, and you should never construct your own
-`p5.FFT`.
-
----
-
-## Scenes
-
-A scene is an ordered list of patch names. Order is layer order — the first is drawn
-underneath.
-
 ```js
-scene("tunnel", ["wash", "rings", "orbiters"]);
-go("tunnel");
+draw({ audio, time }) {
+  // use audio and time directly
+}
 ```
 
-Re-evaluating a `scene(...)` changes the composition without touching the patches
-themselves or their state. While running:
+The useful distinction is who supplies a value:
 
-```js
-add("sparks");     // add a copy to the active scene
-remove("wash");    // take one out (its state is kept)
-removeAll("wash"); // take every copy out
-clearScene();      // empty the active scene
-```
+- AlgoLab supplies changing live values to `draw()` and lifecycle methods.
+- The strategy stores configuration and object state on `this`.
+- Student code supplies arguments to ordinary methods such as `laserFan.addBeams(2)`.
 
-### More than one copy
+The available draw inputs are:
 
-A scene can hold the same patch several times. Each copy is an **instance** with its
-own state and its own settings:
-
-```js
-add("ribbon", { y: 0.3, hue: 190 });
-add("ribbon", { y: 0.7, hue: 40, mirror: true });
-```
-
-The first copy of a patch is called by its plain name; extras get a number:
-
-```
-ribbon    ribbon#2    ribbon#3
-```
-
-So `stateStore` for a single `orbiters` is exactly what it always was — the numbering
-only appears once you ask for a second copy.
-
-The same works directly in a scene:
-
-```js
-scene("stacked", [
-  "wash",
-  { patch: "grid",   config: { cols: 14, hue: 220 } },
-  { patch: "grid",   config: { cols: 7,  hue: 320, rotate: 0.05 } },
-  "pulse",
-]);
-```
-
-| You write | What happens |
+| Field | Meaning |
 | --- | --- |
-| `add("ribbon")` | Adds another copy, always |
-| `remove("ribbon")` | Removes the **last** copy — undoes one `add` |
-| `remove("ribbon#2")` | Removes that specific copy |
-| `removeAll("ribbon")` | Removes every copy |
-| `resetPatch("ribbon")` | Resets **all** copies' state — one name, one meaning |
+| `audio` | Shared normalized audio analysis for the current draw |
+| `canvas` | Live main p5 renderer, usable as a shader texture source |
+| `state` | Persistent data for this scene copy |
+| `dt` | Seconds since the previous draw, bounded after stalls |
+| `time` | Seconds since the host started |
+| `sceneTime` | Seconds since the active scene changed |
+| `params` | Values declared with `param()` |
+| `controls` | Read-only keyboard state |
 
-Editing `patch("ribbon", ...)` changes every copy at once, because they all share one
-definition. Only their state and config are separate. If a new version throws on its
-first frame, all copies roll back together.
-
-You can do all of this from the panels too: **add** in the Patch shelf makes another
-copy, and each chip in the Scene strip has its own **×**.
-
-### Config
-
-`config` is whatever object you passed to `add()` or put in the scene entry, handed to
-your patch on every call:
+A strategy requests only what it needs. It may ignore the argument entirely:
 
 ```js
-patch("ribbon", ({ audio, config }) => {
-  const y = height * (config.y ?? 0.5);   // always provide a default
+const dot = {
+  draw() {
+    circle(100, 100, 20);
+  },
+};
+```
+
+Global p5 functions and values such as `fill`, `circle`, `noise`, `map`, `width`, and
+`height` remain available. AlgoLab wraps each strategy in `push()`/`pop()` and resets
+common drawing defaults so styles and transforms do not leak between strategies.
+
+## Higher-order functions and configuration
+
+A higher-order function can accept ordinary parameters and return a configured
+strategy. The returned function remembers those values through its closure:
+
+```js
+function makeKaleido(segments, hue) {
+  return {
+    segments,
+    hue,
+    draw({ audio, time }) {
+      // draw this.segments rotated shapes
+    },
+  };
+}
+
+const kaleido = makeKaleido(12, 285);
+```
+
+Objects and classes store the same configuration as properties or constructor values.
+To make two differently configured object strategies, give each result its own binding:
+
+```js
+const pinkLasers = { ...laserFan, hue: 330, direction: -1 };
+const cyanLasers = { ...laserFan, hue: 180, beams: 7 };
+```
+
+The same pattern works when what differs is how each object interprets the shared
+draw inputs:
+
+```js
+class ReactiveHalo {
+  constructor({ band, scale }) {
+    this.band = band;
+    this.scale = scale;
+  }
+
+  draw({ audio }) {
+    circle(width / 2, height / 2, 40 + audio[this.band] * this.scale);
+  }
+}
+
+const bassHalo = new ReactiveHalo({ band: "bass", scale: 300 });
+const trebleHalo = new ReactiveHalo({ band: "treble", scale: 120 });
+const duet = [bassHalo, trebleHalo];
+go(duet);
+```
+
+AlgoLab supplies the same read-only-by-convention inputs to both. Each object owns
+the parameters that select and transform those inputs; it should not rewrite the
+shared `audio`, `time`, or other host values.
+
+There is deliberately no separate scene-configuration descriptor. Closures, object
+properties, constructors, and factories are already JavaScript's configuration tools.
+
+## Shader chains
+
+`ShaderChain` is a built-in class for transforming the image drawn by earlier patches.
+It is not a second language or a registration API: the resulting instance is an
+ordinary patch object with `draw()` and `dispose()` methods.
+
+```js
+const clubLens = new ShaderChain()
+  .rotate(({ time }) => time * 0.08)
+  .scale(({ audio }) => 1 + audio.bass * 0.18)
+  .pixelate(32, 18)
+  .hue(({ audio }) => audio.mid * 0.2)
+  .contrast(1.15);
+
+const scene = [solidBackground, laserFan, clubLens, plasma];
+go(scene);
+```
+
+Every operator argument may be either a number or a function receiving the same live
+context as `draw()`. The chain evaluates those functions every frame, then sends their
+results to one generated fragment shader. Put a chain after the drawing patches it
+should transform.
+
+Transform operators:
+
+| Method | Arguments |
+| --- | --- |
+| `rotate(angle, speed)` | radians and optional radians per second |
+| `scale(amount, xMult, yMult, offsetX, offsetY)` | zoom, axis multipliers, and center |
+| `pixelate(pixelX, pixelY)` | horizontal and vertical cell counts |
+| `repeat(x, y, offsetX, offsetY)` | tiled copies and alternating offsets |
+| `repeatX(reps, offset)` / `repeatY(reps, offset)` | one-axis tiling |
+| `kaleid(sides)` | radial mirror count |
+| `scroll(x, y, speedX, speedY)` | offset and speed on both axes |
+| `scrollX(x, speed)` / `scrollY(y, speed)` | one-axis offset and speed |
+
+Color operators:
+
+`posterize`, `shift`, `invert`, `contrast`, `brightness`, `luma`, `thresh`, `color`,
+`saturate`, `hue`, `colorama`, `sum`, and `rgba`.
+
+These single-input operations compile into one GPU pass. Blend and modulation methods
+are intentionally not present yet: they need a second named texture, which belongs to
+the future multi-source routing model rather than being hidden inside this class.
+
+## Scenes are arrays
+
+```js
+const scene = [checkerZoom, neonTunnel, laserFan, plasma];
+go(scene);
+```
+
+Earlier entries draw underneath later entries. Re-evaluating the array changes the
+composition without replacing its members or their persistent state. `go()` accepts
+the array itself, not its name as a string.
+
+The binding names—`laserFan`, `plasma`, and `scene`—are the stable identities used for
+replacement, diagnostics, history, and the performer UI. Every strategy therefore
+needs its own JavaScript binding; anonymous inline strategies in a scene are rejected.
+
+The same strategy can appear more than once:
+
+```js
+const echoes = [laserFan, laserFan, laserFan, plasma];
+go(echoes);
+```
+
+The copies share the current implementation but receive independent persistent state.
+They appear as `laserFan`, `laserFan#2`, and `laserFan#3` in the scene UI.
+
+## Live commands
+
+Commands take first-class JavaScript values:
+
+```js
+reset(laserFan);     // reset every copy's persistent state
+go(scene);           // activate this scene array
+param("trail", 0.08, { min: 0, max: 0.3 });
+```
+
+Composition is ordinary source, not a command language. Add, remove, duplicate, or
+reorder entries by editing and evaluating the array:
+
+```js
+const scene = [laserFan, laserFan, neonTunnel, plasma]; // two independent copies
+const empty = [];                                        // an intentionally empty scene
+go(scene);
+```
+
+An ordinary method call is also valid live code:
+
+```js
+laserFan.addBeams(2);
+```
+
+Strings are not accepted in place of strategy or scene values. The scene strip is a
+read-only view of the active array, so the editor remains the single source of truth.
+
+## Live-coding cells
+
+`Cmd/Ctrl+Enter` evaluates the cell or statement under the cursor. A `// %%` marker
+groups several related statements into one atomic cell:
+
+```js
+// %% strategy plasma
+class Plasma {
   // ...
-});
+}
+
+const plasma = new Plasma();
 ```
 
-Config is per copy. `param()` is workspace-wide and gets a slider. Use config for
-what makes two copies *different*, and params for what you want to perform.
+Editing the class and evaluating anywhere in that cell constructs a new instance from
+the new class. The same pattern works for a factory and the strategy it returns.
+Without a marker, each complete top-level statement remains its own block.
+`Cmd/Ctrl+Shift+Enter` evaluates the whole buffer.
 
-### The library
+The editor preserves indentation on Enter, indents inside matching `{}`, `[]`, and
+`()`, and outdents closing delimiters typed on a blank line. Tab and Shift+Tab adjust
+the current selection. `Cmd/Ctrl+/` comments or uncomments the current line or all
+selected lines. Folding is reversible in both presentations: the structured editor can
+expand every object/function/class and still collapse any one again, while the complete
+editor keeps a disclosure control beside every top-level declaration.
+`Cmd/Ctrl+Alt+[` folds all and `Cmd/Ctrl+Alt+]` unfolds all; both work while the editor
+has focus. `Cmd/Ctrl+Alt+/` opens that key-command sheet without leaving the editor.
 
-The **Library** panel has five ready patches — `bars`, `ribbon`, `swarm`, `pulse`,
-`grid` — all written to be stacked. **insert** drops one into your editor and
-registers it; it is then an ordinary patch you can rewrite. The **stacked** button
-builds a scene from several copies of them, as a worked example.
+## Lifecycle and persistent state
 
-A patch you register for the first time joins the running scene automatically, so a
-new `patch("mine", ...)` is visible immediately. Two things that convenience will not
-do: re-evaluating an existing patch never changes scene membership (if you removed it,
-it stays removed), and a block that composes the patch itself wins outright —
+Only `draw()` is required. Object and class strategies may add lifecycle methods:
 
 ```js
-patch("chaos", () => { /* ... */ });
-scene("wild", ["chaos"]);
-go("wild");
+const pixelRain = {
+  state() {
+    return { drops: [] };
+  },
+
+  enter({ state }) {},
+  beat({ state, audio }) {},
+
+  draw({ state, audio, dt }) {
+    // update state.drops using dt and audio.treble
+  },
+
+  exit({ state }) {},
+
+  dispose() {
+    // Release resources owned by this implementation.
+  },
+};
 ```
 
-puts `chaos` in `wild` and nowhere else.
+`state()` runs once per scene copy. Re-evaluating the strategy retains that state;
+`reset(pixelRain)` explicitly recreates it. Keep persistent state structured-clone
+compatible—numbers, strings, booleans, arrays, and plain objects—so first-draw rollback
+can restore it.
 
-### The safe scene
+Lifecycle methods are invoked with the exact object as `this`. `dispose()` runs once
+when an implementation is replaced, rolled back, or removed during a project reset.
+It is intended for WEBGL buffers, shaders, cameras, and similar external resources.
 
-Pick a scene you trust, press **set safe**, and `0` will bring you back to it from
-anywhere. Panic changes the active scene and does *nothing else* — no state reset, no
-re-evaluation, no effect on the audio. That is the point: mid-show, you need one key
-with an outcome you already know the look of.
+## Shaders
 
----
+A class strategy may own an offscreen `WEBGL` graphics buffer and composite it into
+the 2D stage. It can use `canvas` as a `sampler2D` source, which makes a strategy placed
+last in a scene a true post-processing pass. Create resources lazily in `draw()`, pass
+`audio` and `time` through uniforms, and release resources in `dispose()`. The starter's
+`Plasma` class is a complete example.
 
-## Parameters
+## Audio
+
+`audio` is computed once and shared by every strategy during a draw:
 
 ```js
-param("trail", 0.08, { min: 0, max: 0.3, step: 0.01 });
+audio.level
+audio.bass
+audio.mid
+audio.treble
+audio.beat
+audio.spectrum
+audio.waveform
+audio.raw
 ```
 
-Declared parameters appear as sliders in the Parameters panel and arrive in your patch
-as `params.trail`. Re-evaluating a `param()` call keeps whatever value you have tuned
-it to, rather than snapping it back to the default.
+Normalized scalar features are generally `0..1`. `spectrum` contains FFT values and
+`waveform` contains the current waveform. Choose an audio file, drop one on the stage,
+or select the microphone. With no source, strategies keep drawing against silence.
 
----
+## Live parameters
 
-## What happens when your code is wrong
+Parameters are optional performer controls shared through the draw inputs:
 
-This is designed behavior, not an accident. There are three cases:
+```js
+param("checkerSpeed", 0.08, { min: -0.4, max: 0.4, step: 0.01 });
 
-**Syntax error.** The block never compiles, so nothing is staged. Your last working
-version keeps drawing. The error appears in the Messages panel.
-
-**Registration error** — a patch with no `draw`, a scene naming a patch that doesn't
-exist, a block that throws while registering. Nothing is applied, including the parts
-of the block that came before the error. Your last working version keeps drawing.
-
-**Runtime error on the first frame.** The new code compiled and registered, then threw
-when it ran. Response restores the previous version *and* the state snapshot it took
-before the new code ran, so any damage the failed version did to your state is undone.
-The rest of the scene never stops.
-
-A patch that keeps throwing after it has been committed is marked failed in the Patch
-shelf and keeps being skipped, but it never stops the other patches or the draw loop.
-
-Everything successful is kept: the Patch shelf shows a version number, and the History
-panel will put any of the last twelve versions back with one click.
-
----
-
-## Drawing isolation
-
-Each patch call is wrapped in `push()` / `pop()`, and a documented set of defaults is
-restored before it runs:
-
-```
-colorMode(RGB, 255)   blendMode(BLEND)     rectMode(CORNER)   ellipseMode(CENTER)
-angleMode(RADIANS)    fill(255)            stroke(255)        strokeWeight(1)
-strokeCap(ROUND)      strokeJoin(MITER)    textAlign(LEFT, BASELINE)   textSize(12)
+const checkerZoom = ({ time, params }) => {
+  rotate(time * params.checkerSpeed);
+};
 ```
 
-So reordering a scene doesn't silently change how a patch looks. If you want a patch
-to layer over what came before with a different blend mode, set it inside your own
-patch — it will be reset for the next one.
+Re-evaluating `param()` keeps the value currently selected by the performer rather than
+overwriting it with the source default.
 
----
+## Evaluation and recovery
 
----
+- Syntax or evaluation errors do not alter the live scene.
+- Replacements land at a draw boundary, never halfway through a scene.
+- A replacement is provisional until every active copy survives its first draw.
+- If a provisional version throws, AlgoLab restores the previous implementation,
+  binding, version, and clone-compatible state snapshot.
+- Successful versions appear in History and can be restored without a page reload.
+- Calling an ordinary method such as `laserFan.addBeams(2)` executes normal JavaScript
+  immediately; it does not create a replacement version.
+- Re-evaluating an explicit named patch cell replaces that patch's declaration group.
+  If the same named cell was accidentally installed twice, the newest copy is used
+  instead of compiling two declarations such as `class Plasma` together.
+- **Set safe** captures source, installed patch implementations and versions, the active
+  scene, parameters, and clone-compatible runtime state. **Restore safe state** restores
+  that checkpoint and reports anything that could not be restored. Failed evaluations
+  never replace the safe snapshot.
 
-## Showing it to an audience
-
-**Projection** opens a second window for the projector. Three layouts, switchable from
-either window (`Tab` cycles them from inside the projection window):
-
-| Layout | What the audience sees |
-| --- | --- |
-| `canvas` | The visual output, and nothing else |
-| `canvas + code` | Plus the most recently *accepted* block — a failed edit is never projected |
-| `canvas + trace` | Plus patch names, layer order, and which audio feature each patch reads |
-
-Your editor, your meters, your error messages, and your file names never appear there.
-The trace layout is the one worth trying if the audience can't tell what you're doing:
-it names the link between what they're hearing and what they're seeing.
-
-**Fullscreen** blows up the stage in this window instead. Resizing either way keeps
-every patch, every version, and all their state.
-
-The canvas fills your whole window, with the tools floating over it — so you are
-composing at the same aspect ratio the projector shows, not on a narrower canvas that
-gets reshaped on the way out. The panel is translucent and blurred so you keep a sense
-of what is behind it, and `\` clears it off entirely when you want to see the whole
-frame.
-
----
-
-## Sharing a project
-
-**Export** writes a `.json` file containing your source (as lines, so it stays
-readable), your scenes, your safe scene, and your parameter values.
-
-**Import** asks you to confirm first, and shows you the code it is about to run. Take
-that seriously — see below.
-
----
-
-## Starting over
-
-There are two resets, and they are different sizes.
-
-**One patch: `↺` in the Patch shelf**, or `resetPatch("orbiters")`. Re-runs that
-patch's `state()` and nothing else — the trail empties, the code stays. If the patch
-has several copies, all of them reset. This is the deliberate counterpart to state
-surviving your edits: since re-evaluating *keeps* your array on purpose, there has to
-be an explicit way to say "no, start over".
-
-**The whole project: `reset` in Project & performance.** Discards your editor
-contents, every patch and its history, every scene, and all state, then loads the
-starter. It asks first, because none of that is saved anywhere else — export if you
-might want it back.
-
-Note what reset does *not* do: reload the page. The canvas, the host clock, and the
-music keep running straight through it. Losing your work should not also mean losing
-the room.
-
----
-
-## What this is not
-
-Response runs your JavaScript with `new Function`. That is a deliberate live-coding
-decision, and it is **not a security sandbox**. Error boundaries catch exceptions;
-they cannot catch an infinite loop, and a `while (true)` in your patch will freeze the
-tab. Bound your loops and bound your arrays.
-
-This is why import asks you to confirm, and why the confirmation shows you the source.
-Imported code runs with exactly the privileges your own code has. Only import projects
-from someone you trust.
+AlgoLab executes trusted JavaScript with `new Function`; it is an error boundary, not
+a security sandbox. An infinite loop can still freeze the tab.

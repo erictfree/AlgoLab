@@ -1,188 +1,196 @@
-// Multiple copies of one patch in a scene.
-//
-// The rule that makes this work: the FIRST instance of a patch uses the bare patch
-// name as its id, so a scene using each patch once behaves exactly as it did before
-// instances existed. Extra copies are `swarm#2`, `swarm#3`, and each has its own
-// state and its own config.
+// Multiple references to one strategy in a scene create independent instances.
+// Composition is changed only by evaluating a new version of the scene array.
 
 import { describe, it, expect } from 'vitest';
 import { createTestHost } from './helpers.js';
 
-const COUNTER = 'patch("c", ({ state }) => { state.n = (state.n || 0) + 1; });';
+const COUNTER = `
+  const c = { draw({ state }) { state.n = (state.n || 0) + 1; } };
+  const show = [c];
+  go(show);
+`;
 
-describe('adding copies', () => {
-  it('numbers instances, with the first taking the bare patch name', () => {
+const COUNTER_COPIES = `
+  const c = { draw({ state }) { state.n = (state.n || 0) + 1; } };
+  const show = [c, c];
+  go(show);
+`;
+
+describe('first-class strategy instances', () => {
+  it('keeps a stable scene object while its implementation is replaced', () => {
     const h = createTestHost();
-    h.evaluator.evaluate(COUNTER);
+    h.evaluator.evaluate(`
+      const c = { draw() {} };
+      const show = [c];
+      go(show);
+    `);
     h.frame(2);
-    expect(h.registry.activeOrder()).toEqual(['c']);
 
-    h.evaluator.evaluate('add("c"); add("c");');
+    const strategy = h.registry.activeStrategies()[0];
+    const firstDraw = strategy.draw;
+    const firstImplementation = strategy.implementation;
+    expect(strategy).toMatchObject({ id: 'c', strategy: 'c' });
+    expect(typeof strategy.draw).toBe('function');
+
+    h.evaluator.evaluate('const c = { draw() { return 2; } };');
     h.frame(2);
-    expect(h.registry.activeOrder()).toEqual(['c', 'c#2', 'c#3']);
+
+    expect(h.registry.activeStrategies()[0]).toBe(strategy);
+    expect(strategy.draw).toBe(firstDraw);
+    expect(strategy.implementation).not.toBe(firstImplementation);
   });
 
-  it('gives every copy its own state', () => {
+  it('retains a class instance and invokes its methods with the instance as this', () => {
     const h = createTestHost();
-    h.evaluator.evaluate(COUNTER);
-    h.frame(10);
-    h.evaluator.evaluate('add("c");');
+    h.evaluator.evaluate(`
+      class SophisticatedStrategy {
+        #step = 2;
+        constructor() { this.label = "class instance"; this.total = 0; }
+        state() { return { owner: this.label, seen: 0 }; }
+        advance() { this.total += this.#step; return this.total; }
+        draw({ state }) { state.seen = this.advance(); }
+      }
+      const oop = new SophisticatedStrategy();
+      const show = [oop];
+      go(show);
+      globalThis.__oopImplementation = oop;
+    `);
+    h.frame(4);
+
+    const strategy = h.registry.activeStrategies()[0];
+    expect(h.registry.getStrategy('oop').definition).toBe(globalThis.__oopImplementation);
+    expect(strategy.implementation).toBe(globalThis.__oopImplementation);
+    expect(strategy.implementation.total).toBeGreaterThan(0);
+    expect(h.stateStore.get('oop')).toMatchObject({ owner: 'class instance' });
+    expect(h.stateStore.get('oop').seen).toBe(strategy.implementation.total);
+    delete globalThis.__oopImplementation;
+  });
+
+  it('registers a declaration without implicitly adding it to the active scene', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate('const spark = { hue: 40, draw() {} };');
+    h.frame(2);
+
+    expect(h.registry.hasStrategy('spark')).toBe(true);
+    expect(h.registry.activeOrder()).toEqual([]);
+    expect(h.registry.getStrategy('spark').definition.hue).toBe(40);
+  });
+
+  it('numbers duplicate references in their written order', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      const a = { draw() {} };
+      const b = { draw() {} };
+      const show = [a, b, a, b];
+      go(show);
+    `);
+    h.frame(2);
+    expect(h.registry.activeOrder()).toEqual(['a', 'b', 'a#2', 'b#2']);
+  });
+
+  it('gives every duplicate its own state', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(COUNTER_COPIES);
     h.frame(10);
 
-    // The second copy started ten frames later, so it must be behind — which it can
-    // only be if it is counting in its own object.
-    expect(h.stateStore.get('c').n).toBeGreaterThan(h.stateStore.get('c#2').n);
+    h.stateStore.get('c#2').n = 100;
+    h.frame(2);
+    expect(h.stateStore.get('c#2').n).toBeGreaterThan(h.stateStore.get('c').n);
     expect(h.stateStore.get('c')).not.toBe(h.stateStore.get('c#2'));
   });
 
-  it('draws every copy, in scene order', () => {
+  it('draws every duplicate', () => {
     const h = createTestHost();
-    const drawn = [];
-    globalThis.__drawn = drawn;
-    h.evaluator.evaluate('patch("c", ({ config }) => __drawn.push(config.tag ?? "base"));');
-    h.frame(2);
-    h.evaluator.evaluate('add("c", { tag: "second" }); add("c", { tag: "third" });');
+    globalThis.__drawn = [];
+    h.evaluator.evaluate(`
+      const c = { draw() { __drawn.push("c"); } };
+      const show = [c, c, c];
+      go(show);
+    `);
     h.frame(2);
 
-    drawn.length = 0;
+    globalThis.__drawn.length = 0;
     h.frame(1);
-    expect(drawn).toEqual(['base', 'second', 'third']);
+    expect(globalThis.__drawn).toEqual(['c', 'c', 'c']);
     delete globalThis.__drawn;
   });
+});
 
-  it('supports duplicates directly in a scene definition', () => {
+describe('source-authoritative composition', () => {
+  it('adds, removes, and reorders strategies by re-evaluating the array', () => {
     const h = createTestHost();
     h.evaluator.evaluate(`
-      patch("a", () => {});
-      patch("b", () => {});
-      scene("s", ["a", "b", "a", { patch: "b", config: { x: 1 } }]);
-      go("s");
+      const a = { draw() {} };
+      const b = { draw() {} };
+      const show = [a];
+      go(show);
     `);
-    h.frame(3);
-    expect(h.registry.activeOrder()).toEqual(['a', 'b', 'a#2', 'b#2']);
-    expect(h.registry.getInstance('b#2').config).toEqual({ x: 1 });
+    h.frame(2);
+    expect(h.registry.activeOrder()).toEqual(['a']);
+
+    h.evaluator.evaluate('const show = [b, a, b];');
+    h.frame(2);
+    expect(h.registry.activeOrder()).toEqual(['b', 'a', 'b#2']);
+
+    h.evaluator.evaluate('const show = [a];');
+    h.frame(2);
+    expect(h.registry.activeOrder()).toEqual(['a']);
   });
 
-  it('does not stack copies when a patch is merely re-evaluated', () => {
+  it('does not change membership when only a strategy is re-evaluated', () => {
     const h = createTestHost();
+    h.evaluator.evaluate(COUNTER);
+    h.frame(2);
     for (let i = 0; i < 5; i++) {
-      h.evaluator.evaluate(COUNTER);
+      h.evaluator.evaluate('const c = { draw() {} };');
       h.frame(2);
     }
     expect(h.registry.activeOrder()).toEqual(['c']);
   });
-});
 
-describe('per-instance config', () => {
-  it('hands each copy its own config object', () => {
+  it('changes ordinary object properties through ordinary methods', () => {
     const h = createTestHost();
-    const seen = [];
-    globalThis.__cfg = seen;
-    h.evaluator.evaluate('patch("c", ({ config }) => __cfg.push(config.hue));');
-    h.frame(2);
-    h.evaluator.evaluate('add("c", { hue: 40 }); add("c", { hue: 300 });');
-    h.frame(2);
-
-    seen.length = 0;
-    h.frame(1);
-    expect(seen).toEqual([undefined, 40, 300]);
-    delete globalThis.__cfg;
-  });
-
-  it('can be changed live without disturbing state', () => {
-    const h = createTestHost();
-    h.evaluator.evaluate('patch("c", ({ state }) => { state.n = (state.n || 0) + 1; });');
-    h.frame(10);
+    h.evaluator.evaluate(`
+      const c = {
+        hue: 40,
+        setHue(hue) { this.hue = hue; },
+        draw({ state }) { state.n = (state.n || 0) + 1; state.hue = this.hue; },
+      };
+      const show = [c];
+      go(show);
+    `);
+    h.frame(5);
     const state = h.stateStore.get('c');
 
-    h.registry.configureInstance('c', { hue: 99 });
-    h.frame(5);
+    const result = h.evaluator.evaluate('c.setHue(99);');
+    h.frame(2);
 
-    expect(h.registry.getInstance('c').config).toEqual({ hue: 99 });
+    expect(result.ok).toBe(true);
+    expect(h.registry.getStrategy('c').definition.hue).toBe(99);
     expect(h.stateStore.get('c')).toBe(state);
+    expect(state.hue).toBe(99);
   });
 });
 
-describe('removing copies', () => {
-  it('peels off the last copy, mirroring add', () => {
-    const h = createTestHost();
-    h.evaluator.evaluate(COUNTER);
-    h.frame(2);
-    h.evaluator.evaluate('add("c"); add("c");');
-    h.frame(2);
-
-    h.evaluator.evaluate('remove("c");');
-    h.frame(2);
-    expect(h.registry.activeOrder()).toEqual(['c', 'c#2']);
-
-    h.evaluator.evaluate('remove("c");');
-    h.frame(2);
-    expect(h.registry.activeOrder()).toEqual(['c']);
-  });
-
-  it('removes a specific copy by instance id', () => {
-    const h = createTestHost();
-    h.evaluator.evaluate(COUNTER);
-    h.frame(2);
-    h.evaluator.evaluate('add("c"); add("c");');
-    h.frame(2);
-
-    h.evaluator.evaluate('remove("c#2");');
-    h.frame(2);
-    expect(h.registry.activeOrder()).toEqual(['c', 'c#3']);
-  });
-
-  it('removes every copy with removeAll', () => {
-    const h = createTestHost();
-    h.evaluator.evaluate(COUNTER);
-    h.frame(2);
-    h.evaluator.evaluate('add("c"); add("c");');
-    h.frame(2);
-
-    h.evaluator.evaluate('removeAll("c");');
-    h.frame(2);
-    expect(h.registry.activeOrder()).toEqual([]);
-    // Still registered, and its state is still there — removed from the scene is not
-    // the same as deleted.
-    expect(h.registry.hasPatch('c')).toBe(true);
-    expect(h.stateStore.get('c')).toBeDefined();
-  });
-
-  it('reuses a freed id rather than climbing forever', () => {
-    const h = createTestHost();
-    h.evaluator.evaluate(COUNTER);
-    h.frame(2);
-    h.evaluator.evaluate('add("c");');
-    h.frame(2);
-    h.evaluator.evaluate('remove("c#2");');
-    h.frame(2);
-    h.evaluator.evaluate('add("c");');
-    h.frame(2);
-    expect(h.registry.activeOrder()).toEqual(['c', 'c#2']);
-  });
-});
-
-describe('lifecycle is per instance', () => {
+describe('lifecycle is per scene instance', () => {
   it('runs enter and exit once for each copy', () => {
     const h = createTestHost();
-    const log = [];
-    globalThis.__life = log;
+    globalThis.__life = [];
     h.evaluator.evaluate(`
-      patch("c", {
-        enter: ({ config }) => __life.push("enter:" + (config.tag ?? "base")),
-        exit: ({ config }) => __life.push("exit"),
-        draw: () => {},
-      });
+      const c = {
+        enter() { __life.push("enter"); },
+        exit() { __life.push("exit"); },
+        draw() {},
+      };
+      const show = [c, c];
+      go(show);
     `);
     h.frame(3);
-    h.evaluator.evaluate('add("c", { tag: "two" });');
-    h.frame(3);
-    expect(log).toEqual(['enter:base', 'enter:two']);
+    expect(globalThis.__life).toEqual(['enter', 'enter']);
 
-    h.evaluator.evaluate('remove("c#2");');
+    h.evaluator.evaluate('const show = [c];');
     h.frame(3);
-    expect(log.filter((e) => e === 'exit')).toHaveLength(1);
-    expect(h.registry.activeOrder()).toEqual(['c']);
+    expect(globalThis.__life.filter((entry) => entry === 'exit')).toHaveLength(1);
     delete globalThis.__life;
   });
 
@@ -190,9 +198,11 @@ describe('lifecycle is per instance', () => {
     const h = createTestHost();
     let beats = 0;
     globalThis.__beat = () => beats++;
-    h.evaluator.evaluate('patch("c", { beat: () => __beat(), draw: () => {} });');
-    h.frame(2);
-    h.evaluator.evaluate('add("c"); add("c");');
+    h.evaluator.evaluate(`
+      const c = { beat() { __beat(); }, draw() {} };
+      const show = [c, c, c];
+      go(show);
+    `);
     h.frame(2);
 
     beats = 0;
@@ -202,33 +212,35 @@ describe('lifecycle is per instance', () => {
   });
 });
 
-describe('replacing a patch that has copies', () => {
+describe('replacing a duplicated strategy', () => {
   it('replaces the behavior of every copy at once', () => {
     const h = createTestHost();
-    const drawn = [];
-    globalThis.__v = drawn;
-    h.evaluator.evaluate('patch("c", () => __v.push(1));');
-    h.frame(2);
-    h.evaluator.evaluate('add("c");');
+    globalThis.__versions = [];
+    h.evaluator.evaluate(`
+      const c = { draw() { __versions.push(1); } };
+      const show = [c, c];
+      go(show);
+    `);
     h.frame(2);
 
-    h.evaluator.evaluate('patch("c", () => __v.push(2));');
-    h.frame(3);
-    drawn.length = 0;
+    h.evaluator.evaluate('const c = { draw() { __versions.push(2); } };');
+    h.frame(2);
+    globalThis.__versions.length = 0;
     h.frame(1);
-    expect(drawn).toEqual([2, 2]);
-    delete globalThis.__v;
+    expect(globalThis.__versions).toEqual([2, 2]);
+    delete globalThis.__versions;
   });
 
-  it('preserves every copy’s state across the replacement (L-03)', () => {
+  it('preserves every copy’s state across replacement', () => {
     const h = createTestHost();
-    h.evaluator.evaluate(COUNTER);
+    h.evaluator.evaluate(COUNTER_COPIES);
     h.frame(20);
-    h.evaluator.evaluate('add("c");');
-    h.frame(20);
-
+    h.stateStore.get('c#2').n += 20;
     const before = { one: h.stateStore.get('c').n, two: h.stateStore.get('c#2').n };
-    h.evaluator.evaluate('patch("c", ({ state }) => { state.n = (state.n || 0) + 1; state.v2 = true; });');
+
+    h.evaluator.evaluate(
+      'const c = { draw({ state }) { state.n = (state.n || 0) + 1; state.v2 = true; } };',
+    );
     h.frame(3);
 
     expect(h.stateStore.get('c').n).toBeGreaterThanOrEqual(before.one);
@@ -236,38 +248,59 @@ describe('replacing a patch that has copies', () => {
     expect(h.stateStore.get('c').n).not.toBe(h.stateStore.get('c#2').n);
   });
 
-  it('rolls back every copy’s state when the new version throws (S-03)', () => {
+  it('rolls back all copy state when one candidate throws', () => {
     const h = createTestHost();
-    h.evaluator.evaluate(COUNTER);
-    h.frame(20);
-    h.evaluator.evaluate('add("c");');
+    h.evaluator.evaluate(COUNTER_COPIES);
     h.frame(20);
     const before = { one: h.stateStore.get('c').n, two: h.stateStore.get('c#2').n };
 
-    // The bad version wrecks state before throwing, and only the first copy gets to
-    // run before the rollback — so the second copy's state proves the rollback covers
-    // instances that never even executed.
-    h.evaluator.evaluate('patch("c", ({ state }) => { state.n = -999; missing.boom(); });');
+    h.evaluator.evaluate(
+      'const c = { draw({ state }) { state.n = -999; missing.boom(); } };',
+    );
     h.frame(2);
 
-    expect(h.registry.getPatch('c').version).toBe(1);
+    expect(h.registry.getStrategy('c').version).toBe(1);
     expect(h.stateStore.get('c').n).toBe(before.one);
-    // `c` is drawn first, so the rollback lands mid-frame: by the time `c#2` is
-    // reached the previous version is already restored, and it draws once with it.
-    // Hence +1 — and crucially not -999, which is what it would be if the rollback
-    // had only covered the copy that actually threw.
     expect(h.stateStore.get('c#2').n).toBe(before.two + 1);
   });
 
-  it('resets every copy with resetPatch (L-04)', () => {
+  it('does not commit until every stateful copy survives', () => {
     const h = createTestHost();
-    h.evaluator.evaluate('patch("c", { state: () => ({ n: 0 }), draw: ({ state }) => { state.n++; } });');
-    h.frame(10);
-    h.evaluator.evaluate('add("c");');
-    h.frame(10);
-    expect(h.stateStore.get('c').n).toBeGreaterThan(10);
+    h.evaluator.evaluate(`
+      const c = { state: () => ({ n: 0 }), draw({ state }) { state.n++; } };
+      const show = [c, c];
+      go(show);
+    `);
+    h.frame(2);
+    h.stateStore.get('c#2').fail = true;
+    const before = { one: h.stateStore.get('c').n, two: h.stateStore.get('c#2').n };
 
-    h.evaluator.evaluate('resetPatch("c");');
+    h.evaluator.evaluate(`
+      const c = {
+        draw({ state }) {
+          state.n = -999;
+          if (state.fail) throw new Error("second copy failed");
+        },
+      };
+    `);
+    h.frame(2);
+
+    expect(h.registry.getStrategy('c').version).toBe(1);
+    expect(h.stateStore.get('c').n).toBe(before.one);
+    expect(h.stateStore.get('c#2').n).toBe(before.two);
+  });
+
+  it('resets every copy with reset(strategy)', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      const c = { state: () => ({ n: 0 }), draw({ state }) { state.n++; } };
+      const show = [c, c];
+      go(show);
+    `);
+    h.frame(10);
+    expect(h.stateStore.get('c').n).toBeGreaterThan(5);
+
+    h.evaluator.evaluate('reset(c);');
     h.frame(1);
     expect(h.stateStore.get('c').n).toBeLessThanOrEqual(1);
     expect(h.stateStore.get('c#2').n).toBeLessThanOrEqual(1);
@@ -275,11 +308,11 @@ describe('replacing a patch that has copies', () => {
 });
 
 describe('naming', () => {
-  it('refuses "#" in a patch name, since it separates instance numbers', () => {
+  it('requires every scene strategy to have a JavaScript binding for identity', () => {
     const h = createTestHost();
-    const result = h.evaluator.evaluate('patch("a#2", () => {});');
+    const result = h.evaluator.evaluate('const badScene = [{ draw() {} }];');
     expect(result.ok).toBe(false);
-    expect(result.error.message).toContain('#');
-    expect(h.registry.hasPatch('a#2')).toBe(false);
+    expect(result.error.message).toContain('non-empty name');
+    expect(h.registry.strategyNames()).toEqual([]);
   });
 });

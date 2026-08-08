@@ -10,7 +10,7 @@ import { createStateStore } from '../../src/host/stateStore.js';
 import { createEvaluator } from '../../src/host/evaluator.js';
 import { createHostLoop } from '../../src/host/hostLoop.js';
 
-export function createTestHost({ fpsThreshold = 30 } = {}) {
+export function createTestHost({ fpsThreshold = 30, onCodeError = () => {} } = {}) {
   const diagnostics = createDiagnostics();
   const registry = createRegistry();
   const stateStore = createStateStore({ diagnostics });
@@ -36,6 +36,7 @@ export function createTestHost({ fpsThreshold = 30 } = {}) {
     drawing,
     fpsThreshold,
     now: () => clock,
+    onCodeError,
   });
 
   /**
@@ -46,7 +47,7 @@ export function createTestHost({ fpsThreshold = 30 } = {}) {
     for (let i = 0; i < count; i++) {
       clock += step;
       const ctx = host.beginFrame(audio);
-      for (const name of registry.activeOrder()) host.drawPatch(name, ctx);
+      for (const strategy of registry.activeStrategies()) host.drawStrategy(strategy, ctx);
       host.commitPendingChanges();
     }
   }

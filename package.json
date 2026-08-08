@@ -1,11 +1,14 @@
 {
-  "name": "response",
+  "name": "algolab",
   "version": "0.1.0",
   "private": true,
-  "description": "Response — a p5.js live visual playground for audio-reactive performance (AET 350C)",
+  "description": "AlgoLab — a p5.js live visual playground for audio-reactive performance (AET 350C)",
   "type": "module",
   "scripts": {
+    "build:patches": "node scripts/build-patch-library.mjs",
+    "predev": "npm run build:patches",
     "dev": "node scripts/dev-server.mjs",
+    "pretest": "npm run build:patches",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

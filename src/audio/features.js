@@ -10,7 +10,8 @@
 //     under `raw`, so a student can still learn the underlying API deliberately.
 //   - Normalization is a decaying-peak auto-gain, not a fixed divisor. A quiet track
 //     and a loud track should both drive `map(audio.bass, 0, 1, ...)` usefully, which
-//     is the mapping students actually write.
+//     is the mapping students actually write. The three spectral bands share one
+//     ceiling so their relative balance survives normalization.
 
 const EPSILON = 1e-6;
 
@@ -18,6 +19,7 @@ export const FEATURE_DEFAULTS = Object.freeze({
   smoothing: 0.6, // 0 = no smoothing, ->1 = heavy
   gainDecay: 0.4, // how fast the auto-gain ceiling falls, per second
   gainFloor: 0.02, // never divide by something tiny and turn silence into noise
+  gainTarget: 0.82, // leave visible/dynamic headroom instead of pinning every peak at 1
   autoGain: true, // A-06: off means "divide by nothing", raw 0..1 passes through
   beatThreshold: 1.3, // bass must exceed this multiple of its recent average
   beatFloor: 0.08, // ...and be at least this loud, so silence never beats
@@ -34,9 +36,7 @@ export function createFeatureExtractor(overrides = {}) {
   const smoothed = { level: 0, bass: 0, mid: 0, treble: 0, centroid: 0 };
   const ceiling = {
     level: options.gainFloor,
-    bass: options.gainFloor,
-    mid: options.gainFloor,
-    treble: options.gainFloor,
+    bands: options.gainFloor,
   };
   let bassAverage = 0;
   let previousBass = 0;
@@ -72,10 +72,16 @@ export function createFeatureExtractor(overrides = {}) {
     smoothed.treble += (raw.treble - smoothed.treble) * alpha;
 
     const decay = Math.pow(1 - clamp(options.gainDecay, 0, 0.99), dt);
-    const level = normalize('level', smoothed.level, decay);
-    const bass = normalize('bass', smoothed.bass, decay);
-    const mid = normalize('mid', smoothed.mid, decay);
-    const treble = normalize('treble', smoothed.treble, decay);
+    const levelCeiling = trackCeiling('level', smoothed.level, decay);
+    const bandCeiling = trackCeiling(
+      'bands',
+      Math.max(smoothed.bass, smoothed.mid, smoothed.treble),
+      decay,
+    );
+    const level = applyGain(smoothed.level, levelCeiling);
+    const bass = applyGain(smoothed.bass, bandCeiling);
+    const mid = applyGain(smoothed.mid, bandCeiling);
+    const treble = applyGain(smoothed.treble, bandCeiling);
 
     // Centroid on a log scale — musically, 200 Hz to 400 Hz is the same distance as
     // 2 kHz to 4 kHz, and a linear divide by nyquist would pin everything near zero.
@@ -129,18 +135,23 @@ export function createFeatureExtractor(overrides = {}) {
     });
   }
 
-  /** Decaying-peak auto-gain: the ceiling jumps up instantly and sags back slowly. */
-  function normalize(band, value, decay) {
-    const current = ceiling[band];
+  /** Decaying-peak ceiling: it jumps up instantly and sags back slowly. */
+  function trackCeiling(channel, value, decay) {
+    const current = ceiling[channel];
     const next = Math.max(value, Math.max(options.gainFloor, current * decay));
-    ceiling[band] = next;
+    ceiling[channel] = next;
+    return next;
+  }
+
+  function applyGain(value, peak) {
     // With auto-gain off the ceiling still tracks, so switching it back on mid-set
     // resumes from a sensible level rather than from silence.
     if (!options.autoGain) return clamp(value, 0, 1);
-    return clamp(value / (next + EPSILON), 0, 1);
+    const target = clamp(options.gainTarget, 0.1, 1);
+    return clamp((value / (peak + EPSILON)) * target, 0, 1);
   }
 
-  /** The snapshot handed to patches when there is no sound at all (A-07). */
+  /** The snapshot handed to strategies when there is no sound at all (A-07). */
   function silence() {
     return Object.freeze({
       level: 0,
@@ -166,7 +177,7 @@ export function createFeatureExtractor(overrides = {}) {
 
   function reset() {
     smoothed.level = smoothed.bass = smoothed.mid = smoothed.treble = smoothed.centroid = 0;
-    ceiling.level = ceiling.bass = ceiling.mid = ceiling.treble = options.gainFloor;
+    ceiling.level = ceiling.bands = options.gainFloor;
     bassAverage = 0;
     previousBass = 0;
     sinceBeat = 999;

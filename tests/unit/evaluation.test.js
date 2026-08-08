@@ -1,153 +1,463 @@
-// The safety requirements, PRD §11 "Safety and recovery".
-//
-// These are the tests that matter most: every one of them describes a way a live
-// performance could be ruined, and asserts that it isn't.
+// Safety and recovery for direct strategy-object evaluation.
 
 import { describe, it, expect } from 'vitest';
 import { createTestHost } from './helpers.js';
 
-const RINGS_V1 = 'patch("rings", ({ state }) => { state.n = (state.n || 0) + 1; });';
+const RINGS_V1 = `
+  const rings = { draw({ state }) { state.n = (state.n || 0) + 1; } };
+  const show = [rings];
+  go(show);
+`;
 
-describe('S-01 a syntax error never replaces a valid active patch', () => {
+describe('S-01 a syntax error never replaces a valid active strategy', () => {
   it('rejects before anything is staged', () => {
     const h = createTestHost();
     h.evaluator.evaluate(RINGS_V1);
     h.frame(2);
-    const good = h.registry.getPatch('rings').definition.draw;
+    const good = h.registry.getStrategy('rings').definition;
 
-    const result = h.evaluator.evaluate('patch("rings", ({state}) => { this is not js (((');
+    const result = h.evaluator.evaluate('const rings = { draw({state}) { this is not js ((( } };');
     h.frame(2);
 
     expect(result.ok).toBe(false);
     expect(result.phase).toBe('syntax');
-    expect(h.registry.getPatch('rings').definition.draw).toBe(good);
-    expect(h.registry.getPatch('rings').version).toBe(1);
+    expect(h.registry.getStrategy('rings').definition).toBe(good);
+    expect(h.registry.getStrategy('rings').version).toBe(1);
   });
 
-  it('survives a hundred consecutive syntax errors (§15 reliability)', () => {
+  it('survives a hundred consecutive syntax errors', () => {
     const h = createTestHost();
     h.evaluator.evaluate(RINGS_V1);
     h.frame(2);
-    const good = h.registry.getPatch('rings').definition.draw;
+    const good = h.registry.getStrategy('rings').definition;
 
     for (let i = 0; i < 100; i++) {
-      h.evaluator.evaluate(`patch("rings", ( { ${i} !!! `);
+      h.evaluator.evaluate(`const rings = { draw() { ${i} !!! `);
       h.frame();
     }
 
-    expect(h.registry.getPatch('rings').definition.draw).toBe(good);
+    expect(h.registry.getStrategy('rings').definition).toBe(good);
     expect(h.stateStore.get('rings').n).toBeGreaterThan(100);
   });
 });
 
-describe('S-02 a registration error never replaces a valid active patch', () => {
-  it('rejects a patch with no draw function', () => {
+describe('S-02 an evaluation error never replaces a valid active strategy', () => {
+  it('installs an explicitly named first-class function patch before it is in a scene', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate(`// %% patch strobe
+function strobe() {}`);
+    h.frame();
+
+    expect(result.ok).toBe(true);
+    expect(h.registry.getStrategy('strobe').definition).toBe(h.evaluator.binding('strobe'));
+    expect(typeof h.registry.getStrategy('strobe').definition).toBe('function');
+  });
+
+  it('does not promote a helper function just because it shares a patch cell', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`// %% patch kaleido
+function makeKaleido() { return { draw() {} }; }
+const kaleido = makeKaleido();`);
+    h.frame();
+
+    expect(h.registry.hasStrategy('kaleido')).toBe(true);
+    expect(h.registry.hasStrategy('makeKaleido')).toBe(false);
+    expect(typeof h.evaluator.binding('makeKaleido')).toBe('function');
+  });
+
+  it('rejects the removed patch() registration API', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate('patch("rings", { draw() {} });');
+
+    expect(result.ok).toBe(false);
+    expect(result.phase).toBe('evaluation');
+    expect(result.error.message).toContain('patch is not defined');
+    expect(h.registry.hasStrategy('rings')).toBe(false);
+  });
+
+  it('rejects a strategy object with no draw method', () => {
     const h = createTestHost();
     h.evaluator.evaluate(RINGS_V1);
     h.frame(2);
 
-    const result = h.evaluator.evaluate('patch("rings", { state: () => ({}) });');
+    const result = h.evaluator.evaluate('const rings = { state() { return {}; } };');
     h.frame(2);
 
     expect(result.ok).toBe(false);
-    expect(result.phase).toBe('registration');
-    expect(h.registry.getPatch('rings').version).toBe(1);
+    expect(result.phase).toBe('evaluation');
+    expect(result.error.message).toContain('draw()');
+    expect(h.registry.getStrategy('rings').version).toBe(1);
   });
 
-  it('rejects a scene that names an undefined patch', () => {
+  it('rejects a scene array that references an undefined binding', () => {
     const h = createTestHost();
     h.evaluator.evaluate(RINGS_V1);
     h.frame(2);
 
-    const result = h.evaluator.evaluate('scene("x", ["rings", "ghost"]); go("x");');
+    const result = h.evaluator.evaluate('const x = [rings, ghost]; go(x);');
 
     expect(result.ok).toBe(false);
     expect(result.error.message).toContain('ghost');
-    expect(h.registry.listScenes().some((s) => s.name === 'x')).toBe(false);
+    expect(h.registry.listScenes().some((scene) => scene.name === 'x')).toBe(false);
   });
 
-  it('discards a block that throws halfway through its registrations', () => {
+  it('discards a block that throws halfway through its declarations', () => {
     const h = createTestHost();
     h.evaluator.evaluate(RINGS_V1);
     h.frame(2);
 
-    // "wash" registers, then the block throws — neither may reach the registry.
-    const result = h.evaluator.evaluate(
-      'patch("wash", () => {}); throw new Error("boom"); patch("rings", () => {});',
-    );
+    const result = h.evaluator.evaluate(`
+      const wash = { draw() {} };
+      throw new Error("boom");
+      const rings = { draw() {} };
+    `);
     h.frame(2);
 
     expect(result.ok).toBe(false);
-    expect(h.registry.hasPatch('wash')).toBe(false);
-    expect(h.registry.getPatch('rings').version).toBe(1);
+    expect(h.registry.hasStrategy('wash')).toBe(false);
+    expect(h.registry.getStrategy('rings').version).toBe(1);
+  });
+
+  it('keeps non-strategy objects as ordinary helper bindings', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate(`
+      const palette = { hue: 190 };
+      const rings = { draw({ state }) { state.hue = palette.hue; } };
+      const show = [rings];
+      go(show);
+    `);
+    h.frame(2);
+
+    expect(result.ok).toBe(true);
+    expect(h.registry.hasStrategy('palette')).toBe(false);
+    expect(h.evaluator.binding('palette')).toEqual({ hue: 190 });
+    expect(h.stateStore.get('rings').hue).toBe(190);
+  });
+
+  it('rejects a helper object only when it is used as a strategy', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate('const helper = {}; const show = [helper]; go(show);');
+
+    expect(result.ok).toBe(false);
+    expect(result.error.message).toContain('draw()');
+    expect(h.registry.hasStrategy('helper')).toBe(false);
+  });
+
+  it('rejects string scene names because go() takes the array itself', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate(`
+      const wash = { draw() {} };
+      const show = [wash];
+      go("show");
+    `);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.message).toContain('scene array');
+  });
+
+  it('rejects scene descriptors because scenes contain strategies directly', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate(`
+      const wash = { draw() {} };
+      const show = [{ strategy: wash, config: { alpha: 20 } }];
+      go(show);
+    `);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.message).toContain('draw()');
+  });
+
+  it('does not expose the removed scene-mutation commands', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate(`
+      const wash = { draw() {} };
+      add(wash);
+    `);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.message).toContain('add is not defined');
   });
 });
 
-describe('S-03 a first-frame runtime error restores the previous version', () => {
-  it('restores both the previous draw function and the pre-candidate state', () => {
+describe('first-class function strategies', () => {
+  it('promotes a function when a scene uses it and passes draw inputs directly', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      const wash = ({ state, audio }) => {
+        state.total = (state.total || 0) + audio.level;
+      };
+      const show = [wash];
+      go(show);
+    `);
+    h.frame(5, { beat: false, level: 0.25 });
+
+    expect(typeof h.registry.getStrategy('wash').definition).toBe('function');
+    expect(h.stateStore.get('wash').total).toBeGreaterThan(0);
+  });
+
+  it('keeps factory functions as helpers and registers only the returned strategy', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      function makePulse(count) {
+        return ({ state }) => { state.count = count; };
+      }
+      const pulse = makePulse(7);
+      const show = [pulse];
+      go(show);
+    `);
+    h.frame(3);
+
+    expect(h.registry.hasStrategy('makePulse')).toBe(false);
+    expect(h.registry.hasStrategy('pulse')).toBe(true);
+    expect(h.stateStore.get('pulse').count).toBe(7);
+  });
+
+  it('hot-replaces a function after it has become a strategy', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      const wash = ({ state }) => { state.version = 1; };
+      const show = [wash];
+      go(show);
+    `);
+    h.frame(3);
+
+    h.evaluator.evaluate('const wash = ({ state }) => { state.version = 2; };');
+    h.frame(3);
+
+    expect(h.registry.getStrategy('wash').version).toBe(2);
+    expect(h.stateStore.get('wash').version).toBe(2);
+  });
+});
+
+describe('atomic class and factory cells', () => {
+  it('captures every declaration while storing the whole cell as strategy source', () => {
+    const h = createTestHost();
+    const source = `// %% strategy counter
+class Counter {
+  #step = 3;
+  draw({ state }) { state.total = (state.total || 0) + this.#step; }
+}
+const counter = new Counter();
+const show = [counter];
+go(show);`;
+
+    h.evaluator.evaluate(source);
+    h.frame(3);
+
+    expect(h.stateStore.get('counter').total).toBeGreaterThanOrEqual(6);
+    expect(h.registry.getStrategy('counter').source).toBe(source);
+    expect(h.evaluator.binding('Counter')).toBeTypeOf('function');
+  });
+
+  it('re-evaluates an edited class cell as a new patch version', () => {
+    const h = createTestHost();
+    const first = `// %% patch plasma
+class Plasma {
+  draw({ state }) { state.version = 1; }
+}
+const plasma = new Plasma();
+const show = [plasma];
+go(show);`;
+    const second = first.replace('state.version = 1', 'state.version = 2');
+
+    expect(h.evaluator.evaluate(first).ok).toBe(true);
+    h.frame(3);
+    expect(h.evaluator.evaluate(second).ok).toBe(true);
+    h.frame(3);
+
+    expect(h.registry.getStrategy('plasma').version).toBe(2);
+    expect(h.stateStore.get('plasma').version).toBe(2);
+    expect(h.diagnostics.list().map((entry) => entry.detail ?? '')).not.toContain(
+      expect.stringContaining('Cannot declare a class twice'),
+    );
+  });
+
+  it('repairs duplicate installed class cells by using the newest definition', () => {
+    const h = createTestHost();
+    const source = `// %% patch plasma
+class Plasma { draw({ state }) { state.version = 1; } }
+const plasma = new Plasma();
+
+// %% scene show
+const show = [plasma];
+go(show);
+
+// %% patch plasma
+class Plasma { draw({ state }) { state.version = 2; } }
+const plasma = new Plasma();`;
+
+    const result = h.evaluator.evaluate(source, { label: 'buffer' });
+    h.frame(3);
+
+    expect(result.ok).toBe(true);
+    expect(h.registry.getStrategy('plasma').source).toContain('state.version = 2');
+    expect(h.stateStore.get('plasma').version).toBe(2);
+    expect(h.diagnostics.list().some((entry) => entry.message.includes('Duplicate patch source repaired'))).toBe(true);
+  });
+});
+
+describe('S-03 a first-frame runtime error restores the previous object', () => {
+  it('restores both the previous object and the pre-candidate state', () => {
     const h = createTestHost();
     h.evaluator.evaluate(RINGS_V1);
     h.frame(20);
-    const good = h.registry.getPatch('rings').definition.draw;
+    const good = h.registry.getStrategy('rings').definition;
     const countBefore = h.stateStore.get('rings').n;
 
-    h.evaluator.evaluate('patch("rings", ({ state }) => { state.n = 9999; missing.boom(); });');
-    // Frame 1: the old code draws, then the candidate is spliced in at the boundary.
-    // Frame 2: the candidate runs, throws, and is rolled back along with its state.
+    h.evaluator.evaluate(
+      'const rings = { draw({ state }) { state.n = 9999; missing.boom(); } };',
+    );
     h.frame(2);
 
-    const record = h.registry.getPatch('rings');
-    expect(record.definition.draw).toBe(good);
+    const record = h.registry.getStrategy('rings');
+    expect(record.definition).toBe(good);
     expect(record.version).toBe(1);
     expect(record.lastError.message).toContain('missing');
-    // The failed version mutated state before throwing; the snapshot undoes it.
     expect(h.stateStore.get('rings').n).toBe(countBefore);
   });
 
-  it('never files a failed version in history (S-05 says successful versions)', () => {
+  it('never files a failed object in history', () => {
     const h = createTestHost();
     h.evaluator.evaluate(RINGS_V1);
     h.frame(2);
-    h.evaluator.evaluate('patch("rings", () => { missing.boom(); });');
+    h.evaluator.evaluate('const rings = { draw() { missing.boom(); } };');
     h.frame(3);
 
-    expect(h.registry.getPatch('rings').history).toHaveLength(1);
-    expect(h.registry.getPatch('rings').history[0].version).toBe(1);
+    expect(h.registry.getStrategy('rings').history).toHaveLength(1);
+    expect(h.registry.getStrategy('rings').history[0].version).toBe(1);
+  });
+
+  it('reports a first-frame code error for visible editor feedback', () => {
+    const failures = [];
+    const h = createTestHost({
+      onCodeError: (name, error) => failures.push({ name, message: error.message }),
+    });
+    h.evaluator.evaluate(RINGS_V1);
+    h.frame(2);
+
+    h.evaluator.evaluate('const rings = { draw() { missing.boom(); } };');
+    h.frame(2);
+
+    expect(failures).toEqual([{ name: 'rings', message: 'missing is not defined' }]);
+    expect(h.registry.getStrategy('rings').version).toBe(1);
+  });
+
+  it('restores the JavaScript binding as well as the registry object', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(RINGS_V1);
+    h.frame(2);
+    const good = h.registry.getStrategy('rings').definition;
+
+    h.evaluator.evaluate('const rings = { draw() { missing.boom(); } };');
+    h.frame(2);
+    expect(h.evaluator.binding('rings')).toBe(good);
+
+    h.evaluator.evaluate('const show = [rings, rings];');
+    h.frame(2);
+    expect(h.registry.getStrategy('rings').version).toBe(1);
+    expect(h.registry.activeOrder()).toEqual(['rings', 'rings#2']);
+  });
+
+  it('keeps the last successfully running scene when a new scene candidate fails', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      const good = { draw({ state }) { state.frames = (state.frames || 0) + 1; } };
+      const trusted = [good];
+      go(trusted);
+    `);
+    h.frame(8);
+    const before = h.stateStore.get('good').frames;
+
+    h.evaluator.evaluate(`
+      const broken = { draw() { throw new Error("first frame failed"); } };
+      const risky = [broken];
+      go(risky);
+    `);
+    h.frame(3);
+
+    expect(h.registry.activeSceneName()).toBe('trusted');
+    expect(h.registry.activeOrder()).toEqual(['good']);
+    expect(h.stateStore.get('good').frames).toBeGreaterThan(before);
+    expect(h.diagnostics.latest().message).toContain('rolled back');
   });
 });
 
-describe('S-04 one failing patch does not stop the others', () => {
+describe('resource disposal', () => {
+  it('disposes replaced, failed, and reset strategy objects', () => {
+    const h = createTestHost();
+    globalThis.__disposed = [];
+
+    h.evaluator.evaluate(`
+      const shader = {
+        draw() {},
+        dispose() { __disposed.push("old"); },
+      };
+      const show = [shader];
+      go(show);
+    `);
+    h.frame(2);
+
+    h.evaluator.evaluate(`
+      const shader = {
+        draw() {},
+        dispose() { __disposed.push("current"); },
+      };
+    `);
+    h.frame(2);
+    expect(globalThis.__disposed).toEqual(['old']);
+
+    h.evaluator.evaluate(`
+      const shader = {
+        draw() { throw new Error("bad shader"); },
+        dispose() { __disposed.push("failed"); },
+      };
+    `);
+    h.frame(2);
+    expect(globalThis.__disposed).toEqual(['old', 'failed']);
+
+    h.host.reset();
+    expect(globalThis.__disposed).toEqual(['old', 'failed', 'current']);
+    delete globalThis.__disposed;
+  });
+});
+
+describe('S-04 one failing strategy does not stop the others', () => {
   it('keeps drawing the rest of the scene, every frame', () => {
     const h = createTestHost();
     h.evaluator.evaluate(`
-      patch("wash", ({ state }) => { state.n = (state.n || 0) + 1; });
-      patch("broken", () => { throw new Error("always"); });
-      patch("rings", ({ state }) => { state.n = (state.n || 0) + 1; });
-      scene("s", ["wash", "broken", "rings"]);
-      go("s");
+      const wash = { draw({ state }) { state.n = (state.n || 0) + 1; } };
+      const broken = { draw() { throw new Error("always"); } };
+      const rings = { draw({ state }) { state.n = (state.n || 0) + 1; } };
+      const show = [wash, broken, rings];
+      go(show);
     `);
-    h.frame(2);
-    // "broken" survives its own first frame only because the candidate check runs
-    // before it throws — so force it past that: it is committed and failing.
-    h.frame(30);
+    h.frame(32);
 
     expect(h.stateStore.get('wash').n).toBeGreaterThan(25);
     expect(h.stateStore.get('rings').n).toBeGreaterThan(25);
-    expect(h.registry.getPatch('broken').status).toBe('failed');
+    expect(h.registry.getStrategy('broken').status).toBe('failed');
   });
 
-  it('throttles a patch that throws every frame instead of flooding messages', () => {
+  it('throttles a strategy that throws every frame instead of flooding messages', () => {
     const h = createTestHost();
-    h.evaluator.evaluate('patch("broken", () => { throw new Error("always"); });');
+    h.evaluator.evaluate(`
+      const broken = { draw() { throw new Error("always"); } };
+      const show = [broken];
+      go(show);
+    `);
     h.frame(400);
 
     const errors = h.diagnostics.list().filter((d) => d.level === 'error');
     expect(errors.length).toBeLessThan(10);
   });
 
-  it('leaves p5 push/pop balanced when a patch throws', () => {
+  it('leaves p5 push/pop balanced when a strategy throws', () => {
     const h = createTestHost();
-    h.evaluator.evaluate('patch("broken", () => { throw new Error("always"); });');
+    h.evaluator.evaluate(`
+      const broken = { draw() { throw new Error("always"); } };
+      const show = [broken];
+      go(show);
+    `);
     h.frame(10);
 
     expect(h.drawing.depth).toBe(0);
@@ -155,54 +465,58 @@ describe('S-04 one failing patch does not stop the others', () => {
 });
 
 describe('S-05 version history and reversion', () => {
-  it('keeps at least ten successful versions and reverts to a chosen one', () => {
+  it('keeps successful versions and reverts to a chosen object', () => {
     const h = createTestHost();
     for (let i = 1; i <= 12; i++) {
-      h.evaluator.evaluate(`patch("rings", ({ state }) => { state.mark = ${i}; });`);
+      h.evaluator.evaluate(`
+        const rings = { draw({ state }) { state.mark = ${i}; } };
+        ${i === 1 ? 'const show = [rings]; go(show);' : ''}
+      `);
       h.frame(2);
     }
-    const record = h.registry.getPatch('rings');
+    const record = h.registry.getStrategy('rings');
     expect(record.version).toBe(12);
     expect(record.history.length).toBeGreaterThanOrEqual(10);
 
     h.evaluator.revert('rings', 5);
     h.frame(3);
 
-    expect(h.registry.getPatch('rings').version).toBe(13);
-    expect(h.registry.getPatch('rings').source).toContain('state.mark = 5');
+    expect(h.registry.getStrategy('rings').version).toBe(13);
+    expect(h.registry.getStrategy('rings').source).toContain('state.mark = 5');
     expect(h.stateStore.get('rings').mark).toBe(5);
   });
 });
 
 describe('R-03 / L-02 replacement is scoped and lands at a frame boundary', () => {
-  it('does not re-evaluate or reset unrelated patches', () => {
+  it('does not re-evaluate or reset unrelated objects', () => {
     const h = createTestHost();
     h.evaluator.evaluate(`
-      patch("wash", { state: () => ({ born: 1 }), draw: ({ state }) => { state.n = (state.n||0)+1; } });
-      patch("rings", () => {});
+      const wash = { state() { return { born: 1 }; }, draw({ state }) { state.n = (state.n||0)+1; } };
+      const rings = { draw() {} };
+      const show = [wash, rings];
+      go(show);
     `);
     h.frame(10);
     const washState = h.stateStore.get('wash');
-    const washVersion = h.registry.getPatch('wash').version;
+    const washVersion = h.registry.getStrategy('wash').version;
 
-    h.evaluator.evaluate('patch("rings", () => {});');
+    h.evaluator.evaluate('const rings = { draw() {} };');
     h.frame(3);
 
-    expect(h.stateStore.get('wash')).toBe(washState); // same object, untouched
-    expect(h.registry.getPatch('wash').version).toBe(washVersion);
+    expect(h.stateStore.get('wash')).toBe(washState);
+    expect(h.registry.getStrategy('wash').version).toBe(washVersion);
   });
 
-  it('does not swap the definition mid-frame', () => {
+  it('does not swap the implementation mid-frame', () => {
     const h = createTestHost();
-    h.evaluator.evaluate('patch("rings", () => {});');
+    h.evaluator.evaluate('const rings = { draw() {} };');
     h.frame(2);
-    const before = h.registry.getPatch('rings').definition.draw;
+    const before = h.registry.getStrategy('rings').definition;
 
-    h.evaluator.evaluate('patch("rings", () => {});');
-    // Queued, but no frame has ended yet.
-    expect(h.registry.getPatch('rings').definition.draw).toBe(before);
+    h.evaluator.evaluate('const rings = { draw() { return 2; } };');
+    expect(h.registry.getStrategy('rings').definition).toBe(before);
 
     h.frame(1);
-    expect(h.registry.getPatch('rings').definition.draw).not.toBe(before);
+    expect(h.registry.getStrategy('rings').definition).not.toBe(before);
   });
 });

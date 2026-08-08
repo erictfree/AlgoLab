@@ -2,13 +2,86 @@
 
 import { test, expect } from '@playwright/test';
 
-async function boot(page) {
+async function boot(page, { tools = true, folded = false, welcome = false } = {}) {
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect
-    .poll(() => page.evaluate(() => window.Response.registry.activeOrder().length))
-    .toBe(3);
+    .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder().length))
+    .toBe(1);
+  if (!welcome) {
+    // Most tests begin after onboarding; the dedicated welcome test exercises its
+    // real controls. Keep this helper from changing the audio state of every case.
+    await page.evaluate(() => {
+      document.getElementById('start-overlay').hidden = true;
+    });
+  }
+  if (!folded) {
+    // Most of this older suite exercises the textarea itself. Unfold through the
+    // editor API so setup does not add a toolbar click to Chrome's focus/undo history.
+    await page.evaluate(() => window.AlgoLab.editor.setFolded(false));
+    await expect(page.locator('#code-layer')).not.toHaveClass(/is-folded/);
+  }
+  // The drawer is closed on arrival now — the display is the visuals and the code, and
+  // everything in the drawer is a setting. Tests that drive those settings open it, so
+  // that the ones asserting the default state can assert it on an untouched page.
+  if (tools) await openTools(page);
+}
+
+async function openTools(page) {
+  const side = page.locator('#side');
+  if (await side.evaluate((el) => el.classList.contains('is-hidden'))) {
+    await page.locator('#tools-toggle').click();
+  }
+  await expect(side).not.toHaveClass(/is-hidden/);
+  await openLibrary(page);
+}
+
+async function openLibrary(page) {
+  const panel = page.locator('#library-panel');
+  if (!(await panel.evaluate((element) => element.open))) {
+    await panel.locator(':scope > summary').click();
+  }
+  const groups = page.locator('[data-library-group]');
+  const count = await groups.count();
+  for (let index = 0; index < count; index++) {
+    const group = groups.nth(index);
+    if (!(await group.evaluate((element) => element.open))) await group.locator('summary').click();
+  }
+}
+
+async function openReference(page) {
+  const reference = page.locator('#reference-side');
+  if (await reference.evaluate((el) => el.classList.contains('is-hidden'))) {
+    await page.locator('#reference-toggle').click();
+  }
+  await expect(reference).not.toHaveClass(/is-hidden/);
+}
+
+async function replaceInEditorAndEvaluate(page, before, after) {
+  await page.evaluate(
+    ({ before, after }) => {
+      const editor = document.getElementById('code');
+      if (!editor.value.includes(before)) throw new Error(`Editor source did not contain: ${before}`);
+      editor.value = editor.value.replace(before, after);
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.focus();
+      editor.selectionStart = editor.selectionEnd = editor.value.indexOf(after) + after.length;
+    },
+    { before, after },
+  );
+  await page.locator('#code').press('Control+Enter');
+}
+
+async function appendCellAndEvaluate(page, source) {
+  await page.evaluate((source) => {
+    const editor = document.getElementById('code');
+    editor.value = `${editor.value.trimEnd()}\n\n${source}\n`;
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    editor.focus();
+    editor.selectionStart = editor.selectionEnd = editor.value.length - 1;
+  }, source);
+  await page.locator('#code').press('Control+Enter');
 }
 
 test.describe('P-01..P-03 projection view', () => {
@@ -18,9 +91,10 @@ test.describe('P-01..P-03 projection view', () => {
     // Put a real error in the performer's Messages panel first — the whole point of
     // P-01 is that this must not travel to the projector.
     await page.evaluate(() =>
-      window.Response.evaluator.evaluate('patch("rings", ((( broken', { label: 'patch rings' }),
+      window.AlgoLab.evaluator.evaluate('const rings = { draw() { ((( broken', { label: 'strategy rings' }),
     );
     await expect(page.locator('#diagnostics-list')).toContainText('Syntax error');
+    await expect(page.locator('#messages-panel')).toHaveJSProperty('open', true);
 
     const [projector] = await Promise.all([
       context.waitForEvent('page'),
@@ -28,7 +102,7 @@ test.describe('P-01..P-03 projection view', () => {
     ]);
 
     await expect(projector.locator('#projection-canvas')).toBeVisible();
-    await expect.poll(() => page.evaluate(() => window.Response.projection.isOpen())).toBe(true);
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.projection.isOpen())).toBe(true);
 
     const projectorText = await projector.locator('body').innerText();
     expect(projectorText).not.toContain('Syntax error');
@@ -64,7 +138,7 @@ test.describe('P-01..P-03 projection view', () => {
     // A successful evaluation through the editor's own path.
     await page.evaluate(() => {
       const ta = document.getElementById('code');
-      ta.value = 'patch("rings", () => { circle(200, 200, 90); });';
+      ta.value = 'const rings = { draw() { circle(200, 200, 90); } };';
       ta.dispatchEvent(new Event('input', { bubbles: true }));
       ta.focus();
       ta.selectionStart = ta.selectionEnd = 20;
@@ -72,10 +146,18 @@ test.describe('P-01..P-03 projection view', () => {
     await page.locator('#code').press('Control+Enter');
     await expect(projector.locator('#overlay')).toContainText('circle(200, 200, 90)');
 
+    // Make a second accepted version so the revert below has a real earlier version.
+    await replaceInEditorAndEvaluate(
+      page,
+      'circle(200, 200, 90)',
+      'circle(200, 200, 120)',
+    );
+    await expect(projector.locator('#overlay')).toContainText('circle(200, 200, 120)');
+
     // Now a failed one — the audience must keep seeing the good block.
     await page.evaluate(() => {
       const ta = document.getElementById('code');
-      ta.value = 'patch("rings", ((( totally broken';
+      ta.value = 'const rings = { draw() { ((( totally broken';
       ta.dispatchEvent(new Event('input', { bubbles: true }));
       ta.focus();
       ta.selectionStart = ta.selectionEnd = 20;
@@ -83,13 +165,13 @@ test.describe('P-01..P-03 projection view', () => {
     await page.locator('#code').press('Control+Enter');
     await page.waitForTimeout(300);
 
-    await expect(projector.locator('#overlay')).toContainText('circle(200, 200, 90)');
+    await expect(projector.locator('#overlay')).toContainText('circle(200, 200, 120)');
     await expect(projector.locator('#overlay')).not.toContainText('totally broken');
 
     // A revert is an evaluation too, so the overlay must follow it.
     await page.locator('details.panel', { hasText: 'History' }).locator('summary').click();
     await page.getByRole('button', { name: 'Make rings v1 active again' }).click();
-    await expect(projector.locator('#overlay')).toContainText('map(audio.bass');
+    await expect(projector.locator('#overlay')).toContainText('circle(200, 200, 90)');
 
     await projector.close();
   });
@@ -103,132 +185,916 @@ test.describe('P-01..P-03 projection view', () => {
     await page.locator('#projection-layout').selectOption('trace');
 
     const overlay = projector.locator('#overlay');
-    await expect(overlay).toContainText('scene: tunnel');
-    await expect(overlay).toContainText('wash v1');
-    await expect(overlay).toContainText('orbiters v1');
-    // The starter's rings maps audio.bass to its diameter; the trace should say so.
-    await expect(overlay.locator('.trace-row', { hasText: 'rings' })).toContainText('bass');
+    await expect(overlay).toContainText('scene: scene');
+    await expect(overlay).toContainText('plasma v1');
+    // Plasma maps all three analysed frequency bands into shader uniforms.
+    await expect(overlay.locator('.trace-row', { hasText: 'plasma' })).toContainText('bass');
 
     await projector.close();
   });
 });
 
-test.describe('multiple copies of one patch', () => {
-  test('the shelf adds copies and the scene strip removes them individually', async ({ page }) => {
+test.describe('multiple copies of one strategy', () => {
+  test('editing the scene array adds and removes independent copies', async ({ page }) => {
     await boot(page);
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
-      .toEqual(['wash', 'rings', 'orbiters']);
-
-    // "add" in the Patch shelf always makes another copy.
-    await page.getByRole('button', { name: 'Add another copy of rings to the scene' }).click();
-    await page.getByRole('button', { name: 'Add another copy of rings to the scene' }).click();
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['plasma']);
+    await replaceInEditorAndEvaluate(
+      page,
+      'const scene = [plasma];',
+      'const scene = [plasma, plasma, plasma];',
+    );
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
-      .toEqual(['wash', 'rings', 'orbiters', 'rings#2', 'rings#3']);
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['plasma', 'plasma#2', 'plasma#3']);
 
     // The shelf shows the count; the scene strip shows the individual copies.
-    await expect(page.locator('[data-patch="rings"]')).toContainText('×3');
-    await expect(page.locator('[data-instance="rings#2"]')).toBeVisible();
+    await expect(page.locator('[data-strategy="plasma"]')).toContainText('×3');
+    await expect(page.locator('[data-instance="plasma#2"]')).toBeVisible();
 
     // Each copy keeps its own state.
     const independent = await page.evaluate(() => {
-      const s = window.Response.stateStore;
-      return s.get('rings') !== s.get('rings#2') && s.get('rings#2') !== s.get('rings#3');
+      const s = window.AlgoLab.stateStore;
+      return s.get('plasma') !== s.get('plasma#2') && s.get('plasma#2') !== s.get('plasma#3');
     });
     expect(independent).toBe(true);
 
-    // Remove one specific copy from the middle.
-    await page.getByRole('button', { name: 'Remove rings#2 from the scene' }).click();
+    // The strip is a read-only view of source order; editing the array is the operation.
+    await expect(page.locator('[data-instance="plasma#2"] button')).toHaveCount(0);
+    await replaceInEditorAndEvaluate(
+      page,
+      'const scene = [plasma, plasma, plasma];',
+      'const scene = [plasma, plasma];',
+    );
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
-      .toEqual(['wash', 'rings', 'orbiters', 'rings#3']);
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['plasma', 'plasma#2']);
   });
 
-  test('library patches insert, stack, and keep separate configs', async ({ page }) => {
+  test('library insertion installs source; scene arrays activate it', async ({ page }) => {
     await boot(page);
-    // Library patches sit in the Patch shelf, listed as available — no separate panel.
-    await expect(page.locator('[data-available="ribbon"]')).toBeVisible();
+    // Every available patch remains in the catalog, regardless of lifecycle state.
+    await expect(page.locator('[data-available="laserFan"]')).toBeVisible();
+    await expect(page.locator('[data-library="plasma"]')).toContainText('system');
+    await expect(
+      page.getByRole('button', { name: 'plasma is active and running' }),
+    ).toBeDisabled();
 
-    // The first press registers the patch...
-    await page.getByRole('button', { name: /^Add ribbon —/ }).click();
-    await expect.poll(() => page.evaluate(() => window.Response.registry.hasPatch('ribbon'))).toBe(true);
+    // The first press installs source without changing the active scene.
+    await page.getByRole('button', { name: /^Install laserFan system patch source —/ }).click();
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('laserFan'))).toBe(true);
 
-    // ...after which it is an ordinary shelf row, with a version and a "+" of its own.
-    await expect(page.locator('[data-available="ribbon"]')).toHaveCount(0);
-    await expect(page.locator('[data-patch="ribbon"]')).toContainText('v1');
-    await page.getByRole('button', { name: 'Add another copy of ribbon to the scene' }).click();
+    // Installed is deliberately not Active or Running.
+    await expect(page.locator('[data-available="laserFan"]')).toHaveCount(0);
+    await expect(page.locator('[data-library="laserFan"]')).toBeVisible();
+    await expect(page.locator('[data-library="laserFan"]')).toContainText('Installed');
+    await expect(
+      page.getByRole('button', { name: 'Add installed patch laserFan to the active scene source' }),
+    ).toBeVisible();
+    await expect(page.locator('[data-strategy="laserFan"]')).toContainText('v1');
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length)).toBe(0);
+
+    await replaceInEditorAndEvaluate(
+      page,
+      'const scene = [plasma];',
+      'const scene = [laserFan, laserFan, plasma];',
+    );
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.activeInstancesOf('ribbon').length))
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length))
       .toBe(2);
 
-    // A third, configured differently, so the copies are distinguishable.
-    await page.evaluate(() =>
-      window.Response.evaluator.evaluate('add("ribbon", { y: 0.75, hue: 300 });', { label: 'test' }),
-    );
+    // A separately named object owns its own configuration through normal properties.
+    await appendCellAndEvaluate(page, `// %% configured laser scene
+const pinkLasers = { ...laserFan, hue: 330, direction: -1 };
+const laserScene = [laserFan, laserFan, pinkLasers, plasma];
+go(laserScene);`);
     await expect
       .poll(() =>
-        page.evaluate(() =>
-          window.Response.registry.activeInstancesOf('ribbon').map((i) => i.config.hue ?? null),
-        ),
+        page.evaluate(() => window.AlgoLab.registry.getStrategy('pinkLasers')?.definition.hue),
       )
-      .toEqual([null, null, 300]);
+      .toBe(330);
 
-    // Replacing the patch changes all three; their states stay separate.
+    // Replacing laserFan changes its two copies; the configured object is independent.
     await page.evaluate(() =>
-      window.Response.evaluator.evaluate('patch("ribbon", ({ state }) => { state.touched = true; });', {
-        label: 'patch ribbon',
-      }),
+      window.AlgoLab.evaluator.evaluate(
+        'const laserFan = { draw({ state }) { state.touched = true; } };',
+        { label: 'patch laserFan' },
+      ),
     );
-    await expect.poll(() => page.evaluate(() => window.Response.registry.getPatch('ribbon').version)).toBe(2);
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.getStrategy('laserFan').version)).toBe(2);
     await expect
       .poll(() =>
         page.evaluate(() => {
-          const s = window.Response.stateStore;
-          return ['ribbon', 'ribbon#2', 'ribbon#3'].every((id) => s.get(id)?.touched === true);
+          const s = window.AlgoLab.stateStore;
+          return (
+            ['laserFan', 'laserFan#2'].every((id) => s.get(id)?.touched === true) &&
+            s.get('pinkLasers') !== s.get('laserFan')
+          );
         }),
       )
       .toBe(true);
+  });
+
+  test('Add to scene opens only the scene cell without unfolding the project', async ({ page }) => {
+    await boot(page, { tools: true, folded: true });
+    await page.getByRole('button', { name: /^Install checkerZoom system patch source —/ }).click();
+
+    await page
+      .getByRole('button', { name: 'Add installed patch checkerZoom to the active scene source' })
+      .click();
+
+    await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
+    await expect(page.locator('.folded-block[open]')).toHaveCount(1);
+    const scene = page.locator('.folded-block[open]', { hasText: 'scene scene' });
+    await expect(scene).toBeVisible();
+    await expect(scene.locator('.folded-source-editor')).toBeFocused();
+    await expect(scene.locator('.folded-source-editor')).toHaveValue(
+      /checkerZoom,[\s\S]*plasma,/,
+    );
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('checkerZoom').length))
+      .toBe(0);
+
+    await scene.locator('.folded-source-editor').press('Control+Enter');
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('checkerZoom').length))
+      .toBe(1);
+  });
+
+  test('shows the full lifecycle from available through running', async ({ page }) => {
+    await boot(page);
+
+    const library = page.locator('#strategy-library');
+    await expect(library.locator('[data-library]')).toHaveCount(17);
+    await expect(page.getByRole('button', { name: /^All 17$/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-library="laserFan"]')).toHaveAttribute('data-origin', 'system');
+    await expect(page.locator('[data-library="plasma"]')).toHaveAttribute('data-origin', 'system');
+    await expect(page.locator('[data-available="laserFan"]')).toContainText('laserFan');
+    await expect(page.locator('[data-available="waveScope"]')).toBeVisible();
+    await expect(page.locator('[data-library="waveform"]')).toContainText('Available');
+    await expect(page.locator('[data-library="frequencyBars"]')).toContainText('Available');
+    await expect(page.locator('[data-library="audioMeters"]')).toContainText('Available');
+    await expect(page.locator('[data-library="solidBackground"]')).toContainText('Available');
+    await expect(
+      library.locator('[data-library-group="utility"] [data-library="frequencyBars"]'),
+    ).toBeVisible();
+    await expect(
+      library.locator('[data-library-group="visual"] [data-library="laserFan"]'),
+    ).toBeVisible();
+    await expect(
+      library.locator('[data-library-group="shader"] [data-library="plasma"]'),
+    ).toBeVisible();
+    await expect(
+      library.locator('[data-library-group="shader"] [data-library="shaderFlow"]'),
+    ).toBeVisible();
+    await expect(library.locator('[data-library-group="user"]')).toHaveCount(0);
+    await expect(page.locator('.shader-operator-reference')).toContainText('Shader operators');
+
+    await expect(page.locator('[data-library="laserFan"]')).toContainText('Available');
+    await page.getByRole('button', { name: /^Install laserFan system patch source —/ }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('laserFan')))
+      .toBe(true);
+    await expect(page.locator('[data-available="laserFan"]')).toHaveCount(0);
+    await expect(page.locator('[data-library="laserFan"]')).toBeVisible();
+    await expect(page.locator('[data-library="laserFan"]')).toContainText('Installed');
+    await expect(
+      page.getByRole('button', { name: 'Add installed patch laserFan to the active scene source' }),
+    ).toBeVisible();
+    await expect(page.locator('[data-available="waveScope"]')).toBeVisible();
+    expect(
+      await page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length),
+    ).toBe(0);
+    await expect(page.locator('#code')).toHaveValue(/\/\/ %% patch laserFan/);
+    const sourceOrder = await page.locator('#code').evaluate((editor) => ({
+      patch: editor.value.indexOf('// %% patch laserFan'),
+      scene: editor.value.indexOf('// %% scene scene'),
+    }));
+    expect(sourceOrder.patch).toBeGreaterThan(-1);
+    expect(sourceOrder.scene).toBeGreaterThan(sourceOrder.patch);
+
+    // Installing only registers source. Adding changes source composition, and the
+    // performer still explicitly evaluates that scene cell before anything renders.
+    await page.getByRole('button', { name: 'Add installed patch laserFan to the active scene source' }).click();
+    await expect(page.locator('#code')).toHaveValue(/const scene = \[[\s\S]*laserFan,/);
+    expect(
+      await page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length),
+    ).toBe(0);
+    await expect(page.locator('#diagnostics-list')).toContainText('not active yet');
+    await page.locator('#code').press('Control+Enter');
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.AlgoLab.controller.snapshot().strategies.find((entry) => entry.name === 'laserFan')?.running,
+        ),
+      )
+      .toBe(true);
+    await expect(page.locator('[data-library="laserFan"]')).toContainText('Running');
+
+    await page.getByRole('button', { name: /^Active / }).click();
+    await expect(page.locator('[data-library="laserFan"]')).toBeVisible();
+    await expect(page.locator('[data-library="waveScope"]')).toHaveCount(0);
+    await page.getByRole('button', { name: /^All / }).click();
+    await expect(page.locator('[data-available="waveScope"]')).toBeVisible();
+
+    await page.locator('#reference-toggle').click();
+    const installed = page.locator('#reference-side [data-strategy="laserFan"]');
+    await installed.locator('summary').click();
+    await expect(installed).toContainText('beams: 13');
+    await page.getByRole('button', { name: 'Jump to laserFan source' }).click();
+    expect(
+      await page.locator('#code').evaluate((editor) =>
+        editor.value.slice(editor.selectionStart, editor.selectionEnd),
+      ),
+    ).toBe('laserFan');
+
+    // The installed patch cell must remain above the scene that references it when a
+    // saved project is compiled top-to-bottom on refresh.
+    await page.waitForTimeout(650);
+    await page.reload();
+    await page.evaluate(() => {
+      document.getElementById('start-overlay').hidden = true;
+    });
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length))
+      .toBe(1);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.AlgoLab.controller.snapshot().strategies.find((entry) => entry.name === 'laserFan')?.running,
+        ),
+      )
+      .toBe(true);
+  });
+
+  test('recovers a broken saved project without hiding its installed source', async ({ page }) => {
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    const source = `// %% patch frequencyBars
+const frequencyBars = { draw() { ((( } };
+
+// %% patch audioMeters
+const audioMeters = { draw() { rect(20, 20, 40, 8); } };
+
+// %% scene show
+const show = [frequencyBars, audioMeters];
+go(show);`;
+
+    await page.addInitScript((savedSource) => {
+      localStorage.clear();
+      localStorage.setItem('algolab.project.v5', JSON.stringify({
+        schema: 6,
+        savedAt: Date.now(),
+        source: savedSource,
+        safeScene: 'show',
+        params: [],
+      }));
+    }, source);
+    await page.goto('/index.html');
+    await page.getByRole('button', { name: 'enter with silence' }).click();
+    await openTools(page);
+
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['plasma']);
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.controller.snapshot().installedPatches))
+      .toEqual(['frequencyBars', 'audioMeters', 'plasma']);
+    expect(pageErrors).toEqual([]);
+    await expect(page.locator('[data-library="frequencyBars"]')).toContainText('Installed');
+    await expect(page.locator('[data-library="frequencyBars"]')).toContainText('Open source');
+    await expect(page.locator('[data-library="audioMeters"]')).toContainText('Installed');
+    await expect(page.getByRole('button', { name: /^Installed 3$/ })).toBeVisible();
+    await expect(page.locator('#diagnostics-list')).toContainText('Saved project recovered with errors');
+    await expect(page.locator('#code')).toHaveValue(/const frequencyBars = \{ draw\(\) \{ \(\(\(/);
+  });
+
+  test('runs a live ShaderChain through the real WebGL draw path', async ({ page }) => {
+    await boot(page);
+    await page.getByRole('button', { name: /^Install shaderFlow system patch source —/ }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('shaderFlow')))
+      .toBe(true);
+
+    await replaceInEditorAndEvaluate(
+      page,
+      'const scene = [plasma];',
+      'const scene = [shaderFlow, plasma];',
+    );
+
+    await expect
+      .poll(() => page.evaluate(() => {
+        const strategy = window.AlgoLab.controller.snapshot().strategies
+          .find(({ name }) => name === 'shaderFlow');
+        return { running: strategy?.running, error: strategy?.lastError?.message ?? null };
+      }))
+      .toEqual({ running: true, error: null });
+    await expect(page.locator('[data-library="shaderFlow"]')).toContainText('Running');
+  });
+
+  test('installed strategies expose a read-only reference and jump to their source', async ({ page }) => {
+    await boot(page, { tools: false });
+    await openReference(page);
+    await expect(page.locator('#side')).toHaveClass(/is-hidden/);
+    await expect(page.locator('#reference-side [data-available]')).toHaveCount(0);
+    await expect(page.locator('#reference-side #audio-source')).toHaveCount(0);
+
+    const plasma = page.locator('#reference-side [data-strategy="plasma"]');
+    await plasma.locator('summary').click();
+    await expect(plasma).toContainText('Plasma instance · running');
+    await expect(plasma).toContainText('draw({ audio, time, canvas })');
+    await expect(plasma).toContainText('dispose()');
+
+    // They are genuinely separate surfaces, never two layers of one combined drawer.
+    await page.locator('#tools-toggle').click();
+    await expect(page.locator('#side')).not.toHaveClass(/is-hidden/);
+    await expect(page.locator('#reference-side')).toHaveClass(/is-hidden/);
+    await expect(page.locator('#reference-side')).toHaveCSS('pointer-events', 'none');
+    await page.locator('#reference-toggle').click();
+    await expect(page.locator('#side')).toHaveClass(/is-hidden/);
+    await expect(page.locator('#reference-side')).not.toHaveClass(/is-hidden/);
+
+    await page.getByRole('button', { name: 'Jump to plasma source' }).click();
+    await expect(page.locator('#reference-side')).toHaveClass(/is-hidden/);
+    await expect(page.locator('#code')).toBeFocused();
+    expect(
+      await page.locator('#code').evaluate((editor) =>
+        editor.value.slice(editor.selectionStart, editor.selectionEnd),
+      ),
+    ).toBe('plasma');
   });
 });
 
 test.describe('the demo scene', () => {
   test('builds even after the project has been reset away', async ({ page }) => {
     await boot(page);
-    // Wipe everything, so "wash" no longer exists. The demo must not depend on it.
+    // Wipe everything. The demo must not depend on the starter Plasma patch.
     await page.evaluate(() => {
-      const R = window.Response;
+      const R = window.AlgoLab;
+      R.host.reset();
       R.registry.reset();
       R.stateStore.clear();
-      R.host.reset();
     });
-    expect(await page.evaluate(() => window.Response.registry.hasPatch('wash'))).toBe(false);
+    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('plasma'))).toBe(false);
+    await expect(page.locator('#scene-strip')).toContainText('No active patches');
+    await expect(page.locator('#scene-strip')).toContainText(
+      'Installed means the source is in this project. It renders only after',
+    );
+    await expect(page.getByRole('button', { name: 'Insert a configured library scene into the source' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Build a scene from several copies of the library patches' }).click();
+    await page.getByRole('button', { name: 'Insert a configured library scene into the source' }).click();
 
-    await expect.poll(() => page.evaluate(() => window.Response.registry.activeSceneName())).toBe(
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe(null);
+    await expect(page.locator('#diagnostics-list')).toContainText('not active yet');
+    await page.locator('#code').press('Control+Enter');
+
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe(
       'stacked',
     );
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
-      .toEqual(['grid', 'grid#2', 'ribbon', 'ribbon#2', 'pulse']);
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual([
+        'checkerZoom',
+        'neonTunnel',
+        'spectrumHalo',
+        'kaleido',
+        'pixelRain',
+        'waveScope',
+        'laserFan',
+        'glitchSlices',
+        'beatBurst',
+        'strobe',
+      ]);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.AlgoLab.controller.snapshot().strategies
+            .filter((entry) => [
+              'checkerZoom',
+              'neonTunnel',
+              'spectrumHalo',
+              'kaleido',
+              'pixelRain',
+              'waveScope',
+              'laserFan',
+              'glitchSlices',
+              'beatBurst',
+              'strobe',
+            ].includes(entry.name))
+            .every((entry) => entry.running),
+        ),
+      )
+      .toBe(true);
     expect(
       await page.evaluate(() =>
-        window.Response.diagnostics.list().filter((d) => d.level === 'error').length,
+        window.AlgoLab.registry.listParams().find((entry) => entry.name === 'checkerSpeed')?.value,
+      ),
+    ).toBe(0.08);
+    expect(
+      await page.evaluate(() =>
+        window.AlgoLab.diagnostics.list().filter((d) => d.level === 'error').length,
       ),
     ).toBe(0);
   });
 
-  test('includes the wash layer when it is there', async ({ page }) => {
+  test('mixes exactly the ten teaching patches when starter Plasma is present', async ({ page }) => {
     await boot(page);
-    await page.getByRole('button', { name: 'Build a scene from several copies of the library patches' }).click();
+    await page.getByRole('button', { name: 'Insert a configured library scene into the source' }).click();
+    await expect(page.locator('#diagnostics-list')).toContainText('not active yet');
+    await page.locator('#code').press('Control+Enter');
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
-      .toEqual(['wash', 'grid', 'grid#2', 'ribbon', 'ribbon#2', 'pulse']);
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual([
+        'checkerZoom',
+        'neonTunnel',
+        'spectrumHalo',
+        'kaleido',
+        'pixelRain',
+        'waveScope',
+        'laserFan',
+        'glitchSlices',
+        'beatBurst',
+        'strobe',
+      ]);
   });
 });
 
-test.describe('the tools overlay', () => {
+test.describe('the minimal display', () => {
+  test('introduces AlgoLab and offers three explicit ways to begin', async ({ page }) => {
+    await boot(page, { tools: false, folded: true, welcome: true });
+
+    const welcome = page.getByRole('dialog', { name: 'ALGOLAB' });
+    await expect(welcome).toBeVisible();
+    const frameBefore = await page.evaluate(() => window.frameCount);
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => window.frameCount)).toBeGreaterThan(frameBefore);
+    expect(
+      await page.evaluate(
+        () => getComputedStyle(document.getElementById('start-overlay'), '::before').content,
+      ),
+    ).not.toBe('none');
+    await expect(welcome).toBeVisible();
+    await expect(welcome.getByAltText('Department of Arts and Entertainment Technologies')).toBeVisible();
+    await expect(
+      welcome.getByRole('link', {
+        name: 'Visit the Department of Arts and Entertainment Technologies website',
+      }),
+    ).toHaveAttribute('href', 'https://aet.utexas.edu/');
+    await expect(welcome).toContainText('browser-based visual instrument');
+    await expect(welcome).toContainText('PATCH');
+    await expect(welcome).toContainText('SCENE');
+    await expect(welcome).toContainText('LIVE');
+    await expect(welcome).not.toContainText('last successful scene keeps running');
+    await expect(welcome.getByRole('button', { name: 'choose audio file' })).toBeVisible();
+    await expect(welcome.getByRole('button', { name: 'use microphone' })).toBeVisible();
+
+    await welcome.getByRole('button', { name: 'enter with silence' }).click();
+    await expect(welcome).toBeHidden();
+    await expect(page.locator('#stage canvas')).toBeVisible();
+  });
+
+  test('shows transfer and decoding progress while an audio file loads', async ({ page }) => {
+    await boot(page, { tools: false, folded: true, welcome: true });
+    await page.evaluate(() => {
+      window.loadSound = (_url, onSuccess, onFailure, onProgress) => {
+        window.__testAudioLoad = { onSuccess, onFailure, onProgress };
+      };
+    });
+
+    await page.locator('#audio-file').setInputFiles({
+      name: 'long-set.mp3',
+      mimeType: 'audio/mpeg',
+      buffer: Buffer.from('test audio bytes'),
+    });
+    const loadState = page.locator('#start-load-state');
+    await expect(loadState).toBeVisible();
+    await expect(page.locator('#start-load-label')).toHaveText('Loading long-set.mp3…');
+
+    await page.evaluate(() => window.__testAudioLoad.onProgress(0.42));
+    await expect(page.locator('#start-load-label')).toHaveText('Loading long-set.mp3 — 42%');
+    await expect(page.locator('#start-load-progress')).toHaveJSProperty('value', 0.42);
+
+    await page.evaluate(() => window.__testAudioLoad.onProgress(0.99));
+    await expect(page.locator('#start-load-label')).toHaveText('Decoding long-set.mp3…');
+    await expect(page.locator('#start-load-progress')).not.toHaveAttribute('value');
+
+    await page.evaluate(() => window.__testAudioLoad.onFailure(new Error('test decode failure')));
+    await expect(loadState).toBeHidden();
+    await expect(page.getByRole('dialog', { name: 'ALGOLAB' })).toBeVisible();
+    await expect(page.locator('#start-note')).toContainText('Could not decode long-set.mp3');
+    await expect(page.locator('#start-note')).toContainText('enter with silence');
+  });
+
+  test('can unfold every cell and still fold any object or function again', async ({ page }) => {
+    await boot(page, { tools: false, folded: true });
+    await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
+    await expect(page.locator('.folded-block', { hasText: 'patch plasma' })).toBeVisible();
+    await expect(page.locator('.folded-block', { hasText: 'scene scene' })).toBeVisible();
+    await expect(page.locator('.folded-block', { hasText: 'patch plasma' }).locator('summary'))
+      .toContainText('// %% patch plasma');
+    await expect(
+      page.locator('.folded-block', { hasText: 'patch plasma' }).locator('.folded-line.folded-closed'),
+    ).toHaveText('1');
+
+    const foldedSurfaces = await page.evaluate(() => {
+      const alpha = (selector) => {
+        const color = getComputedStyle(document.querySelector(selector)).backgroundColor;
+        return Number(color.match(/[\d.]+\)$/)?.[0].slice(0, -1) ?? (color === 'transparent' ? 0 : 1));
+      };
+      return {
+        blocks: alpha('#folded-blocks'),
+        codeLine: alpha('.folded-preview'),
+      };
+    });
+    expect(foldedSurfaces.blocks).toBe(0);
+    expect(foldedSurfaces.codeLine).toBeGreaterThan(0);
+    expect(foldedSurfaces.codeLine).toBeLessThan(0.4);
+
+    const plasma = page.locator('.folded-block', { hasText: 'patch plasma' });
+    await plasma.locator('summary').click();
+    await expect(plasma.locator('.folded-source')).toContainText('class Plasma');
+    await expect(plasma.locator('.folded-line.folded-open')).toHaveText('1');
+
+    const columns = await page.evaluate(() => {
+      const textRect = (element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return range.getBoundingClientRect();
+      };
+      const closed = document.querySelector('.folded-block:not([open]) summary');
+      const open = document.querySelector('.folded-block[open] summary');
+      const mirror = open.parentElement.querySelector('.folded-source-mirror');
+      const numbers = open.parentElement.querySelector('.folded-source-numbers');
+      return {
+        code: [
+          Math.round(textRect(closed.querySelector('.folded-preview')).left),
+          Math.round(textRect(open.querySelector('.folded-preview.folded-open')).left),
+          Math.round(mirror.getBoundingClientRect().left + Number.parseFloat(getComputedStyle(mirror).paddingLeft)),
+        ],
+        numbers: [
+          Math.round(textRect(closed.querySelector('.folded-line')).right),
+          Math.round(textRect(open.querySelector('.folded-line.folded-open')).right),
+          Math.round(textRect(numbers).right),
+        ],
+      };
+    });
+    expect(new Set(columns.code).size).toBe(1);
+    expect(new Set(columns.numbers).size).toBe(1);
+
+    // Expanded source edits in place: the other cells stay folded and the complete
+    // hidden buffer receives the same edit.
+    const foldedEditor = plasma.getByRole('textbox', { name: 'Edit patch plasma' });
+    await foldedEditor.click();
+    await expect(foldedEditor).toHaveCSS('outline-style', 'none');
+    await expect(plasma.locator('.folded-source')).toHaveCSS('box-shadow', 'none');
+    await page.evaluate(() => {
+      const editor = document.querySelector('.folded-block[open] .folded-source-editor');
+      const at = editor.value.indexOf('0.0012');
+      editor.focus();
+      editor.setSelectionRange(at, at + '0.0012'.length);
+    });
+    await foldedEditor.pressSequentially('0.0022');
+    await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
+    await expect(page.locator('#code')).toHaveValue(/float warp = 0\.0022/);
+
+    await foldedEditor.press('Control+Alt+]');
+    await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
+    const blockCount = await page.locator('.folded-block').count();
+    await expect(page.locator('.folded-block[open]')).toHaveCount(blockCount);
+
+    // "Unfold all" keeps the disclosure controls alive, so any declaration can be
+    // collapsed again immediately rather than dropping into a folding dead end.
+    await plasma.locator('summary').click();
+    await expect(plasma).not.toHaveAttribute('open', '');
+
+    // The complete textarea also carries one fold control per top-level object,
+    // function, class or scene. Using one returns to the structured editor with only
+    // that declaration collapsed.
+    await page.evaluate(() => window.AlgoLab.editor.setFolded(false));
+    await expect(page.locator('#code-layer')).not.toHaveClass(/is-folded/);
+    await expect(page.getByRole('button', { name: 'Fold patch plasma' })).toBeVisible();
+    await page.getByRole('button', { name: 'Fold patch plasma' }).click();
+    await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
+    await expect(plasma).not.toHaveAttribute('open', '');
+  });
+
+  test('briefly acknowledges evaluation on the visible folded patch', async ({ page }) => {
+    await boot(page, { tools: false, folded: true });
+    const plasma = page.locator('.folded-block', { hasText: 'patch plasma' });
+    await plasma.locator('summary').click();
+
+    // The key event and observation share one browser task so the intentionally short
+    // acknowledgement cannot disappear before Playwright asks for its state.
+    const flashed = await page.evaluate(() => {
+      const editor = document.querySelector('.folded-block[open] .folded-source-editor');
+      editor.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }),
+      );
+      return editor.parentElement
+        .querySelector('.folded-source-mirror')
+        .classList.contains('flash-ok');
+    });
+    expect(flashed).toBe(true);
+    await expect(plasma.locator('.folded-source-mirror')).not.toHaveClass(/flash-ok/, {
+      timeout: 500,
+    });
+
+    const redFailureFlash = await page.evaluate(() => {
+      const editor = document.querySelector('.folded-block[open] .folded-source-editor');
+      editor.value = '  draw() { ((( }\n};';
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }),
+      );
+      return editor.parentElement
+        .querySelector('.folded-source-mirror')
+        .classList.contains('flash-bad');
+    });
+    expect(redFailureFlash).toBe(true);
+  });
+
+  test('arrives as the visuals, the code, and nothing else', async ({ page }) => {
+    await boot(page, { tools: false });
+
+    // The drawer is closed, so the only chrome on the canvas is the code in one
+    // corner and the glyph row in the other.
+    await expect(page.locator('#side')).toHaveClass(/is-hidden/);
+    await expect(page.locator('#reference-side')).toHaveClass(/is-hidden/);
+    await expect(page.locator('#code')).toBeVisible();
+    await expect(page.locator('#icons')).toBeVisible();
+
+    // The code lies on the visuals rather than sitting in a panel: no border, edge to
+    // edge, and its own surface carries no fill at all.
+    const code = await page.evaluate(() => {
+      const cs = getComputedStyle(document.getElementById('code'));
+      const box = document.getElementById('code').getBoundingClientRect();
+      const alpha = Number(cs.backgroundColor.match(/[\d.]+\)$/)?.[0].slice(0, -1) ?? 1);
+      return { border: cs.borderTopWidth, alpha, w: box.width, h: box.height };
+    });
+    expect(code.border).toBe('0px');
+    expect(code.alpha).toBe(0);
+    expect(code.w).toBe(await page.evaluate(() => window.innerWidth));
+    expect(code.h).toBe(await page.evaluate(() => window.innerHeight));
+
+    // Whether it is still running is the one thing that is never behind a toggle.
+    await expect(page.locator('#runtime-bar')).toBeVisible();
+  });
+
+  test('each line carries its own box, sized to its own text', async ({ page }) => {
+    await boot(page, { tools: false });
+
+    // The mirror has one element per line of the buffer, and they line up with the
+    // textarea's own metrics — if they drift, the caret sits off the glyphs.
+    const lines = await page.evaluate(() => document.getElementById('code').value.split('\n').length);
+    await expect(page.locator('#code-mirror > span')).toHaveCount(lines);
+    const labels = (await page.locator('#line-numbers').textContent()).split('\n');
+    expect(labels).toHaveLength(lines);
+    expect(labels[0]).toBe('1');
+    expect(labels.at(-1)).toBe(String(lines));
+
+    const metrics = await page.evaluate(() => {
+      const pick = (id) => {
+        const cs = getComputedStyle(document.getElementById(id));
+        return [cs.fontFamily, cs.fontSize, cs.lineHeight, cs.padding, cs.letterSpacing].join('|');
+      };
+      const spans = [...document.querySelectorAll('#code-mirror > span')];
+      const wide = spans.find((s) => s.textContent.length > 40);
+      const blank = spans.find((s) => s.textContent === '');
+      return {
+        same: pick('code') === pick('code-mirror'),
+        fontSize: getComputedStyle(document.getElementById('code')).fontSize,
+        lineAlpha: Number(
+          getComputedStyle(wide).backgroundColor.match(/[\d.]+\)$/)?.[0].slice(0, -1) ?? 1,
+        ),
+        wideWidth: wide.getBoundingClientRect().width,
+        blankWidth: blank.getBoundingClientRect().width,
+        blankHeight: blank.getBoundingClientRect().height,
+        full: document.getElementById('code-mirror').getBoundingClientRect().width,
+      };
+    });
+    expect(metrics.same).toBe(true);
+    expect(metrics.fontSize).toBe('15px');
+    expect(metrics.lineAlpha).toBeGreaterThan(0);
+    expect(metrics.lineAlpha).toBeLessThan(0.4);
+    // A line's box hugs its text: wider than nothing, narrower than the window.
+    expect(metrics.wideWidth).toBeGreaterThan(100);
+    expect(metrics.wideWidth).toBeLessThan(metrics.full);
+    // A blank line keeps its height and draws no box.
+    expect(metrics.blankWidth).toBe(0);
+    expect(metrics.blankHeight).toBeGreaterThan(0);
+  });
+
+  test('the mirror follows the editor scroll, however it moved', async ({ page }) => {
+    await boot(page, { tools: false });
+    const scrollTops = () =>
+      page.evaluate(() => ({
+        code: document.getElementById('code').scrollTop,
+        mirror: document.getElementById('code-mirror').scrollTop,
+        numbers: document.getElementById('line-numbers').scrollTop,
+      }));
+
+    // Scrolling the textarea takes the mirror with it — with the editor unfocused,
+    // because the wheel scrolls it without focusing it and the alignment cannot be
+    // conditional on focus.
+    await page.evaluate(() => {
+      document.getElementById('code').blur();
+      document.getElementById('code').scrollTop = 450;
+    });
+    await expect.poll(scrollTops).toEqual({ code: 450, mirror: 450, numbers: 450 });
+
+    // And a mirror knocked out of alignment by any means repairs itself, focused or
+    // not. This is the failure it guards: a mirror left behind paints the text below
+    // where the caret is, which reads as the caret sitting lines too high — and it
+    // gets worse the further down the buffer the performer has scrolled.
+    await page.evaluate(() => {
+      document.getElementById('code-mirror').scrollTop = 0;
+    });
+    await expect.poll(scrollTops).toEqual({ code: 450, mirror: 450, numbers: 450 });
+
+    // Focused, too — whatever focusing does to the scroll, the two stay together.
+    await page.locator('#code').focus();
+    await page.evaluate(() => {
+      document.getElementById('code-mirror').scrollTop = 12;
+    });
+    await expect.poll(async () => {
+      const { code, mirror, numbers } = await scrollTops();
+      return code === mirror && code === numbers;
+    }).toBe(true);
+
+    // Arrow keys walking the caret off the bottom scroll the textarea; the mirror has
+    // to come along, and this is the path that does not reliably announce itself.
+    await page.evaluate(() => {
+      const ta = document.getElementById('code');
+      ta.setSelectionRange(0, 0);
+      ta.scrollTop = 0;
+    });
+    await expect.poll(scrollTops).toEqual({ code: 0, mirror: 0, numbers: 0 });
+    for (let i = 0; i < 45; i++) await page.locator('#code').press('ArrowDown');
+    await page.waitForTimeout(120);
+    const after = await scrollTops();
+    expect(after.code).toBeGreaterThan(0);
+    expect(after.mirror).toBe(after.code);
+    expect(after.numbers).toBe(after.code);
+  });
+
+  test('the caret lands on the line the mirror painted, deep into the buffer', async ({ page }) => {
+    // A tall viewport and a long buffer, because this failure accumulates: a pitch
+    // difference of a fraction of a pixel per line is invisible at the top of the
+    // first screen and a whole line out several hundred lines down.
+    await page.setViewportSize({ width: 1348, height: 1132 });
+    await boot(page);
+    await page.getByRole('button', { name: 'Insert a configured library scene into the source' }).click();
+    await page.locator('#tools-toggle').click();
+    await expect.poll(() => page.evaluate(() => document.getElementById('code').value.split('\n').length))
+      .toBeGreaterThan(300);
+
+    const mismatches = [];
+    for (const scroll of [0, 1200, 4000, 7900]) {
+      await page.evaluate((s) => {
+        const ta = document.getElementById('code');
+        ta.scrollTop = s;
+        ta.dispatchEvent(new Event('scroll'));
+      }, scroll);
+      await page.waitForTimeout(60);
+
+      const targets = await page.evaluate(() => {
+        const out = [];
+        [...document.querySelectorAll('#code-mirror > span')].forEach((s, i) => {
+          const r = s.getBoundingClientRect();
+          if (r.top > 20 && r.bottom < window.innerHeight - 20 && r.width > 140) {
+            out.push({ line: i, x: Math.round(r.left + 50), y: Math.round(r.top + r.height / 2) });
+          }
+        });
+        // Top, middle and bottom of the viewport is enough to catch a drift.
+        return [out[0], out[Math.floor(out.length / 2)], out[out.length - 1]].filter(Boolean);
+      });
+
+      for (const t of targets) {
+        await page.mouse.click(t.x, t.y);
+        const got = await page.evaluate(() => {
+          const ta = document.getElementById('code');
+          return ta.value.slice(0, ta.selectionStart).split('\n').length - 1;
+        });
+        if (got !== t.line) mismatches.push({ scroll, expected: t.line, got });
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  test('undo survives an indent', async ({ page }) => {
+    await boot(page, { tools: false });
+    const code = page.locator('#code');
+    const original = await code.inputValue();
+    await code.focus();
+    await page.evaluate(() => {
+      const ta = document.getElementById('code');
+      ta.setSelectionRange(0, 0);
+    });
+
+    await code.pressSequentially('alpha');
+    await code.press('Tab'); // used to wipe the browser's undo stack outright
+    await code.pressSequentially('beta');
+    expect(await code.inputValue()).toContain('alpha  beta');
+
+    // Back over the typing, then back over the indent itself.
+    for (let i = 0; i < 12; i++) await code.press('ControlOrMeta+z');
+    const undone = await code.inputValue();
+    expect(undone).toBe(original);
+
+    // And the mirror shows what the textarea now holds, not what it held before.
+    const firstLine = await page.locator('#code-mirror > span').first().textContent();
+    expect(firstLine).toBe(undone.split('\n')[0]);
+  });
+
+  test('Enter indents brace pairs and closing braces outdent', async ({ page }) => {
+    await boot(page, { tools: false });
+    const code = page.locator('#code');
+    await code.focus();
+
+    await page.evaluate(() => {
+      const editor = document.getElementById('code');
+      editor.value = 'const shape = {}';
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      const at = editor.value.indexOf('{') + 1;
+      editor.setSelectionRange(at, at);
+    });
+    await code.press('Enter');
+    expect(await code.inputValue()).toBe('const shape = {\n  \n}');
+
+    await page.evaluate(() => {
+      const editor = document.getElementById('code');
+      editor.value = 'function drawShape() {\n  ';
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.setSelectionRange(editor.value.length, editor.value.length);
+    });
+    await code.pressSequentially('}');
+    expect(await code.inputValue()).toBe('function drawShape() {\n}');
+
+    // Regression for the Orbiters case: after an ordinary statement, the new line
+    // stays aligned with its siblings rather than drifting one level deeper.
+    await page.evaluate(() => {
+      const editor = document.getElementById('code');
+      editor.value = '    noStroke();\n    fill(255);';
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.setSelectionRange(editor.value.length, editor.value.length);
+    });
+    await code.press('Enter');
+    expect(await code.inputValue()).toBe('    noStroke();\n    fill(255);\n    ');
+  });
+
+  test('Cmd/Ctrl+/ toggles comments for every selected line', async ({ page }) => {
+    await boot(page, { tools: false });
+    const code = page.locator('#code');
+    await code.focus();
+    const original = '  alpha();\n  beta();\n';
+
+    await page.evaluate((source) => {
+      const editor = document.getElementById('code');
+      editor.value = source;
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.setSelectionRange(0, source.length - 1);
+    }, original);
+
+    await code.press('ControlOrMeta+/');
+    expect(await code.inputValue()).toBe('  // alpha();\n  // beta();\n');
+    await code.press('ControlOrMeta+/');
+    expect(await code.inputValue()).toBe(original);
+  });
+
+  test('"e" hides the code, and the sketch does not notice', async ({ page }) => {
+    await boot(page, { tools: false });
+    await page.locator('#code').focus();
+    await page.locator('#code').press('Escape');
+
+    await page.keyboard.press('e');
+    await expect(page.locator('#code-layer')).toHaveClass(/is-hidden/);
+    await page.keyboard.press('e');
+    await expect(page.locator('#code-layer')).not.toHaveClass(/is-hidden/);
+
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+  });
+
+  test('"?" prints the key commands', async ({ page }) => {
+    await boot(page, { tools: false });
+    await page.locator('#code').focus();
+    await page.locator('#code').press('Escape');
+
+    await page.keyboard.press('?');
+    await expect(page.locator('#keys-overlay')).toBeVisible();
+    await expect(page.locator('#keys-overlay')).toContainText('restore the complete safe state');
+    await expect(page.locator('#keys-overlay')).toContainText('fold all objects');
+    await expect(page.locator('#keys-overlay')).toContainText('unfold all while keeping every fold control available');
+    await expect(page.locator('#keys-overlay')).toContainText('show or hide this key-command sheet while editing');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#keys-overlay')).toBeHidden();
+
+    await page.locator('#code').focus();
+    await page.locator('#code').press('Control+Alt+/');
+    await expect(page.locator('#keys-overlay')).toBeVisible();
+    await page.locator('#code').press('Control+Alt+/');
+    await expect(page.locator('#keys-overlay')).toBeHidden();
+  });
+
   test('the canvas fills the window and the panel floats over it', async ({ page }) => {
     await boot(page);
 
@@ -249,6 +1115,7 @@ test.describe('the tools overlay', () => {
     expect(style.backdrop).toContain('blur');
 
     // The slider actually changes it, live.
+    await page.locator('details.panel', { hasText: 'Project & performance' }).locator('summary').click();
     await page.locator('#tools-opacity').fill('0.25');
     await expect
       .poll(() => page.evaluate(() => getComputedStyle(document.getElementById('side')).backgroundColor))
@@ -263,50 +1130,88 @@ test.describe('the tools overlay', () => {
     await expect(page.locator('#side')).not.toHaveClass(/is-hidden/);
 
     // Hiding the tools must not disturb the sketch — it is only a panel.
-    expect(await page.evaluate(() => window.Response.registry.activeOrder())).toEqual([
-      'wash',
-      'rings',
-      'orbiters',
-    ]);
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+  });
+
+  test('the drawer prioritizes the active scene and keeps setup detail quiet', async ({ page }) => {
+    await boot(page, { tools: false });
+    await page.locator('#tools-toggle').click();
+
+    await expect(page.locator('#scene-panel')).toHaveJSProperty('open', true);
+    await expect(page.locator('#library-panel')).toHaveJSProperty('open', false);
+    await expect(page.locator('#messages-panel')).toHaveJSProperty('open', false);
+    await expect(page.locator('#parameters-panel')).toBeHidden();
+    await expect(page.locator('#library-summary-count')).toHaveText('1/17 installed');
+    await expect(page.locator('#stagebar')).not.toContainText('set safe');
+    await expect(page.locator('#scene-panel')).toContainText('Recovery point');
+  });
+
+  test('fullscreen keeps the code over the canvas', async ({ page }) => {
+    await boot(page, { tools: false });
+    const fullscreen = page.getByRole('button', { name: 'Fullscreen the stage' });
+
+    await fullscreen.click();
+    await expect
+      .poll(() => page.evaluate(() => document.fullscreenElement?.id ?? null))
+      .toBe('app');
+    await expect(page.locator('#code-layer')).toBeVisible();
+    await expect(page.locator('#stage canvas')).toBeVisible();
+
+    await fullscreen.click();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement)).toBe(null);
   });
 
   test('"\\" does nothing while the editor has focus', async ({ page }) => {
-    await boot(page);
+    await boot(page, { tools: false });
     await page.locator('#code').focus();
     await page.locator('#code').press('\\');
-    await expect(page.locator('#side')).not.toHaveClass(/is-hidden/);
+    await expect(page.locator('#side')).toHaveClass(/is-hidden/);
     expect(await page.locator('#code').inputValue()).toContain('\\');
   });
 });
 
-test.describe('S-06 / P-05 panic', () => {
-  test('returns to the safe scene from the keyboard with no editor focus', async ({ page }) => {
+test.describe('S-06 / P-05 safe-state recovery', () => {
+  test('restores source, versions, scene and state from the keyboard', async ({ page }) => {
     await boot(page);
 
-    // The starter scene is designated safe at startup.
-    await expect.poll(() => page.evaluate(() => window.Response.registry.safeSceneName())).toBe(
-      'tunnel',
-    );
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.controller.snapshot().safeState))
+      .toMatchObject({ exists: true, sceneName: 'scene', dirty: false });
 
     await page.evaluate(() => {
-      window.Response.evaluator.evaluate(
-        'patch("chaos", () => { circle(10, 10, 5); }); scene("wild", ["chaos"]); go("wild");',
+      window.AlgoLab.evaluator.evaluate(
+        'const chaos = { draw() { circle(10, 10, 5); } }; const wild = [chaos]; go(wild); param("safeProbe", 9);',
         { label: 'buffer' },
       );
     });
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
       .toEqual(['chaos']);
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.controller.snapshot().safeState.dirty))
+      .toBe(true);
 
-    // P-04: release editor focus, then a single key recovers.
+    // One action restores the whole checkpoint, not only a scene-name pointer.
     await page.locator('#code').focus();
     await page.locator('#code').press('Escape');
     await page.keyboard.press('0');
 
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
-      .toEqual(['wash', 'rings', 'orbiters']);
-    await expect(page.locator('#diagnostics-list')).toContainText('Panic');
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['plasma']);
+    const restored = await page.evaluate(() => ({
+      plasmaVersion: window.AlgoLab.registry.getStrategy('plasma').version,
+      hasChaos: window.AlgoLab.registry.hasStrategy('chaos'),
+      hasSafeProbe: window.AlgoLab.registry.listParams().some((entry) => entry.name === 'safeProbe'),
+      source: document.getElementById('code').value,
+      safe: window.AlgoLab.controller.snapshot().safeState,
+    }));
+    expect(restored.plasmaVersion).toBe(1);
+    expect(restored.hasChaos).toBe(false);
+    expect(restored.hasSafeProbe).toBe(false);
+    expect(restored.source).not.toContain('const chaos');
+    expect(restored.safe).toMatchObject({ exists: true, sceneName: 'scene', dirty: false });
+    await expect(page.locator('#diagnostics-list')).toContainText('Safe state restored');
   });
 });
 
@@ -320,18 +1225,20 @@ test.describe('D-02 / D-03 project portability', () => {
       page.waitForEvent('download'),
       page.getByRole('button', { name: 'Export this project as JSON' }).click(),
     ]);
-    expect(download.suggestedFilename()).toMatch(/^response-project-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(download.suggestedFilename()).toMatch(/^algolab-project-\d{4}-\d{2}-\d{2}\.json$/);
   });
 
   test('import requires an explicit confirmation and can be cancelled', async ({ page }) => {
     await boot(page);
 
     const project = JSON.stringify({
-      format: 'response-project',
-      schema: 1,
-      source: ['patch("imported", () => { circle(50, 50, 20); });'],
-      scenes: [{ name: 'main', order: ['imported'] }],
-      activeScene: 'main',
+      format: 'algolab-project',
+      schema: 6,
+      source: [
+        'const imported = { draw() { circle(50, 50, 20); } };',
+        'const main = [imported];',
+        'go(main);',
+      ],
       params: [],
     });
 
@@ -345,13 +1252,13 @@ test.describe('D-02 / D-03 project portability', () => {
     const dialog = page.locator('.dialog-backdrop');
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText('someone-elses.json');
-    await expect(dialog.locator('.dialog-preview')).toContainText('patch("imported"');
+    await expect(dialog.locator('.dialog-preview')).toContainText('const imported');
     await expect(dialog.locator('.dialog-warning')).toContainText('not a');
 
     // Cancelling must change nothing.
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toBeHidden();
-    expect(await page.evaluate(() => window.Response.registry.hasPatch('imported'))).toBe(false);
+    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('imported'))).toBe(false);
 
     // Confirming runs it.
     await page.locator('#import-file').setInputFiles({
@@ -361,7 +1268,7 @@ test.describe('D-02 / D-03 project portability', () => {
     });
     await dialog.getByRole('button', { name: 'Import and run' }).click();
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.hasPatch('imported')))
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('imported')))
       .toBe(true);
   });
 
@@ -369,10 +1276,10 @@ test.describe('D-02 / D-03 project portability', () => {
     await boot(page);
     await page.locator('details.panel', { hasText: 'Project & performance' }).locator('summary').click();
 
-    // Make a mess: a new patch, extra copies, a wrecked scene, accumulated state.
+    // Make a mess: a new strategy, extra copies, a wrecked scene, accumulated state.
     await page.evaluate(() =>
-      window.Response.evaluator.evaluate(
-        'patch("mess", () => { circle(5, 5, 5); }); add("rings"); add("rings");',
+      window.AlgoLab.evaluator.evaluate(
+        'const mess = { draw() { circle(5, 5, 5); } }; const messy = [mess, plasma, plasma]; go(messy);',
         { label: 'test' },
       ),
     );
@@ -382,10 +1289,10 @@ test.describe('D-02 / D-03 project portability', () => {
     });
     const before = await page.evaluate(() => ({
       frameCount: window.frameCount,
-      hostTime: window.Response.host.time(),
-      patches: window.Response.registry.listPatches().length,
+      hostTime: window.AlgoLab.host.time(),
+      strategies: window.AlgoLab.registry.listStrategies().length,
     }));
-    expect(before.patches).toBe(4);
+    expect(before.strategies).toBe(2);
 
     await page.getByRole('button', { name: 'Discard everything and go back to the starter project' }).click();
     const dialog = page.locator('.dialog-backdrop');
@@ -394,28 +1301,28 @@ test.describe('D-02 / D-03 project portability', () => {
 
     // Cancelling changes nothing.
     await dialog.getByRole('button', { name: 'Cancel' }).click();
-    expect(await page.evaluate(() => window.Response.registry.hasPatch('mess'))).toBe(true);
+    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('mess'))).toBe(true);
 
     await page.getByRole('button', { name: 'Discard everything and go back to the starter project' }).click();
     await dialog.getByRole('button', { name: 'Reset to starter' }).click();
 
     await expect
-      .poll(() => page.evaluate(() => window.Response.registry.activeOrder()))
-      .toEqual(['wash', 'rings', 'orbiters']);
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['plasma']);
 
     const after = await page.evaluate(() => ({
-      hasMess: window.Response.registry.hasPatch('mess'),
-      stateKeys: window.Response.stateStore.names().sort(),
+      hasMess: window.AlgoLab.registry.hasStrategy('mess'),
+      stateKeys: window.AlgoLab.stateStore.names().sort(),
       source: document.getElementById('code').value,
-      safeScene: window.Response.registry.safeSceneName(),
+      safeScene: window.AlgoLab.registry.safeSceneName(),
       sameCanvas: document.querySelector('#stage canvas')?.dataset.probe === 'original',
       frameCount: window.frameCount,
-      hostTime: window.Response.host.time(),
+      hostTime: window.AlgoLab.host.time(),
     }));
 
     expect(after.hasMess).toBe(false);
-    expect(after.stateKeys).toEqual(['orbiters', 'rings', 'wash']);
-    expect(after.source).toContain('RESPONSE — starter scene');
+    expect(after.stateKeys).toEqual(['plasma']);
+    expect(after.source).toContain('ALGOLAB — starter scene');
     expect(after.safeScene).not.toBe(null);
     // The point of doing this in place rather than reloading: the canvas and the
     // clock are the same ones. Nothing the audience is looking at restarted.
@@ -433,7 +1340,7 @@ test.describe('D-02 / D-03 project portability', () => {
     });
 
     await expect(page.locator('.dialog-backdrop')).toBeHidden();
-    await expect(page.locator('#diagnostics-list')).toContainText('Not a Response project');
+    await expect(page.locator('#diagnostics-list')).toContainText('Not an AlgoLab project');
   });
 });
 

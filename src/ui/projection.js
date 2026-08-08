@@ -1,7 +1,7 @@
 // Projection view — PRD §10.6, P-01 through P-03.
 //
 // "Performer and audience views are different" (§7). The performer keeps the editor,
-// the meters, the error messages, the file names. The audience gets the canvas, and
+// the controls, error messages, and file names. The audience gets the canvas, and
 // optionally a deliberate overlay that clarifies the performer's agency.
 //
 // P-01 is a prohibition as much as a feature: editor errors, file paths, transport
@@ -39,7 +39,7 @@ const POPUP_STYLES = `
   #hint { position: absolute; top: 12px; right: 16px; color: #55555f; font-size: 11px; }
 `;
 
-export function createProjection({ registry, diagnostics }) {
+export function createProjection({ controller, onBlocked, onOpened }) {
   let win = null;
   let target = null; // the popup's 2D canvas
   let ctx = null;
@@ -56,17 +56,14 @@ export function createProjection({ registry, diagnostics }) {
       win.focus();
       return true;
     }
-    win = window.open('', 'response-projection', 'width=1280,height=720');
+    win = window.open('', 'algolab-projection', 'width=1280,height=720');
     if (!win) {
-      diagnostics?.warn(
-        'Projection window was blocked',
-        'Allow pop-ups for this page, or use Fullscreen instead.',
-      );
+      onBlocked?.();
       win = null;
       return false;
     }
 
-    win.document.title = 'Response — projection';
+    win.document.title = 'AlgoLab — projection';
     win.document.head.innerHTML = `<style>${POPUP_STYLES}</style>`;
     win.document.body.innerHTML = `
       <div id="wrap">
@@ -92,9 +89,9 @@ export function createProjection({ registry, diagnostics }) {
     });
 
     resizeTarget();
-    unsubscribe = registry.subscribe(renderOverlay);
+    unsubscribe = controller.subscribe(renderOverlay);
     renderOverlay();
-    diagnostics?.success('Projection window open', 'Tab cycles layout; Esc closes it.');
+    onOpened?.();
     return true;
   }
 
@@ -169,13 +166,15 @@ export function createProjection({ registry, diagnostics }) {
       return;
     }
 
-    // P-03: patch names, layer order, and audio-to-behavior mappings.
+    // P-03: strategy names, layer order, and audio-to-behavior mappings.
+    const snapshot = controller.snapshot();
     const title = win.document.createElement('div');
     title.className = 'trace-title';
-    title.textContent = `scene: ${registry.activeSceneName() ?? '—'}`;
+    title.textContent = `scene: ${snapshot.scene.name ?? '—'}`;
 
-    const rows = registry.activeInstances().map((instance, index) => {
-      const record = registry.getPatch(instance.patch);
+    const records = new Map(snapshot.strategies.map((record) => [record.name, record]));
+    const rows = snapshot.scene.order.map((instance, index) => {
+      const record = records.get(instance.strategy);
       const row = win.document.createElement('div');
       row.className = 'trace-row';
 
@@ -199,7 +198,7 @@ export function createProjection({ registry, diagnostics }) {
   }
 
   /**
-   * Which audio features a patch actually reads, recovered from its source.
+   * Which audio features a strategy actually reads, recovered from its source.
    *
    * This is what makes the trace layout worth projecting: it shows the audience the
    * connection between what they are hearing and what they are seeing, which is the

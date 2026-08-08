@@ -29,11 +29,13 @@ const SAMPLE_MS = 10_000;
 // evaluating the same text over and over: a good replacement, a stateful one, a
 // syntax error, and code that throws on its first frame.
 const EDITS = [
-  (i) => `patch("rings", ({ audio }) => {
-    noFill(); stroke(${(i * 37) % 255}, 180, 255); strokeWeight(${1 + (i % 6)});
-    circle(width / 2, height / 2, map(audio.bass, 0, 1, 40, width * 0.7));
-  });`,
-  (i) => `patch("motes", {
+  (i) => `const rings = {
+    draw({ audio }) {
+      noFill(); stroke(${(i * 37) % 255}, 180, 255); strokeWeight(${1 + (i % 6)});
+      circle(width / 2, height / 2, map(audio.bass, 0, 1, 40, width * 0.7));
+    },
+  };`,
+  (i) => `const motes = {
     state: () => ({ pts: [] }),
     draw({ audio, state, dt }) {
       state.pts.push({ x: random(width), y: random(height), t: ${i} });
@@ -41,10 +43,10 @@ const EDITS = [
       noStroke(); fill(255, 60);
       for (const p of state.pts) circle(p.x, p.y, 2 + audio.treble * 8);
     },
-  });`,
-  () => 'patch("rings", ({ audio }) => { this is not javascript (((',
-  () => 'patch("rings", ({ audio }) => { definitelyNotDefined.boom(); });',
-  () => 'go("tunnel");',
+  };`,
+  () => 'const rings = { draw({ audio }) { this is not javascript ((( } };',
+  () => 'const rings = { draw({ audio }) { definitelyNotDefined.boom(); } };',
+  () => 'go(tunnel);',
 ];
 
 test(`§15 soak — ${MINUTES} minutes of continuous render, analysis, and evaluation`, async ({
@@ -61,8 +63,8 @@ test(`§15 soak — ${MINUTES} minutes of continuous render, analysis, and evalu
 
   await page.locator('#audio-file').setInputFiles(TONE);
   await expect(page.locator('#start-overlay')).toBeHidden({ timeout: 15_000 });
-  await page.evaluate(() => window.Response.audio.setLoop(true));
-  await expect.poll(() => page.evaluate(() => window.Response.audio.status().playing)).toBe(true);
+  await page.evaluate(() => window.AlgoLab.audio.setLoop(true));
+  await expect.poll(() => page.evaluate(() => window.AlgoLab.audio.status().playing)).toBe(true);
 
   // Identity probes: if any of these change, something was rebuilt underneath the
   // running sketch, which is exactly what A-04 and R-01 forbid.
@@ -73,7 +75,7 @@ test(`§15 soak — ${MINUTES} minutes of continuous render, analysis, and evalu
 
   const sample = () =>
     page.evaluate(() => {
-      const R = window.Response;
+      const R = window.AlgoLab;
       return {
         frameCount: window.frameCount,
         fps: R.host.fps(),
@@ -85,11 +87,11 @@ test(`§15 soak — ${MINUTES} minutes of continuous render, analysis, and evalu
         sameAudioContext: window.__probe.context === getAudioContext(),
         sameDraw: window.__probe.draw === window.draw,
         contextState: getAudioContext().state,
-        patchCount: R.registry.listPatches().length,
+        strategyCount: R.registry.listStrategies().length,
         sceneSize: R.registry.activeOrder().length,
         // Bounded structures — §13.5 forbids unbounded per-frame growth.
         diagnostics: R.diagnostics.list().length,
-        maxHistory: Math.max(...R.registry.listPatches().map((p) => p.history.length)),
+        maxHistory: Math.max(...R.registry.listStrategies().map((p) => p.history.length)),
         motesTrail: R.stateStore.get('motes')?.pts?.length ?? 0,
       };
     });
@@ -109,7 +111,7 @@ test(`§15 soak — ${MINUTES} minutes of continuous render, analysis, and evalu
     for (let i = 0; i < 40; i++) {
       const edit = EDITS[evaluations % EDITS.length];
       await page.evaluate(
-        (source) => window.Response.evaluator.evaluate(source, { label: 'soak' }),
+        (source) => window.AlgoLab.evaluator.evaluate(source, { label: 'soak' }),
         edit(evaluations),
       );
       evaluations++;
@@ -136,8 +138,8 @@ test(`§15 soak — ${MINUTES} minutes of continuous render, analysis, and evalu
 
   // --- bounded structures ---------------------------------------------------------
   expect(last.diagnostics).toBeLessThanOrEqual(200); // the diagnostics ring
-  expect(last.maxHistory).toBeLessThanOrEqual(12); // per-patch version history
-  expect(last.motesTrail).toBeLessThanOrEqual(150); // the patch's own bound
+  expect(last.maxHistory).toBeLessThanOrEqual(12); // per-strategy version history
+  expect(last.motesTrail).toBeLessThanOrEqual(150); // the strategy's own bound
 
   // --- frame rate held ------------------------------------------------------------
   const meanFps = samples.reduce((a, s) => a + s.fps, 0) / samples.length;

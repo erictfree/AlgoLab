@@ -1,34 +1,28 @@
-// Registry — named visual behaviors and the scenes that compose them.
+// Registry — named strategy implementations and the scenes that compose them.
 //
-// This module is the "first-class functions stored in a registry" idea from PRD §18,
-// made literal. A patch is a name pointing at a function. Replacing the function does
-// not disturb the name, the scene that mentions it, or the state filed under it.
-//
-// The single invariant everything else depends on: a failed evaluation never mutates
-// an active record. New code is a *candidate* until it has survived one frame (§7,
-// "The last good image-making system wins"). Only then does it enter history.
-//
-// No p5, no DOM — this file is unit-testable in plain Node.
+// A scene is an ordered array of stable strategy instances. Re-evaluating a named
+// function or object replaces the implementation behind every instance without
+// replacing the scene slots or their state. Candidates enter history only after
+// surviving a frame.
 
 import { instanceId } from './stateStore.js';
 
-const DEFAULT_HISTORY_LIMIT = 12; // S-05 requires at least ten.
-const DEFAULT_SCENE = 'main';
+const DEFAULT_HISTORY_LIMIT = 12;
+const STRATEGY_METHODS = ['state', 'enter', 'draw', 'beat', 'exit'];
 
 /**
- * @typedef {{ state?: Function, draw: Function, enter?: Function, beat?: Function, exit?: Function }} PatchDefinition
- * @typedef {{ version: number, source: string, definition: PatchDefinition, at: number }} HistoryEntry
+ * @typedef {Function | { state?: Function, draw: Function, enter?: Function, beat?: Function, exit?: Function }} StrategyDefinition
+ * @typedef {{ version: number, source: string, definition: StrategyDefinition, at: number }} HistoryEntry
  */
 
 export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () => Date.now() } = {}) {
   /** @type {Map<string, any>} */
-  const patches = new Map();
-  /** @type {Map<string, string[]>} */
+  const strategies = new Map();
+  /** @type {Map<string, Array<{id: string, strategy: string}>>} */
   const scenes = new Map();
   /** @type {Map<string, {value: any, min?: number, max?: number, step?: number}>} */
   const params = new Map();
   let activeSceneName = null;
-  /** The scene panic returns to (S-06, P-05). */
   let safeSceneName = null;
   const listeners = new Set();
 
@@ -36,7 +30,7 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     for (const listener of listeners) listener();
   }
 
-  // --- patches ------------------------------------------------------------------
+  // --- strategies ---------------------------------------------------------------
 
   function createRecord(name) {
     const record = {
@@ -46,32 +40,25 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
       source: '',
       /** @type {HistoryEntry[]} */
       history: [],
-      /** Set while a new version is awaiting its first frame. */
       candidate: null,
-      status: 'empty', // 'empty' | 'ok' | 'failed'
+      status: 'empty',
       lastError: null,
+      runningVersion: null,
     };
-    patches.set(name, record);
+    strategies.set(name, record);
     return record;
   }
 
-  /**
-   * Install a new version as a *candidate*. The previous definition is remembered so
-   * `rollback` can put it back if the candidate throws on its first frame (S-03).
-   *
-   * @param {string} name
-   * @param {PatchDefinition} definition
-   * @param {string} source
-   * @param {any} stateSnapshot value from stateStore.snapshot(), kept for rollback
-   */
-  function stagePatch(name, definition, source, stateSnapshot) {
-    const record = patches.get(name) ?? createRecord(name);
+  function stageStrategy(name, definition, source, stateSnapshot, configurationSnapshot = null) {
+    const record = strategies.get(name) ?? createRecord(name);
     record.candidate = {
       previousDefinition: record.definition,
       previousVersion: record.version,
       previousSource: record.source,
       previousStatus: record.status,
+      previousRunningVersion: record.runningVersion,
       stateSnapshot,
+      configurationSnapshot,
     };
     record.definition = definition;
     record.source = source;
@@ -82,11 +69,11 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     return record;
   }
 
-  /** The candidate survived a frame. Record it as a successful version (S-05). */
-  function confirmPatch(name) {
-    const record = patches.get(name);
+  function confirmStrategy(name, { running = false } = {}) {
+    const record = strategies.get(name);
     if (!record?.candidate) return null;
     record.candidate = null;
+    if (running) record.runningVersion = record.version;
     record.history.unshift({
       version: record.version,
       source: record.source,
@@ -98,79 +85,107 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     return record;
   }
 
-  /**
-   * The candidate threw on its first frame. Put the previous version back and hand
-   * the caller the state snapshot to restore alongside it.
-   */
-  function rollbackPatch(name, error) {
-    const record = patches.get(name);
+  function rollbackStrategy(name, error) {
+    const record = strategies.get(name);
     if (!record?.candidate) return null;
-    const { previousDefinition, previousVersion, previousSource, previousStatus, stateSnapshot } =
-      record.candidate;
-
+    const {
+      previousDefinition,
+      previousVersion,
+      previousSource,
+      previousStatus,
+      previousRunningVersion,
+      stateSnapshot,
+      configurationSnapshot,
+    } = record.candidate;
     const failedVersion = record.version;
+    const failedDefinition = record.definition;
     record.definition = previousDefinition;
     record.version = previousVersion;
     record.source = previousSource;
     record.status = previousDefinition ? previousStatus : 'failed';
+    record.runningVersion = previousRunningVersion;
     record.lastError = { message: error?.message ?? String(error), version: failedVersion };
     record.candidate = null;
     notify();
-    return { record, stateSnapshot, failedVersion, restoredVersion: previousVersion };
+    return {
+      record,
+      stateSnapshot,
+      configurationSnapshot,
+      failedDefinition,
+      failedVersion,
+      restoredVersion: previousVersion,
+    };
   }
 
-  /**
-   * One-click reversion (S-05). The historical definition becomes active again as a
-   * new version, so history stays append-only and version numbers stay monotonic.
-   */
   function historyEntry(name, version) {
-    return patches.get(name)?.history.find((entry) => entry.version === version) ?? null;
+    return strategies.get(name)?.history.find((entry) => entry.version === version) ?? null;
   }
 
-  function removePatch(name) {
-    patches.delete(name);
-    for (const [sceneName, order] of scenes) {
-      const next = order.filter((n) => n !== name);
-      if (next.length !== order.length) scenes.set(sceneName, next);
-    }
+  /** Mark a committed active version as having completed an actual draw. */
+  function markRendered(name) {
+    const record = strategies.get(name);
+    if (!record || record.candidate || record.status !== 'ok') return false;
+    if (record.runningVersion === record.version) return false;
+    record.runningVersion = record.version;
     notify();
+    return true;
   }
 
   // --- scenes and instances -----------------------------------------------------
-  //
-  // A scene is an ordered list of INSTANCES, not of patch names, because the same
-  // patch may appear more than once — two swarms with different configs, three
-  // ribbons at different heights. An instance is `{ id, patch, config }`.
-  //
-  // The first instance of a patch takes the bare patch name as its id, so a scene
-  // that uses each patch once is indistinguishable from the old name-list model.
-  // Extras are `swarm#2`, `swarm#3`.
 
-  /** Allocate the lowest unused instance id for `patch` within `order`. */
-  function nextInstanceId(order, patch) {
+  function nextInstanceId(order, strategyName) {
     const taken = new Set(order.map((entry) => entry.id));
     for (let n = 1; ; n++) {
-      const id = instanceId(patch, n);
+      const id = instanceId(strategyName, n);
       if (!taken.has(id)) return id;
     }
   }
 
-  /**
-   * Normalize one scene entry into an instance.
-   * Accepts `"swarm"` or `{ patch: "swarm", config: {...} }`.
-   */
+  /** Normalize a strategy name or scene entry into a stable runtime instance. */
   function toInstance(order, entry) {
-    const patch = typeof entry === 'string' ? entry : entry.patch;
-    const config = typeof entry === 'string' ? {} : (entry.config ?? {});
-    // An explicit id is honoured when it is free, so a saved or exported project
-    // reloads with the ids it was saved under rather than being renumbered.
-    const wanted = typeof entry === 'string' ? null : entry.id;
-    const free = wanted && !order.some((i) => i.id === wanted);
-    return { id: free ? wanted : nextInstanceId(order, patch), patch, config };
+    const strategyName = typeof entry === 'string' ? entry : entry.strategy;
+    const instance = {
+      id: nextInstanceId(order, strategyName),
+      strategy: strategyName,
+    };
+
+    // Delegates are stable and non-enumerable. Each invocation resolves the current
+    // implementation and preserves normal object/class `this` semantics.
+    const delegates = {};
+    for (const method of STRATEGY_METHODS) {
+      delegates[method] = (...args) => {
+        const implementation = strategies.get(strategyName)?.definition;
+        if (method === 'draw' && typeof implementation === 'function') {
+          return implementation(...args);
+        }
+        return implementation?.[method]?.apply(implementation, args);
+      };
+      Object.defineProperty(instance, method, {
+        enumerable: false,
+        get: () => {
+          const implementation = strategies.get(strategyName)?.definition;
+          const exists =
+            (method === 'draw' && typeof implementation === 'function') ||
+            typeof implementation?.[method] === 'function';
+          return exists ? delegates[method] : undefined;
+        },
+      });
+    }
+    Object.defineProperty(instance, 'implementation', {
+      enumerable: false,
+      get: () => strategies.get(strategyName)?.definition,
+    });
+    return instance;
+  }
+
+  function boundMethod(name, method) {
+    const implementation = strategies.get(name)?.definition;
+    if (method === 'draw' && typeof implementation === 'function') return implementation;
+    const fn = implementation?.[method];
+    return typeof fn === 'function' ? fn.bind(implementation) : undefined;
   }
 
   function defineScene(name, entries) {
-    /** @type {Array<{id: string, patch: string, config: object}>} */
     const order = [];
     for (const entry of entries) order.push(toInstance(order, entry));
     scenes.set(name, order);
@@ -186,28 +201,24 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     return name;
   }
 
-  /** Instance ids, in layer order. The host draws these, in this order. */
+  function activeInstances() {
+    return activeSceneName === null ? [] : (scenes.get(activeSceneName) ?? []);
+  }
+
   function activeOrder() {
     return activeInstances().map((instance) => instance.id);
   }
 
-  function activeInstances() {
-    if (activeSceneName === null) return [];
-    return scenes.get(activeSceneName) ?? [];
+  function activeStrategies() {
+    return activeInstances();
   }
 
-  function getInstance(id) {
-    return activeInstances().find((instance) => instance.id === id) ?? null;
+  function activeInstancesOf(strategyName) {
+    return activeInstances().filter((instance) => instance.strategy === strategyName);
   }
 
-  /** Every instance of a patch in the active scene — one patch, possibly many copies. */
-  function activeInstancesOf(patch) {
-    return activeInstances().filter((instance) => instance.patch === patch);
-  }
+  // --- safe scene ---------------------------------------------------------------
 
-  // --- safe scene (S-06, P-05) --------------------------------------------------
-
-  /** Designate a scene as the one to fall back to. Defaults to the active scene. */
   function setSafeScene(name = activeSceneName) {
     if (name === null || !scenes.has(name)) return null;
     safeSceneName = name;
@@ -215,120 +226,96 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     return name;
   }
 
-  /**
-   * Return to the safe scene in one action.
-   *
-   * Deliberately does nothing else — it does not reset state, re-evaluate code, or
-   * touch the audio. Panic is for the moment when the visuals have gone somewhere
-   * unusable in front of an audience, and the recovery has to be one keystroke with
-   * an outcome the performer already knows the look of.
-   */
   function panic() {
-    if (safeSceneName === null || !scenes.has(safeSceneName)) return null;
-    return go(safeSceneName);
+    return safeSceneName !== null && scenes.has(safeSceneName) ? go(safeSceneName) : null;
   }
 
-  function ensureActiveScene() {
-    if (activeSceneName === null) {
-      if (!scenes.has(DEFAULT_SCENE)) scenes.set(DEFAULT_SCENE, []);
-      activeSceneName = DEFAULT_SCENE;
+  // --- snapshots ---------------------------------------------------------------
+
+  function snapshotConfiguration() {
+    return {
+      scenes: [...scenes.entries()].map(([name, order]) => ({
+        name,
+        entries: order.map((instance) => instance.strategy),
+      })),
+      activeSceneName,
+      safeSceneName,
+      params: [...params.entries()].map(([name, entry]) => ({ name, ...entry })),
+    };
+  }
+
+  function restoreConfiguration(snapshot) {
+    if (!snapshot) return false;
+    scenes.clear();
+    for (const scene of snapshot.scenes ?? []) {
+      const order = [];
+      for (const strategyName of scene.entries ?? []) order.push(toInstance(order, strategyName));
+      scenes.set(scene.name, order);
     }
-    return activeSceneName;
+    activeSceneName =
+      snapshot.activeSceneName !== null && scenes.has(snapshot.activeSceneName)
+        ? snapshot.activeSceneName
+        : null;
+    safeSceneName =
+      snapshot.safeSceneName !== null && scenes.has(snapshot.safeSceneName)
+        ? snapshot.safeSceneName
+        : null;
+    params.clear();
+    for (const entry of snapshot.params ?? []) {
+      const { name, ...value } = entry;
+      params.set(name, { ...value });
+    }
+    notify();
+    return true;
   }
 
   /**
-   * Add an instance of a patch to the running scene.
-   *
-   * Called two ways, and the difference matters:
-   *
-   *  - automatically, when a newly-named patch is registered. Without this, a
-   *    student's first `patch("mine", ...)` evaluates successfully and draws nothing,
-   *    which reads as "the system is broken" rather than "you have not composed a
-   *    scene yet" (§15 asks for a first success within 15 minutes). That path passes
-   *    `once: true`, so re-evaluating an existing patch never re-adds it.
-   *
-   *  - deliberately, via `add("swarm")` or the Patch shelf. That path always creates
-   *    a new instance, so asking for a second swarm gets you a second swarm.
+   * A safe-state snapshot retains the exact confirmed objects as well as their source.
+   * It is intentionally in-memory: functions and class instances cannot be faithfully
+   * serialized, and recovery must not re-run broken editor source first.
    */
-  function addToActiveScene(patch, config = {}, { once = false } = {}) {
-    const sceneName = ensureActiveScene();
-    const order = scenes.get(sceneName);
-    if (once && order.some((instance) => instance.patch === patch)) return null;
-    const instance = toInstance(order, { patch, config });
-    order.push(instance);
-    notify();
-    return instance;
+  function snapshotRuntime() {
+    return {
+      strategies: [...strategies.values()].map((record) => ({
+        name: record.name,
+        version: record.version,
+        definition: record.definition,
+        source: record.source,
+        history: record.history.map((entry) => ({ ...entry })),
+        status: record.status,
+        lastError: record.lastError ? { ...record.lastError } : null,
+        runningVersion: record.runningVersion,
+      })),
+      configuration: snapshotConfiguration(),
+    };
   }
 
-  /**
-   * Remove by instance id (`swarm#2`) or by patch name.
-   *
-   * A bare patch name removes that patch's LAST instance rather than all of them, so
-   * repeated `remove("swarm")` peels copies off one at a time and mirrors repeated
-   * `add("swarm")`. Removing every copy at once is `removeAll`.
-   */
-  function removeFromActiveScene(idOrPatch) {
-    const sceneName = ensureActiveScene();
-    const order = scenes.get(sceneName);
-
-    // "swarm" and "swarm#2" mean different things, and "swarm" is ambiguous on its
-    // own — it is both the patch name and the first instance's id. The "#" settles
-    // it: with one, target that exact instance; without one, treat it as a patch name
-    // and peel off its last copy, so repeated remove() undoes repeated add().
-    const index = idOrPatch.includes('#')
-      ? order.findIndex((instance) => instance.id === idOrPatch)
-      : order.map((instance) => instance.patch).lastIndexOf(idOrPatch);
-    if (index === -1) return order;
-    order.splice(index, 1);
-    // The host uses its own record of what was on stage last frame to notice the
-    // departure and run exit() (L-07), so nothing lifecycle-related happens here.
-    notify();
-    return order;
+  function restoreRuntime(snapshot) {
+    if (!snapshot) return false;
+    strategies.clear();
+    for (const saved of snapshot.strategies ?? []) {
+      strategies.set(saved.name, {
+        name: saved.name,
+        version: saved.version,
+        definition: saved.definition,
+        source: saved.source,
+        history: (saved.history ?? []).map((entry) => ({ ...entry })),
+        candidate: null,
+        status: saved.status,
+        lastError: saved.lastError ? { ...saved.lastError } : null,
+        runningVersion: saved.runningVersion ?? null,
+        errorSignature: null,
+        errorFrames: 0,
+      });
+    }
+    restoreConfiguration(snapshot.configuration);
+    return true;
   }
 
-  function removeAllFromActiveScene(patch) {
-    const sceneName = ensureActiveScene();
-    scenes.set(
-      sceneName,
-      scenes.get(sceneName).filter((instance) => instance.patch !== patch),
-    );
-    notify();
-    return scenes.get(sceneName);
-  }
-
-  function clearActiveScene() {
-    const sceneName = ensureActiveScene();
-    scenes.set(sceneName, []);
-    notify();
-    return [];
-  }
-
-  /** Live layer reordering (L-06) — move one instance to a new index. */
-  function reorderActiveScene(id, toIndex) {
-    const sceneName = ensureActiveScene();
-    const order = scenes.get(sceneName);
-    const from = order.findIndex((instance) => instance.id === id);
-    if (from === -1) return order;
-    const [moved] = order.splice(from, 1);
-    order.splice(Math.max(0, Math.min(toIndex, order.length)), 0, moved);
-    notify();
-    return order;
-  }
-
-  /** Per-instance settings, live (§9.7's params are workspace-wide; this is not). */
-  function configureInstance(id, changes) {
-    const instance = getInstance(id);
-    if (!instance) return null;
-    instance.config = { ...instance.config, ...changes };
-    notify();
-    return instance;
-  }
-
-  // --- params (§9.7) ------------------------------------------------------------
+  // --- params -------------------------------------------------------------------
 
   function declareParam(name, value, options = {}) {
     const existing = params.get(name);
-    // Re-evaluating a block must not stomp a value the performer has since tuned.
     params.set(name, { ...options, value: existing ? existing.value : value, default: value });
     notify();
     return params.get(name);
@@ -342,22 +329,14 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     return entry;
   }
 
-  /** Flat `{ name: value }` view handed to patches each frame as `context.params`. */
   function paramValues(target = {}) {
     for (const key of Object.keys(target)) delete target[key];
     for (const [name, entry] of params) target[name] = entry.value;
     return target;
   }
 
-  /**
-   * Forget everything: patches, scenes, params, and the safe scene.
-   *
-   * Used only by the performer's explicit "reset project" action. It is deliberately
-   * a single call rather than something the evaluator can reach, because nothing a
-   * student evaluates should be able to empty the registry.
-   */
   function reset() {
-    patches.clear();
+    strategies.clear();
     scenes.clear();
     params.clear();
     activeSceneName = null;
@@ -367,43 +346,35 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
 
   return {
     reset,
-    // patches
-    stagePatch,
-    confirmPatch,
-    rollbackPatch,
-    removePatch,
+    stageStrategy,
+    confirmStrategy,
+    rollbackStrategy,
+    markRendered,
     historyEntry,
-    getPatch: (name) => patches.get(name) ?? null,
-    hasPatch: (name) => patches.has(name),
-    listPatches: () => [...patches.values()],
-    patchNames: () => [...patches.keys()],
-
-    // scenes and instances
+    getStrategy: (name) => strategies.get(name) ?? null,
+    hasStrategy: (name) => strategies.has(name),
+    listStrategies: () => [...strategies.values()],
+    strategyNames: () => [...strategies.keys()],
     defineScene,
     go,
     activeOrder,
     activeInstances,
+    activeStrategies,
     activeInstancesOf,
-    getInstance,
-    ensureActiveScene,
-    addToActiveScene,
-    removeFromActiveScene,
-    removeAllFromActiveScene,
-    clearActiveScene,
-    reorderActiveScene,
-    configureInstance,
+    boundMethod,
     listScenes: () => [...scenes.entries()].map(([name, order]) => ({ name, order: [...order] })),
     activeSceneName: () => activeSceneName,
     setSafeScene,
     panic,
     safeSceneName: () => safeSceneName,
-
-    // params
+    snapshotConfiguration,
+    restoreConfiguration,
+    snapshotRuntime,
+    restoreRuntime,
     declareParam,
     setParam,
     paramValues,
     listParams: () => [...params.entries()].map(([name, entry]) => ({ name, ...entry })),
-
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

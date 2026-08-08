@@ -36,12 +36,24 @@ describe('normalized bands', () => {
     expect(s.raw.centroid).toBe(1200);
   });
 
-  it('auto-gain lets a quiet source still reach the top of the range', () => {
+  it('auto-gain makes a quiet source useful without pinning it at 1', () => {
     const fx = createFeatureExtractor();
     let last = 0;
     // A steady, quiet bass — a fixed /255 divisor would leave this near 0.04.
     for (let i = 0; i < 200; i++) last = fx.compute(frame({ bass: 10 })).bass;
     expect(last).toBeGreaterThan(0.8);
+    expect(last).toBeLessThan(0.85);
+  });
+
+  it('uses one spectral ceiling so bass, mid and treble keep their balance', () => {
+    const fx = createFeatureExtractor();
+    let last;
+    for (let i = 0; i < 200; i++) {
+      last = fx.compute(frame({ bass: 200, mid: 100, treble: 50 }));
+    }
+    expect(last.bass).toBeGreaterThan(0.8);
+    expect(last.mid / last.bass).toBeCloseTo(0.5, 2);
+    expect(last.treble / last.bass).toBeCloseTo(0.25, 2);
   });
 
   it('A-06: auto-gain can be turned off mid-set', () => {
@@ -65,7 +77,7 @@ describe('normalized bands', () => {
     expect(fx.configure({ notAnOption: 1 }).notAnOption).toBeUndefined();
   });
 
-  it('returns a frozen snapshot so one patch cannot alter another’s audio (A-05)', () => {
+  it('returns a frozen snapshot so one strategy cannot alter another’s audio (A-05)', () => {
     const fx = createFeatureExtractor();
     const s = fx.compute(frame({ bass: 100 }));
     expect(Object.isFrozen(s)).toBe(true);

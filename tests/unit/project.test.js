@@ -1,19 +1,15 @@
-// Project persistence and portability: D-01, D-02, D-03.
+// Source-authoritative project persistence: D-01, D-02, D-03.
 
 import { describe, it, expect } from 'vitest';
 import { createRegistry } from '../../src/host/registry.js';
 import { createProjectStore } from '../../src/persistence/projectStore.js';
 
-/** A localStorage stand-in, since these tests run in Node. */
 function fakeStorage() {
   const map = new Map();
   return {
-    getItem: (k) => map.get(k) ?? null,
-    setItem: (k, v) => map.set(k, String(v)),
-    removeItem: (k) => map.delete(k),
-    get size() {
-      return map.size;
-    },
+    getItem: (key) => map.get(key) ?? null,
+    setItem: (key, value) => map.set(key, String(value)),
+    removeItem: (key) => map.delete(key),
   };
 }
 
@@ -22,69 +18,56 @@ function setup() {
   const storage = fakeStorage();
   const store = createProjectStore({ registry, storage });
 
-  // A registry with something in it to save.
-  registry.stagePatch('wash', { draw: () => {} }, 'patch("wash", () => {});', undefined);
-  registry.confirmPatch('wash');
-  registry.stagePatch('rings', { draw: () => {} }, 'patch("rings", () => {});', undefined);
-  registry.confirmPatch('rings');
+  registry.stageStrategy('wash', { draw() {} }, 'const wash = { draw() {} };');
+  registry.confirmStrategy('wash');
+  registry.stageStrategy('rings', { draw() {} }, 'const rings = { draw() {} };');
+  registry.confirmStrategy('rings');
   registry.defineScene('tunnel', ['wash', 'rings']);
   registry.go('tunnel');
   registry.setSafeScene('tunnel');
   registry.declareParam('trail', 0.08, { min: 0, max: 0.3, step: 0.01 });
-
   return { registry, storage, store };
 }
 
-const SOURCE = 'patch("wash", () => {});\npatch("rings", () => {});\nscene("tunnel", ["wash", "rings"]);';
+const SOURCE = [
+  'const wash = { draw() {} };',
+  'const rings = { draw() {} };',
+  'const tunnel = [wash, rings];',
+  'go(tunnel);',
+].join('\n');
 
 describe('D-01 local persistence', () => {
-  it('round-trips source, scenes, safe scene, and params', () => {
-    const { store } = setup();
+  it('round-trips source and performer settings', () => {
+    const { storage, store } = setup();
     store.save(SOURCE);
     const loaded = store.load();
 
+    expect(storage.getItem('algolab.project.v5')).not.toBe(null);
     expect(loaded.source).toBe(SOURCE);
-    expect(loaded.scenes.find((s) => s.name === 'tunnel').order.map((i) => i.id)).toEqual([
-      'wash',
-      'rings',
-    ]);
-    expect(loaded.activeScene).toBe('tunnel');
     expect(loaded.safeScene).toBe('tunnel');
     expect(loaded.params[0]).toMatchObject({ name: 'trail', value: 0.08 });
   });
 
-  it('restores a hand-reordered scene rather than the order in the source', () => {
-    const { registry, store } = setup();
-    registry.reorderActiveScene('rings', 0);
+  it('does not save a second copy of scene membership or order', () => {
+    const { store } = setup();
     store.save(SOURCE);
-    const saved = store.load();
+    const loaded = store.load();
 
-    // A fresh session: the source has been replayed, so the scene is back in its
-    // written order. Restoring must then reinstate what the performer actually had.
-    const fresh = createRegistry();
-    fresh.stagePatch('wash', { draw: () => {} }, '', undefined);
-    fresh.confirmPatch('wash');
-    fresh.stagePatch('rings', { draw: () => {} }, '', undefined);
-    fresh.confirmPatch('rings');
-    fresh.defineScene('tunnel', ['wash', 'rings']);
-    fresh.go('tunnel');
-
-    createProjectStore({ registry: fresh, storage: fakeStorage() }).restoreComposition(saved);
-    expect(fresh.activeOrder()).toEqual(['rings', 'wash']);
+    expect(loaded).not.toHaveProperty('scenes');
+    expect(loaded).not.toHaveProperty('activeScene');
+    expect(loaded.source).toContain('const tunnel = [wash, rings]');
   });
 
-  it('restores a tuned parameter value over the source default', () => {
+  it('restores tuned parameter values over source defaults', () => {
     const { registry, store } = setup();
     registry.setParam('trail', 0.25);
-    const saved = { ...store.load(), ...JSON.parse(JSON.stringify({})) };
     store.save(SOURCE);
 
     const fresh = createRegistry();
-    fresh.declareParam('trail', 0.08, { min: 0, max: 0.3 }); // the source's default
-    createProjectStore({ registry: fresh, storage: fakeStorage() }).restoreComposition(store.load());
+    fresh.declareParam('trail', 0.08, { min: 0, max: 0.3 });
+    createProjectStore({ registry: fresh, storage: fakeStorage() }).restoreSettings(store.load());
 
     expect(fresh.listParams()[0].value).toBe(0.25);
-    expect(saved).toBeDefined();
   });
 
   it('starts fresh rather than throwing on a corrupt or outdated save', () => {
@@ -95,17 +78,67 @@ describe('D-01 local persistence', () => {
 
     storage.setItem('response.project.v1', JSON.stringify({ schema: 99, source: 'x' }));
     expect(createProjectStore({ registry, storage }).load()).toBe(null);
+
+    storage.setItem('response.project.v1', JSON.stringify({ schema: 5, source: 'old syntax' }));
+    expect(createProjectStore({ registry, storage }).load()).toBe(null);
+  });
+
+  it('does not restore the retired built-in patch set from the former AlgoLab key', () => {
+    const registry = createRegistry();
+    const storage = fakeStorage();
+    storage.setItem(
+      'algolab.project.v1',
+      JSON.stringify({ schema: 6, source: SOURCE, safeScene: 'tunnel', params: [] }),
+    );
+
+    expect(createProjectStore({ registry, storage }).load()).toBe(null);
+  });
+
+  it('does not restore the intermediate cleanup save either', () => {
+    const registry = createRegistry();
+    const storage = fakeStorage();
+    storage.setItem(
+      'algolab.project.v2',
+      JSON.stringify({ schema: 6, source: SOURCE, safeScene: 'tunnel', params: [] }),
+    );
+
+    expect(createProjectStore({ registry, storage }).load()).toBe(null);
+
+    storage.setItem(
+      'algolab.project.v3',
+      JSON.stringify({ schema: 6, source: SOURCE, safeScene: 'tunnel', params: [] }),
+    );
+    expect(createProjectStore({ registry, storage }).load()).toBe(null);
+
+    storage.setItem(
+      'algolab.project.v4',
+      JSON.stringify({ schema: 6, source: SOURCE, safeScene: 'tunnel', params: [] }),
+    );
+    expect(createProjectStore({ registry, storage }).load()).toBe(null);
+  });
+
+  it('does not automatically restore projects saved under former product names', () => {
+    const registry = createRegistry();
+    for (const key of [
+      'response.project.v1',
+      'patchbay.project.v1',
+      'patchlab.project.v1',
+      'livecode-lab.project.v1',
+    ]) {
+      const storage = fakeStorage();
+      storage.setItem(
+        key,
+        JSON.stringify({ schema: 6, source: SOURCE, safeScene: 'tunnel', params: [] }),
+      );
+      expect(createProjectStore({ registry, storage }).load()).toBe(null);
+    }
   });
 
   it('does not throw when storage is unavailable', () => {
     const registry = createRegistry();
     const storage = {
-      getItem() {
-        throw new Error('SecurityError');
-      },
-      setItem() {
-        throw new Error('QuotaExceededError');
-      },
+      getItem() { throw new Error('SecurityError'); },
+      setItem() { throw new Error('QuotaExceededError'); },
       removeItem() {},
     };
     const store = createProjectStore({ registry, storage });
@@ -115,24 +148,16 @@ describe('D-01 local persistence', () => {
 });
 
 describe('D-02 export is human-readable', () => {
-  it('writes the source as lines, not one escaped string', () => {
+  it('writes source as lines and keeps composition only in that source', () => {
     const { store } = setup();
     const text = store.exportProject(SOURCE);
+    const data = JSON.parse(text);
 
+    expect(data.format).toBe('algolab-project');
     expect(text).not.toContain('\\n');
-    expect(JSON.parse(text).source).toEqual(SOURCE.split('\n'));
-    expect(text.split('\n').length).toBeGreaterThan(10); // pretty-printed
-  });
-
-  it('includes scene definitions and configuration', () => {
-    const { store } = setup();
-    const data = JSON.parse(store.exportProject(SOURCE));
-
-    expect(data.format).toBe('response-project');
-    expect(data.scenes.find((s) => s.name === 'tunnel').order.map((i) => i.id)).toEqual([
-      'wash',
-      'rings',
-    ]);
+    expect(data.source).toEqual(SOURCE.split('\n'));
+    expect(data).not.toHaveProperty('scenes');
+    expect(data).not.toHaveProperty('activeScene');
     expect(data.safeScene).toBe('tunnel');
     expect(data.params[0].name).toBe('trail');
     expect(Date.parse(data.exportedAt)).not.toBeNaN();
@@ -140,28 +165,41 @@ describe('D-02 export is human-readable', () => {
 });
 
 describe('D-03 import parsing is separate from running', () => {
-  it('round-trips an exported project', () => {
+  it('round-trips an exported project without inventing composition data', () => {
     const { store } = setup();
     const parsed = store.parseProject(store.exportProject(SOURCE));
 
     expect(parsed.ok).toBe(true);
     expect(parsed.data.source).toBe(SOURCE);
-    expect(parsed.data.scenes.find((s) => s.name === 'tunnel').order.map((i) => i.patch)).toEqual([
-      'wash',
-      'rings',
-    ]);
+    expect(parsed.data).not.toHaveProperty('scenes');
     expect(parsed.data.safeScene).toBe('tunnel');
   });
 
-  it('rejects files that are not Response projects', () => {
+  it('still imports projects exported under former product names', () => {
+    const { store } = setup();
+    for (const format of [
+      'livecode-lab-project',
+      'patchlab-project',
+      'patchbay-project',
+      'response-project',
+    ]) {
+      const parsed = store.parseProject(
+        JSON.stringify({ format, schema: 6, source: SOURCE.split('\n') }),
+      );
+      expect(parsed.ok).toBe(true);
+      expect(parsed.data.source).toBe(SOURCE);
+    }
+  });
+
+  it('rejects files that are not AlgoLab projects', () => {
     const { store } = setup();
     expect(store.parseProject('not json at all').ok).toBe(false);
-    expect(store.parseProject('{"hello":1}').error).toContain('Not a Response project');
+    expect(store.parseProject('{"hello":1}').error).toContain('Not an AlgoLab project');
     expect(
-      store.parseProject(JSON.stringify({ format: 'response-project', schema: 99 })).error,
+      store.parseProject(JSON.stringify({ format: 'algolab-project', schema: 99 })).error,
     ).toContain('format version 99');
     expect(
-      store.parseProject(JSON.stringify({ format: 'response-project', schema: 1 })).error,
+      store.parseProject(JSON.stringify({ format: 'algolab-project', schema: 6 })).error,
     ).toContain('no source');
   });
 
@@ -171,15 +209,13 @@ describe('D-03 import parsing is separate from running', () => {
 
     store.parseProject(
       JSON.stringify({
-        format: 'response-project',
-        schema: 1,
-        source: ['patch("evil", () => {});'],
-        scenes: [{ name: 'evil', order: ['evil'] }],
+        format: 'algolab-project',
+        schema: 6,
+        source: ['const evil = { draw() {} };'],
       }),
     );
 
-    // Nothing may change until the performer has confirmed (D-03).
     expect(registry.listScenes()).toEqual(before);
-    expect(registry.hasPatch('evil')).toBe(false);
+    expect(registry.hasStrategy('evil')).toBe(false);
   });
 });

@@ -5,8 +5,8 @@
   This page exists to prove the six riskiest behaviors before any interface work:
 
     1. a persistent p5.js draw() loop running p5.sound analysis
-    2. replacing one named drawing callback from a textarea
-    3. preserving that callback's state by name across the replacement
+    2. replacing one named strategy object from a textarea
+    3. preserving that object's state by binding name across the replacement
     4. rejecting a syntax error without replacing the live callback
     5. rolling back after a first-frame runtime error
     6. audio playback position and FFT analysis continuing throughout
@@ -17,7 +17,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Response — §16 spike</title>
+    <title>AlgoLab — §16 spike</title>
     <!-- p5 must be a classic script in <head>: it binds window.setup/window.draw on
          the window `load` event, and deferred module scripts run before that. -->
     <script src="../vendor/p5.min.js"></script>
@@ -36,16 +36,18 @@
       <button id="start">start audio (osc)</button>
       <p>Cmd/Ctrl+Enter in the textarea to evaluate.</p>
       <textarea id="src">
-patch("rings", ({ audio, state }) => {
-  state.n = (state.n || 0) + 1;          // accumulating state, proves #3
-  background(11, 11, 13, 40);
-  noFill();
-  stroke(255);
-  strokeWeight(3);
-  const d = map(audio.level, 0, 1, 40, width * 0.8);
-  circle(width / 2, height / 2, d);
-  text("frames drawn by this patch name: " + state.n, 20, 30);
-});</textarea>
+const rings = {
+  draw({ audio, state }) {
+    state.n = (state.n || 0) + 1;          // accumulating state, proves #3
+    background(11, 11, 13, 40);
+    noFill();
+    stroke(255);
+    strokeWeight(3);
+    const d = map(audio.level, 0, 1, 40, width * 0.8);
+    circle(width / 2, height / 2, d);
+    text("frames drawn by this strategy: " + state.n, 20, 30);
+  },
+};</textarea>
       <div id="log"></div>
     </div>
 
@@ -57,11 +59,9 @@ patch("rings", ({ audio, state }) => {
       };
 
       // --- the minimum host -------------------------------------------------
-      const active = new Map();   // name -> draw fn        (the last good version)
+      const active = new Map();   // name -> strategy object (the last good version)
       const state = new Map();    // name -> state object   (keyed by NAME, not fn)
-      let pending = null;         // {name, draw, prevDraw, prevState} awaiting a frame
-
-      const patch = (name, draw) => { pending = { name, draw }; };
+      let pending = null;         // {name, strategy, previous, prevState} awaiting a frame
 
       let fft, amp, osc, started = false;
 
@@ -77,15 +77,15 @@ patch("rings", ({ audio, state }) => {
           ? { level: amp.getLevel(), spectrum: fft.analyze() }
           : { level: 0.2 + 0.15 * Math.sin(frameCount / 30), spectrum: [] };
 
-        for (const [name, fn] of active) {
+        for (const [name, strategy] of active) {
           push();
           try {
-            fn({ audio, state: state.get(name) });
+            strategy.draw.call(strategy, { audio, state: state.get(name) });
           } catch (err) {
             pop();
             // First-frame runtime error: restore the previous version (#5).
             if (pending && pending.name === name && pending.committing) {
-              active.set(name, pending.prevDraw);
+              active.set(name, pending.previous);
               state.set(name, pending.prevState);
               log(`ROLLBACK ${name}: ${err.message} — previous version restored`);
               pending = null;
@@ -96,10 +96,10 @@ patch("rings", ({ audio, state }) => {
         }
 
         if (pending && !pending.committing) {
-          pending.prevDraw = active.get(pending.name);
+          pending.previous = active.get(pending.name);
           pending.prevState = structuredClone(state.get(pending.name) ?? {});
           if (!state.has(pending.name)) state.set(pending.name, {});
-          active.set(pending.name, pending.draw);
+          active.set(pending.name, pending.strategy);
           pending.committing = true;   // survives one frame -> committed
         } else if (pending?.committing) {
           log(`COMMIT ${pending.name} — state preserved: ${JSON.stringify(state.get(pending.name))}`);
@@ -111,15 +111,19 @@ patch("rings", ({ audio, state }) => {
       const evaluate = (source) => {
         let fn;
         try {
-          fn = new Function('patch', source);        // SyntaxError caught here (#4)
+          fn = new Function(`${source}; return rings;`); // SyntaxError caught here (#4)
         } catch (err) {
-          log(`REJECTED (syntax): ${err.message} — active patch untouched`);
+          log(`REJECTED (syntax): ${err.message} — active strategy untouched`);
           return;
         }
         try {
-          fn(patch);
+          const strategy = fn();
+          if (!strategy || typeof strategy.draw !== 'function') {
+            throw new TypeError('rings must be an object with draw()');
+          }
+          pending = { name: 'rings', strategy };
         } catch (err) {
-          log(`REJECTED (registration): ${err.message} — active patch untouched`);
+          log(`REJECTED (evaluation): ${err.message} — active strategy untouched`);
           pending = null;
         }
       };

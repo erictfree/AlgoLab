@@ -1,231 +1,581 @@
-// Editor — a textarea, plus the one thing a live-coding editor actually needs:
-// knowing which block the cursor is in.
-//
-// PRD §10.3: "The editor determines blocks from top-level patch(...), scene(...), and
-// command expressions. If block detection is uncertain, it selects the smallest
-// complete JavaScript program containing the cursor."
-//
-// The scanner below finds top-level statements by tracking bracket depth while
-// skipping the places where brackets do not count — strings, template literals,
-// comments, and regex literals. It is not a JavaScript parser and does not need to be:
-// a wrong guess costs an over-large evaluation, never a broken registry, because the
-// evaluator rejects anything that does not compile.
+// Editor view — renders and edits source, then emits evaluation intents.
+// Source structure lives in ../language/sourceBlocks.js so the runtime never depends
+// on a DOM view module.
 
-/**
- * @typedef {{ start: number, end: number, text: string }} Block
- */
+import {
+  findBlocks,
+  blockAt,
+  describeBlock,
+  moveSceneCellsLast,
+} from '../language/sourceBlocks.js';
+import { tokenizeLines } from './highlight.js';
 
-/**
- * Split source into top-level statements.
- * @param {string} source
- * @returns {Block[]}
- */
-export function findBlocks(source) {
-  /** @type {Block[]} */
-  const blocks = [];
-  let depth = 0;
-  let start = -1;
-  let i = 0;
-  const n = source.length;
+const INDENT = '  ';
+const PAIRS = { '{': '}', '[': ']', '(': ')' };
 
-  /** Last significant character, used to tell division from a regex literal. */
-  let prev = '';
-
-  const push = (end) => {
-    if (start === -1) return;
-    const text = source.slice(start, end);
-    if (text.trim() !== '') blocks.push({ start, end, text });
-    start = -1;
-  };
-
-  while (i < n) {
-    const ch = source[i];
-
-    // --- comments -------------------------------------------------------------
-    if (ch === '/' && source[i + 1] === '/') {
-      const end = source.indexOf('\n', i);
-      i = end === -1 ? n : end;
-      continue;
-    }
-    if (ch === '/' && source[i + 1] === '*') {
-      const end = source.indexOf('*/', i + 2);
-      i = end === -1 ? n : end + 2;
-      continue;
-    }
-
-    // --- strings and template literals ----------------------------------------
-    if (ch === '"' || ch === "'") {
-      if (start === -1) start = i;
-      i = skipString(source, i, ch);
-      prev = ch;
-      continue;
-    }
-    if (ch === '`') {
-      if (start === -1) start = i;
-      i = skipTemplate(source, i);
-      prev = ch;
-      continue;
-    }
-
-    // --- regex literals -------------------------------------------------------
-    if (ch === '/' && regexCanStartAfter(prev)) {
-      if (start === -1) start = i;
-      const after = skipRegex(source, i);
-      if (after !== -1) {
-        i = after;
-        prev = '/';
-        continue;
-      }
-    }
-
-    // --- structure ------------------------------------------------------------
-    if (ch === '{' || ch === '(' || ch === '[') {
-      if (start === -1) start = i;
-      depth++;
-      prev = ch;
-      i++;
-      continue;
-    }
-    if (ch === '}' || ch === ')' || ch === ']') {
-      if (depth > 0) depth--;
-      prev = ch;
-      i++;
-      continue;
-    }
-
-    if (ch === ';' && depth === 0) {
-      if (start === -1) start = i;
-      push(i + 1);
-      prev = ';';
-      i++;
-      continue;
-    }
-
-    if (ch === '\n') {
-      // Newline ends a top-level statement only when everything is balanced —
-      // the "automatic semicolon" case: `go("tunnel")` on its own line.
-      if (depth === 0 && start !== -1 && endsStatement(prev)) push(i + 1);
-      i++;
-      continue;
-    }
-
-    if (!/\s/.test(ch)) {
-      if (start === -1) start = i;
-      prev = ch;
-    }
-    i++;
-  }
-
-  push(n);
-  return blocks;
-}
-
-/** A statement can end on a newline after these; not after an operator or a comma. */
-function endsStatement(prev) {
-  return prev !== '' && !'+-*/%<>=&|^,.?:!~('.includes(prev);
-}
-
-function regexCanStartAfter(prev) {
-  return prev === '' || '(,=:[!&|?{};+-*%<>~^'.includes(prev);
-}
-
-function skipString(source, i, quote) {
-  i++;
-  while (i < source.length) {
-    const ch = source[i];
-    if (ch === '\\') {
-      i += 2;
-      continue;
-    }
-    if (ch === quote || ch === '\n') return i + 1;
-    i++;
-  }
-  return i;
-}
-
-function skipTemplate(source, i) {
-  i++;
-  while (i < source.length) {
-    const ch = source[i];
-    if (ch === '\\') {
-      i += 2;
-      continue;
-    }
-    if (ch === '`') return i + 1;
-    if (ch === '$' && source[i + 1] === '{') {
-      let depth = 1;
-      i += 2;
-      while (i < source.length && depth > 0) {
-        if (source[i] === '{') depth++;
-        else if (source[i] === '}') depth--;
-        else if (source[i] === '`') i = skipTemplate(source, i) - 1;
-        i++;
-      }
-      continue;
-    }
-    i++;
-  }
-  return i;
-}
-
-/** Returns the index after the regex literal, or -1 if this `/` was division. */
-function skipRegex(source, i) {
-  let j = i + 1;
-  let inClass = false;
-  while (j < source.length) {
-    const ch = source[j];
-    if (ch === '\\') {
-      j += 2;
-      continue;
-    }
-    if (ch === '\n') return -1;
-    if (ch === '[') inClass = true;
-    else if (ch === ']') inClass = false;
-    else if (ch === '/' && !inClass) {
-      j++;
-      while (j < source.length && /[a-z]/i.test(source[j])) j++;
-      return j;
-    }
-    j++;
-  }
-  return -1;
-}
-
-/**
- * The block containing `cursor`, or null if the cursor sits outside every block
- * (in which case the caller evaluates the whole buffer — §10.3's "smallest complete
- * program" fallback).
- * @param {string} source
- * @param {number} cursor
- */
-export function blockAt(source, cursor) {
-  const blocks = findBlocks(source);
-  for (const block of blocks) {
-    if (cursor >= block.start && cursor <= block.end) return block;
-  }
-  // Cursor past the last character, or in trailing whitespace: use the last block.
-  if (blocks.length && cursor >= blocks[blocks.length - 1].end) return blocks[blocks.length - 1];
-  return null;
-}
-
-/** Name of the patch/scene a block registers, for readable status messages. */
-export function describeBlock(text) {
-  const match = /\b(patch|scene|go|resetPatch|param)\s*\(\s*["'`]([^"'`]+)["'`]/.exec(text);
-  return match ? `${match[1]} ${match[2]}` : 'block';
+function isPatchBlock(block, name) {
+  const label = describeBlock(block.text);
+  return label === `strategy ${name}` || label === `patch ${name}`;
 }
 
 /**
  * Wire a textarea up as the live-coding surface.
  * @param {HTMLTextAreaElement} textarea
- * @param {{ onEvaluate: (source: string, label: string) => {ok: boolean}, onChange?: (source: string) => void, onEscape?: () => void }} handlers
+ * @param {{ onEvaluate: (source: string, label: string) => {ok: boolean}, onChange?: (source: string) => void, onEscape?: () => void, mirror?: HTMLElement | null, lineNumbers?: HTMLElement | null, foldControls?: HTMLElement | null, foldedView?: HTMLElement | null, onFoldChange?: (folded: boolean) => void }} handlers
  */
 export function createEditor(textarea, handlers) {
-  function flash(ok) {
-    textarea.classList.remove('flash-ok', 'flash-bad');
+  // The element that paints the text and the box behind each line. The textarea stays
+  // the source of truth; this is only ever written to. Optional, so the editor still
+  // works headless and in the unit tests, which have no such element.
+  const mirror = handlers.mirror ?? null;
+  const lineNumbers = handlers.lineNumbers ?? null;
+  const foldControls = handlers.foldControls ?? null;
+  const foldedView = handlers.foldedView ?? null;
+  let mirrored = null;
+  let numberedLines = 0;
+  let foldedSource = null;
+  let folded = false;
+  const openFolds = new Set();
+  let foldControlSignature = '';
+  /**
+   * What each line currently in the mirror is painted as, parallel to its child nodes.
+   *
+   * The line's *text* is not enough to diff on: opening a block comment recolours
+   * every line below it without changing a character of any of them, so the signature
+   * has to be over the tokens.
+   */
+  let mirroredLines = [];
+  const signature = (tokens) => tokens.map((t) => `${t.kind}\u0000${t.text}`).join('\u0001');
+
+  /** One line of the mirror: the box, and the coloured spans inside it. */
+  function buildLine(tokens) {
+    const line = document.createElement('span');
+    for (const token of tokens) {
+      // Uncoloured runs are text nodes, not elements. Most of a file is punctuation,
+      // whitespace and ordinary names, so this is what keeps a keystroke from
+      // building a thousand elements.
+      if (token.kind === 'text') {
+        line.append(token.text);
+        continue;
+      }
+      const span = document.createElement('span');
+      span.className = `t-${token.kind}`;
+      span.textContent = token.text;
+      line.append(span);
+    }
+    return line;
+  }
+
+  /**
+   * Repaint the mirror: one block element per line, each sized to its own text.
+   *
+   * Only lines whose text actually changed are rebuilt. Typing changes one line, so
+   * an edit costs one line's worth of tokenizing and DOM rather than the buffer's —
+   * which matters because this runs on every keystroke, and a performer is typing
+   * while sixty frames a second are being drawn underneath.
+   */
+  function syncMirror() {
+    const source = textarea.value;
+    syncLineNumbers(source);
+    syncFoldControls(source);
+    if (folded) renderFolded(source);
+    if (mirror && source !== mirrored) {
+      mirrored = source;
+      // Tokenized whole, never line by line: a block comment or a template literal
+      // spans lines, and a line scanned on its own would not know it was inside one.
+      // Scanning the buffer is a string walk and cheap; the DOM below is the cost, and
+      // that is what the diff avoids.
+      const tokenLines = tokenizeLines(source);
+      const previous = mirror.childNodes;
+      const signatures = tokenLines.map(signature);
+      const next = tokenLines.map((tokens, index) =>
+        signatures[index] === mirroredLines[index] && previous[index]
+          ? previous[index]
+          : buildLine(tokens),
+      );
+      mirror.replaceChildren(...next);
+      mirroredLines = signatures;
+    }
+    syncScroll();
+  }
+
+  /** Rebuild only when the line count changes; edits within a line cost nothing here. */
+  function syncLineNumbers(source) {
+    if (!lineNumbers) return;
+    const count = source.split('\n').length;
+    if (count === numberedLines) return;
+    numberedLines = count;
+    lineNumbers.textContent = Array.from({ length: count }, (_, index) => index + 1).join('\n');
+  }
+
+  /**
+   * Pick the real source line that best identifies a folded cell.
+   *
+   * Explicit cells stay anchored to their marker so closing and opening a cell never
+   * changes the row's line number. Unmarked top-level JavaScript still follows the
+   * VS Code convention of previewing its declaration line.
+   */
+  function foldPreview(block, firstLine) {
+    const lines = block.text.replace(/\n$/, '').split('\n');
+    const description = describeBlock(block.text).replace(/^strategy\s+/, 'patch ');
+    // A marked cell is one source region, so its closed and open presentations must
+    // anchor to the same first line. Previously the closed row borrowed a declaration
+    // from deep inside the cell (line 112 for Plasma), then opening it jumped back to
+    // the marker (line 9). That was source-accurate in isolation but not a valid fold.
+    if (/^\/\/\s*%%\s+/.test(lines[0] ?? '')) {
+      return {
+        description,
+        index: 0,
+        line: firstLine,
+        preview: `${lines[0].trim()}  …`,
+      };
+    }
+    const named = /^(?:patch|scene|class)\s+([A-Za-z_$][\w$]*)$/.exec(description);
+    const escaped = named?.[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const declaration = escaped
+      ? new RegExp(`^\\s*(?:const|let|var)\\s+${escaped}\\b`)
+      : null;
+    let index = declaration ? lines.findIndex((line) => declaration.test(line)) : -1;
+
+    if (index === -1 && description.startsWith('class ')) {
+      index = lines.findIndex((line) => /^\s*class\s+/.test(line));
+    }
+    if (index === -1) {
+      index = lines.findIndex((line) => {
+        const text = line.trim();
+        return text !== '' && !text.startsWith('//') && !text.startsWith('/*') && text !== '*/';
+      });
+    }
+    if (index === -1) index = 0;
+
+    const original = lines[index] ?? '';
+    const code = original.trimStart().trimEnd();
+    let preview = code;
+    if (/\{\s*$/.test(code)) {
+      const close = /\bnew\s+[A-Za-z_$][\w$]*\s*\(\{$/.test(code)
+        ? '});'
+        : /^(?:const|let|var)\b/.test(code)
+          ? '};'
+          : '}';
+      preview = `${code} … ${close}`;
+    } else if (lines.length > 1) {
+      preview = `${code}  …`;
+    }
+
+    return {
+      description,
+      index,
+      line: firstLine + index,
+      preview,
+    };
+  }
+
+  /** Stable identities and declaration lines shared by both editor presentations. */
+  function foldEntries(source) {
+    const occurrences = new Map();
+    return findBlocks(source).map((block) => {
+      const firstLine = source.slice(0, block.start).split('\n').length;
+      const preview = foldPreview(block, firstLine);
+      const occurrence = occurrences.get(preview.description) ?? 0;
+      occurrences.set(preview.description, occurrence + 1);
+      return {
+        block,
+        firstLine,
+        preview,
+        foldKey: `${preview.description}:${occurrence}`,
+      };
+    });
+  }
+
+  /**
+   * The complete textarea stays available, but it is no longer a folding dead end.
+   * Each top-level object/function/class/scene gets a gutter disclosure at the line
+   * that identifies it. Folding there returns to the structured editor with every
+   * other block still expanded.
+   */
+  function syncFoldControls(source) {
+    if (!foldControls) return;
+    const entries = foldEntries(source);
+    const signature = entries.map(({ foldKey, preview }) => `${foldKey}@${preview.line}`).join('|');
+    if (signature === foldControlSignature) return;
+    foldControlSignature = signature;
+
+    const controls = entries.map((entry) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'raw-fold-control';
+      button.textContent = '▾';
+      button.style.setProperty('--fold-line-top', `${10 + (entry.preview.line - 1) * 22}px`);
+      button.setAttribute('aria-label', `Fold ${entry.preview.description}`);
+      button.title = `Fold ${entry.preview.description}`;
+      button.addEventListener('click', () => {
+        openFolds.clear();
+        for (const candidate of foldEntries(textarea.value)) openFolds.add(candidate.foldKey);
+        openFolds.delete(entry.foldKey);
+        foldedSource = null;
+        setFolded(true);
+      });
+      return button;
+    });
+    foldControls.replaceChildren(...controls);
+  }
+
+  /** Resolve a fold after earlier cells have changed length. */
+  function blockForFoldKey(source, foldKey) {
+    return foldEntries(source).find((entry) => entry.foldKey === foldKey)?.block ?? null;
+  }
+
+  /** Browser-native text insertion keeps undo available inside a folded cell. */
+  function replaceFoldedRange(target, from, to, text, selectionStart, selectionEnd = selectionStart) {
+    target.focus();
+    target.setSelectionRange(from, to);
+    let inserted = false;
+    try {
+      inserted = document.execCommand('insertText', false, text);
+    } catch {
+      /* falls through */
+    }
+    if (!inserted) {
+      target.setRangeText(text, from, to, 'end');
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    target.setSelectionRange(selectionStart, selectionEnd);
+  }
+
+  function smartNewlineIn(target) {
+    const { value, selectionStart: from, selectionEnd: to } = target;
+    const lineStart = value.lastIndexOf('\n', from - 1) + 1;
+    const lineEndAt = value.indexOf('\n', to);
+    const lineEnd = lineEndAt === -1 ? value.length : lineEndAt;
+    const left = value.slice(lineStart, from);
+    const right = value.slice(to, lineEnd);
+    const base = left.match(/^[\t ]*/)?.[0] ?? '';
+    const opener = left.trimEnd().at(-1);
+    const closer = right.trimStart()[0];
+
+    if (opener && Object.hasOwn(PAIRS, opener) && PAIRS[opener] === closer) {
+      const rightPadding = right.length - right.trimStart().length;
+      const inserted = `\n${base}${INDENT}\n${base}`;
+      replaceFoldedRange(target, from, to + rightPadding, inserted, from + 1 + base.length + INDENT.length);
+      return;
+    }
+    const nextIndent = opener && Object.hasOwn(PAIRS, opener) ? `${base}${INDENT}` : base;
+    const inserted = `\n${nextIndent}`;
+    replaceFoldedRange(target, from, to, inserted, from + inserted.length);
+  }
+
+  function indentIn(target, outdent = false) {
+    const { value, selectionStart: start, selectionEnd: end } = target;
+    if (start === end && !outdent) {
+      replaceFoldedRange(target, start, end, INDENT, start + INDENT.length);
+      return;
+    }
+    const from = value.lastIndexOf('\n', start - 1) + 1;
+    const effectiveEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
+    const newline = value.indexOf('\n', effectiveEnd);
+    const to = newline === -1 ? value.length : newline;
+    const original = value.slice(from, to);
+    const transformed = original
+      .split('\n')
+      .map((line) => (outdent ? removeIndent(line) : `${INDENT}${line}`))
+      .join('\n');
+    replaceFoldedRange(target, from, to, transformed, from, from + transformed.length);
+  }
+
+  function toggleCommentsIn(target) {
+    const { value, selectionStart: start, selectionEnd: end } = target;
+    const from = value.lastIndexOf('\n', start - 1) + 1;
+    const effectiveEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
+    const newline = value.indexOf('\n', effectiveEnd);
+    const to = newline === -1 ? value.length : newline;
+    const lines = value.slice(from, to).split('\n');
+    const nonblank = lines.filter((line) => line.trim() !== '');
+    const uncomment = nonblank.length > 0 && nonblank.every((line) => /^\s*\/\//.test(line));
+    const transformed = lines.map((line) => {
+      if (line.trim() === '') return line;
+      const indent = line.match(/^\s*/)?.[0] ?? '';
+      const rest = line.slice(indent.length);
+      if (uncomment) return `${indent}${rest.slice(rest.startsWith('// ') ? 3 : 2)}`;
+      return `${indent}// ${rest}`;
+    }).join('\n');
+    replaceFoldedRange(target, from, to, transformed, from, from + transformed.length);
+  }
+
+  /** A source-safe VS Code-like editor; the complete textarea remains the source of truth. */
+  function renderFolded(source) {
+    if (!foldedView || source === foldedSource) return;
+    foldedSource = source;
+    const rows = foldEntries(source).map(({ block, firstLine, preview, foldKey }) => {
+
+      const details = document.createElement('details');
+      details.className = 'folded-block';
+      details.dataset.blockDescription = preview.description;
+      details.dataset.foldKey = foldKey;
+      details.open = openFolds.has(foldKey);
+      details.addEventListener('toggle', () => {
+        if (details.open) openFolds.add(foldKey);
+        else openFolds.delete(foldKey);
+      });
+
+      const summary = document.createElement('summary');
+      const closedNumber = document.createElement('span');
+      closedNumber.className = 'folded-line folded-closed';
+      closedNumber.textContent = String(preview.line);
+      const openNumber = document.createElement('span');
+      openNumber.className = 'folded-line folded-open';
+      openNumber.textContent = String(firstLine);
+
+      const [beforeEllipsis, afterEllipsis = ''] = preview.preview.split('…');
+      const closedCode = buildLine(tokenizeLines(beforeEllipsis)[0] ?? []);
+      closedCode.className = 'folded-preview folded-closed';
+      if (preview.preview.includes('…')) {
+        const ellipsis = document.createElement('span');
+        ellipsis.className = 'folded-ellipsis';
+        ellipsis.textContent = '…';
+        closedCode.append(ellipsis);
+        const after = buildLine(tokenizeLines(afterEllipsis)[0] ?? []);
+        closedCode.append(...after.childNodes);
+      }
+      const blockTokenLines = tokenizeLines(block.text);
+      const openCode = buildLine(blockTokenLines[0] ?? []);
+      openCode.className = 'folded-preview folded-open';
+      const accessibleName = document.createElement('span');
+      accessibleName.className = 'visually-hidden';
+      accessibleName.textContent = preview.description;
+      summary.append(closedNumber, openNumber, closedCode, openCode, accessibleName);
+
+      const rawLines = block.text.split('\n');
+      const terminalNewline = rawLines.at(-1) === '';
+      if (rawLines.at(-1) === '') rawLines.pop();
+      const expanded = document.createElement('div');
+      expanded.className = 'folded-source';
+      const bodyMirror = document.createElement('pre');
+      bodyMirror.className = 'folded-source-mirror';
+      const bodyNumbers = document.createElement('pre');
+      bodyNumbers.className = 'folded-source-numbers';
+      const bodyEditor = document.createElement('textarea');
+      bodyEditor.className = 'folded-source-editor';
+      bodyEditor.value = rawLines.slice(1).join('\n');
+      bodyEditor.spellcheck = false;
+      bodyEditor.wrap = 'off';
+      bodyEditor.setAttribute('aria-label', `Edit ${preview.description}`);
+
+      const paintBody = () => {
+        const tokenLines = tokenizeLines(bodyEditor.value);
+        const sourceLines = bodyEditor.value.split('\n');
+        const paintedLines = tokenLines.map((tokens, index) => {
+          const line = buildLine(tokens);
+          const indent = (sourceLines[index]?.match(/^[\t ]*/)?.[0] ?? '')
+            .replaceAll('\t', INDENT).length;
+          for (let level = 0; level < Math.floor(indent / INDENT.length); level++) {
+            const guide = document.createElement('span');
+            guide.className = 'folded-indent-guide';
+            guide.style.setProperty('--guide-level', String(level));
+            line.prepend(guide);
+          }
+          return line;
+        });
+        bodyMirror.replaceChildren(...paintedLines);
+        const count = Math.max(1, tokenLines.length);
+        const current = blockForFoldKey(textarea.value, foldKey);
+        const startLine = current
+          ? textarea.value.slice(0, current.start).split('\n').length + 1
+          : firstLine + 1;
+        bodyNumbers.textContent = Array.from({ length: count }, (_, index) => startLine + index).join('\n');
+        const height = `${count * 22}px`;
+        expanded.style.height = height;
+        bodyMirror.style.height = height;
+        bodyNumbers.style.height = height;
+        bodyEditor.style.height = height;
+      };
+
+      bodyEditor.addEventListener('input', () => {
+        const current = blockForFoldKey(textarea.value, foldKey);
+        if (!current) return;
+        const markerEnd = current.text.indexOf('\n');
+        const marker = markerEnd === -1 ? `${current.text}\n` : current.text.slice(0, markerEnd + 1);
+        const nextBlock = `${marker}${bodyEditor.value}${terminalNewline ? '\n' : ''}`;
+        textarea.value = `${textarea.value.slice(0, current.start)}${nextBlock}${textarea.value.slice(current.end)}`;
+        // Keep this DOM alive while the performer types. The hidden complete editor
+        // and syntax mirror still update, but rebuilding the folded view would throw
+        // away the caret on every keystroke.
+        foldedSource = textarea.value;
+        syncMirror();
+        handlers.onChange?.(textarea.value);
+        paintBody();
+      });
+
+      bodyEditor.addEventListener('keydown', (event) => {
+        const accel = event.metaKey || event.ctrlKey;
+        if (event.key === 'Enter' && accel) {
+          event.preventDefault();
+          const current = blockForFoldKey(textarea.value, foldKey);
+          const result = event.shiftKey
+            ? handlers.onEvaluate(textarea.value, 'buffer')
+            : handlers.onEvaluate(current?.text ?? bodyEditor.value, current ? describeBlock(current.text) : preview.description);
+          // In the structured editor the complete mirror is intentionally hidden.
+          // Flash the source the performer can actually see, or Cmd/Ctrl+Enter feels
+          // as though it did nothing even though the evaluation succeeded.
+          flash(result.ok, [bodyMirror]);
+          return;
+        }
+        if ((event.key === '/' || event.code === 'Slash') && accel) {
+          event.preventDefault();
+          toggleCommentsIn(bodyEditor);
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          bodyEditor.blur();
+          handlers.onEscape?.();
+          return;
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          smartNewlineIn(bodyEditor);
+          return;
+        }
+        if (Object.values(PAIRS).includes(event.key) && bodyEditor.selectionStart === bodyEditor.selectionEnd) {
+          const at = bodyEditor.selectionStart;
+          const lineStart = bodyEditor.value.lastIndexOf('\n', at - 1) + 1;
+          const prefix = bodyEditor.value.slice(lineStart, at);
+          if (/^[\t ]+$/.test(prefix)) {
+            event.preventDefault();
+            const inserted = `${removeIndent(prefix)}${event.key}`;
+            replaceFoldedRange(bodyEditor, lineStart, at, inserted, lineStart + inserted.length);
+            return;
+          }
+        }
+        if (event.key === 'Tab') {
+          event.preventDefault();
+          indentIn(bodyEditor, event.shiftKey);
+        }
+      });
+
+      // When focus leaves all folded cell editors, repaint from the authoritative
+      // source so declaration previews and later line numbers reflect the edit.
+      bodyEditor.addEventListener('blur', () => {
+        setTimeout(() => {
+          if (!folded || foldedView.querySelector('.folded-source-editor:focus')) return;
+          foldedSource = null;
+          renderFolded(textarea.value);
+        }, 0);
+      });
+
+      expanded.append(bodyNumbers, bodyMirror, bodyEditor);
+      paintBody();
+
+      details.append(summary, expanded);
+      return details;
+    });
+
+    if (rows.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'hint';
+      empty.textContent = 'No code cells yet.';
+      rows.push(empty);
+    }
+    foldedView.replaceChildren(...rows);
+  }
+
+  function setFolded(next) {
+    const wasFolded = folded;
+    folded = Boolean(next && foldedView);
+    textarea.parentElement?.classList.toggle('is-folded', folded);
+    // The inline cell editor may have changed a declaration preview. Force a fresh
+    // projection when the performer next returns from the complete buffer.
+    if (wasFolded && !folded) foldedSource = null;
+    if (folded) renderFolded(textarea.value);
+    handlers.onFoldChange?.(folded);
+    return folded;
+  }
+
+  function foldAll() {
+    openFolds.clear();
+    foldedSource = null;
+    setFolded(true);
+  }
+
+  function unfoldAll() {
+    openFolds.clear();
+    for (const entry of foldEntries(textarea.value)) openFolds.add(entry.foldKey);
+    foldedSource = null;
+    setFolded(true);
+  }
+
+  function revealRange(start, end = start) {
+    // Navigation should respect the presentation the performer chose. In structured
+    // mode, open only the containing cell and put the caret in its inline editor;
+    // switching to the complete textarea here used to make Add to scene unfold the
+    // entire project.
+    if (folded && foldedView) {
+      const entry = foldEntries(textarea.value).find(
+        ({ block }) => start >= block.start && start < block.end,
+      );
+      if (entry) {
+        openFolds.add(entry.foldKey);
+        foldedSource = null;
+        renderFolded(textarea.value);
+
+        const details = [...foldedView.querySelectorAll('.folded-block')].find(
+          (candidate) => candidate.dataset.foldKey === entry.foldKey,
+        );
+        const inlineEditor = details?.querySelector('.folded-source-editor');
+        if (details && inlineEditor) {
+          const firstLineEnd = entry.block.text.indexOf('\n');
+          const bodyStart = firstLineEnd === -1 ? entry.block.text.length : firstLineEnd + 1;
+          const relativeStart = Math.max(
+            0,
+            Math.min(inlineEditor.value.length, start - entry.block.start - bodyStart),
+          );
+          const relativeEnd = Math.max(
+            relativeStart,
+            Math.min(inlineEditor.value.length, end - entry.block.start - bodyStart),
+          );
+          details.scrollIntoView({ block: 'center', inline: 'nearest' });
+          inlineEditor.focus({ preventScroll: true });
+          inlineEditor.setSelectionRange(relativeStart, relativeEnd);
+          return;
+        }
+      }
+    }
+
+    setFolded(false);
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(start, end);
+    const line = textarea.value.slice(0, start).split('\n').length - 1;
+    const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 22;
+    textarea.scrollTop = Math.max(0, line * lineHeight - textarea.clientHeight * 0.25);
+    syncScroll();
+  }
+
+  /**
+   * Drag the mirror to wherever the textarea has scrolled to.
+   *
+   * The mirror does not scroll itself; the textarea is the element the browser
+   * actually scrolls, and this copies that across. Cheap enough to call on a frame:
+   * two comparisons, and it only writes when something moved.
+   */
+  function syncScroll() {
+    if (mirror) {
+      if (mirror.scrollTop !== textarea.scrollTop) mirror.scrollTop = textarea.scrollTop;
+      if (mirror.scrollLeft !== textarea.scrollLeft) mirror.scrollLeft = textarea.scrollLeft;
+    }
+    if (lineNumbers && lineNumbers.scrollTop !== textarea.scrollTop) {
+      lineNumbers.scrollTop = textarea.scrollTop;
+    }
+    foldControls?.style.setProperty('--fold-scroll-y', `${textarea.scrollTop}px`);
+  }
+
+  function flash(ok, visibleTargets = []) {
+    const targets = mirror ? [textarea, mirror, ...visibleTargets] : [textarea, ...visibleTargets];
+    for (const node of targets) node.classList.remove('flash-ok', 'flash-bad');
     // Force a reflow so the class re-applies when evaluating twice in quick succession.
     void textarea.offsetWidth;
-    textarea.classList.add(ok ? 'flash-ok' : 'flash-bad');
-    setTimeout(() => textarea.classList.remove('flash-ok', 'flash-bad'), 240);
+    for (const node of targets) node.classList.add(ok ? 'flash-ok' : 'flash-bad');
+    setTimeout(() => {
+      for (const node of targets) node.classList.remove('flash-ok', 'flash-bad');
+    }, 160);
   }
 
   function evaluateCursorBlock() {
@@ -240,6 +590,126 @@ export function createEditor(textarea, handlers) {
     flash(handlers.onEvaluate(textarea.value, 'buffer').ok);
   }
 
+  /** A patch can compile successfully and still throw when the next frame calls it. */
+  function flashCodeError(name) {
+    if (folded && foldedView) {
+      const description = `patch ${name}`;
+      const block = [...foldedView.querySelectorAll('.folded-block')].find(
+        (candidate) => candidate.dataset.blockDescription === description,
+      );
+      if (block) {
+        flash(false, [block]);
+        return;
+      }
+    }
+    flash(false);
+  }
+
+  function replaceRange(from, to, text, selectionStart, selectionEnd = selectionStart) {
+    textarea.setSelectionRange(from, to);
+    write(text);
+    textarea.setSelectionRange(selectionStart, selectionEnd);
+  }
+
+  /** Preserve the current indentation and add one level after an opening delimiter. */
+  function smartNewline() {
+    const { value, selectionStart: from, selectionEnd: to } = textarea;
+    const lineStart = value.lastIndexOf('\n', from - 1) + 1;
+    const lineEndAt = value.indexOf('\n', to);
+    const lineEnd = lineEndAt === -1 ? value.length : lineEndAt;
+    const left = value.slice(lineStart, from);
+    const right = value.slice(to, lineEnd);
+    const base = left.match(/^[\t ]*/)?.[0] ?? '';
+    const opener = left.trimEnd().at(-1);
+    const closer = right.trimStart()[0];
+
+    if (opener && Object.hasOwn(PAIRS, opener) && PAIRS[opener] === closer) {
+      // Consume whitespace before the closer so it lands at the original level.
+      const rightPadding = right.length - right.trimStart().length;
+      const inserted = `\n${base}${INDENT}\n${base}`;
+      replaceRange(from, to + rightPadding, inserted, from + 1 + base.length + INDENT.length);
+      return;
+    }
+
+    const nextIndent = opener && Object.hasOwn(PAIRS, opener) ? `${base}${INDENT}` : base;
+    const inserted = `\n${nextIndent}`;
+    replaceRange(from, to, inserted, from + inserted.length);
+  }
+
+  function removeIndent(prefix) {
+    if (prefix.startsWith('\t')) return prefix.slice(1);
+    const spaces = Math.min(INDENT.length, prefix.match(/^ */)?.[0].length ?? 0);
+    return prefix.slice(spaces);
+  }
+
+  /** Shift+Tab outdents lines; Tab indents a selection or inserts one level. */
+  function indentSelection(outdent = false) {
+    const { value, selectionStart: start, selectionEnd: end } = textarea;
+    if (start === end && !outdent) {
+      write(INDENT);
+      return;
+    }
+
+    const from = value.lastIndexOf('\n', start - 1) + 1;
+    const effectiveEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
+    const newline = value.indexOf('\n', effectiveEnd);
+    const to = newline === -1 ? value.length : newline;
+    const original = value.slice(from, to);
+    const lines = original.split('\n');
+    const transformed = lines
+      .map((line) => (outdent ? removeIndent(line) : `${INDENT}${line}`))
+      .join('\n');
+
+    if (start === end) {
+      const removed = original.length - transformed.length;
+      replaceRange(from, to, transformed, Math.max(from, start - removed));
+    } else {
+      replaceRange(from, to, transformed, from, from + transformed.length);
+    }
+  }
+
+  /** Cmd/Ctrl+/ toggles `// ` on every selected line, preserving each line's indent. */
+  function toggleLineComments() {
+    const { value, selectionStart: start, selectionEnd: end } = textarea;
+    const from = value.lastIndexOf('\n', start - 1) + 1;
+    const effectiveEnd = end > start && value[end - 1] === '\n' ? end - 1 : end;
+    const newline = value.indexOf('\n', effectiveEnd);
+    const to = newline === -1 ? value.length : newline;
+    const lines = value.slice(from, to).split('\n');
+    const nonblank = lines.filter((line) => line.trim() !== '');
+    const uncomment = nonblank.length > 0 && nonblank.every((line) => /^\s*\/\//.test(line));
+
+    const changes = [];
+    const transformed = lines
+      .map((line) => {
+        if (line.trim() === '') {
+          changes.push({ at: 0, delta: 0 });
+          return line;
+        }
+        const indent = line.match(/^\s*/)?.[0] ?? '';
+        if (uncomment) {
+          const rest = line.slice(indent.length);
+          const markerLength = rest.startsWith('// ') ? 3 : 2;
+          changes.push({ at: indent.length, delta: -markerLength });
+          return `${indent}${rest.slice(markerLength)}`;
+        }
+        changes.push({ at: indent.length, delta: 3 });
+        return `${indent}// ${line.slice(indent.length)}`;
+      })
+      .join('\n');
+
+    if (start === end) {
+      const lineIndex = value.slice(from, start).split('\n').length - 1;
+      const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+      const column = start - lineStart;
+      const change = changes[lineIndex];
+      const shift = change && column >= change.at ? change.delta : 0;
+      replaceRange(from, to, transformed, Math.max(lineStart, start + shift));
+    } else {
+      replaceRange(from, to, transformed, from, from + transformed.length);
+    }
+  }
+
   textarea.addEventListener('keydown', (event) => {
     const accel = event.metaKey || event.ctrlKey;
 
@@ -251,6 +721,12 @@ export function createEditor(textarea, handlers) {
       return;
     }
 
+    if ((event.key === '/' || event.code === 'Slash') && accel) {
+      event.preventDefault();
+      toggleLineComments();
+      return;
+    }
+
     if (event.key === 'Escape') {
       event.preventDefault();
       textarea.blur();
@@ -258,40 +734,252 @@ export function createEditor(textarea, handlers) {
       return;
     }
 
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      smartNewline();
+      return;
+    }
+
+    // Outdent a closing delimiter typed on an otherwise blank indented line.
+    if (Object.values(PAIRS).includes(event.key) && textarea.selectionStart === textarea.selectionEnd) {
+      const { value, selectionStart: at } = textarea;
+      const lineStart = value.lastIndexOf('\n', at - 1) + 1;
+      const prefix = value.slice(lineStart, at);
+      if (/^[\t ]+$/.test(prefix)) {
+        event.preventDefault();
+        const inserted = `${removeIndent(prefix)}${event.key}`;
+        replaceRange(lineStart, at, inserted, lineStart + inserted.length);
+        return;
+      }
+    }
+
     // A code surface where Tab moves focus is unusable; indent instead.
     if (event.key === 'Tab') {
       event.preventDefault();
-      const { selectionStart: from, selectionEnd: to, value } = textarea;
-      textarea.value = `${value.slice(0, from)}  ${value.slice(to)}`;
-      textarea.selectionStart = textarea.selectionEnd = from + 2;
-      handlers.onChange?.(textarea.value);
+      indentSelection(event.shiftKey);
     }
   });
 
-  textarea.addEventListener('input', () => handlers.onChange?.(textarea.value));
+  /**
+   * Put text into the textarea without throwing away the browser's undo stack.
+   *
+   * Assigning `textarea.value` clears that stack outright in Chrome, so a single Tab
+   * used to cost the performer every undo step they had built up — Cmd/Ctrl+Z after
+   * an indent did nothing at all. `insertText` goes through the same path typing does,
+   * so the edit joins the undo history instead of erasing it, and it raises `input`
+   * itself, which is what keeps the mirror in step.
+   *
+   * It is a deprecated API with no replacement that preserves undo; when it is not
+   * available the assignment is the fallback, because a correct buffer with no undo
+   * beats an undo stack over the wrong text.
+   *
+   * @param {string} text replaces the selection, or the whole buffer when `all`
+   * @param {boolean} all
+   */
+  function write(text, all = false) {
+    const active = document.activeElement;
+    const restore = active !== textarea ? active : null;
+    if (restore) textarea.focus();
+
+    const { scrollTop } = textarea;
+    if (all) textarea.select();
+
+    let inserted = false;
+    try {
+      inserted = document.execCommand('insertText', false, text);
+    } catch {
+      /* falls through to the assignment below */
+    }
+    if (!inserted) {
+      const { selectionStart: from, selectionEnd: to, value } = textarea;
+      textarea.value = all ? text : `${value.slice(0, from)}${text}${value.slice(to)}`;
+      if (!all) textarea.selectionStart = textarea.selectionEnd = from + text.length;
+      changed();
+    }
+
+    // `insertText` leaves the caret after what it inserted, which for a whole-buffer
+    // write is the very end — so the editor would open showing the last line of the
+    // starter, and the next focus would jump there. Put it back at the top, which is
+    // where replacing the buffer outright has always left it.
+    if (all) {
+      textarea.setSelectionRange(0, 0);
+      textarea.scrollTop = scrollTop;
+    }
+    if (restore?.focus) restore.focus();
+  }
+
+  /** Every path that alters the text goes through here, so the mirror cannot drift. */
+  function changed() {
+    syncMirror();
+    handlers.onChange?.(textarea.value);
+  }
+
+  textarea.addEventListener('input', changed);
+  textarea.addEventListener('scroll', syncScroll);
+  window.addEventListener('resize', syncMirror);
+
+  /**
+   * Follow the textarea's scroll on every frame, unconditionally.
+   *
+   * Listening for `scroll` is not enough, and the way it fails is specific: the
+   * textarea scrolls the caret back into view on paths that do not always announce
+   * themselves — a held arrow key repeating, a selection dragged past the edge, the
+   * caret pushed off the bottom by typing. Miss one and the mirror stays parked while
+   * the textarea has moved. The misses accumulate, so the further down the buffer the
+   * performer has worked, the further the text is painted below where the caret is:
+   * near the top it looks close to right, and by the bottom the caret is sitting
+   * lines above the code it is actually in.
+   *
+   * A frame callback makes the worst case one frame of lag that then corrects itself,
+   * rather than a desync that persists until some later event happens to fire. It
+   * deliberately does not depend on focus: the wheel scrolls this without focusing it,
+   * and a condition on when the alignment is maintained is a condition on when this
+   * bug comes back. Two integer comparisons a frame is not a cost worth that risk.
+   */
+  if (mirror || lineNumbers) {
+    const follow = () => {
+      syncScroll();
+      requestAnimationFrame(follow);
+    };
+    requestAnimationFrame(follow);
+  }
+
+  syncMirror();
+
+  function appendSource(source) {
+    const next = `${textarea.value.trimEnd()}\n\n${source.trim()}\n`;
+    write(next, true);
+    changed();
+    return next;
+  }
+
+  /** Install a patch before scene cells so a full reload preserves JS declaration order. */
+  function insertPatchSource(source) {
+    const appended = `${textarea.value.trimEnd()}\n\n${source.trim()}\n`;
+    const next = moveSceneCellsLast(appended);
+    write(next, true);
+    changed();
+    return next;
+  }
+
+  function replaceNamedBlock(description, source) {
+    const target = findBlocks(textarea.value).find((block) => {
+      const label = describeBlock(block.text).replace(/^strategy\s+/, 'patch ');
+      return label === description.replace(/^strategy\s+/, 'patch ');
+    });
+    if (!target) {
+      if (/^(?:strategy|patch)\s+/.test(description)) insertPatchSource(source);
+      else appendSource(source);
+      return { replaced: false, source };
+    }
+    write(
+      textarea.value.slice(0, target.start) + source + textarea.value.slice(target.end),
+      true,
+    );
+    changed();
+    return { replaced: true, source };
+  }
+
+  /** Update source composition only; evaluation remains an explicit live-coding step. */
+  function addStrategyToScene(sceneName, strategyName, currentOrder = [], { before = null } = {}) {
+    const insertion = before ? currentOrder.indexOf(before) : -1;
+    const nextOrder = insertion === -1
+      ? [...currentOrder, strategyName]
+      : [...currentOrder.slice(0, insertion), strategyName, ...currentOrder.slice(insertion)];
+    const declaration = `const ${sceneName} = [\n${nextOrder.map((name) => `  ${name},`).join('\n')}\n];`;
+    const target = findBlocks(textarea.value).find(
+      (block) => describeBlock(block.text) === `scene ${sceneName}`,
+    );
+
+    if (!target) {
+      const source = `// %% scene ${sceneName}\n${declaration}\ngo(${sceneName});`;
+      appendSource(source);
+    } else {
+      const escaped = sceneName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(
+        `\\b(?:const|let|var)\\s+${escaped}\\s*=\\s*\\[[\\s\\S]*?\\]\\s*;?`,
+      );
+      if (!pattern.test(target.text)) return { ok: false, reason: 'scene-declaration-not-found' };
+      const updated = target.text.replace(pattern, declaration);
+      write(
+        textarea.value.slice(0, target.start) + updated + textarea.value.slice(target.end),
+        true,
+      );
+      changed();
+    }
+
+    const updatedTarget = findBlocks(textarea.value).find(
+      (block) => describeBlock(block.text) === `scene ${sceneName}`,
+    );
+    if (updatedTarget) {
+      const local = updatedTarget.text.indexOf(`const ${sceneName}`);
+      revealRange(updatedTarget.start + Math.max(0, local));
+    }
+    return { ok: true, sceneName, order: nextOrder, source: updatedTarget?.text ?? declaration };
+  }
 
   return {
     get value() {
       return textarea.value;
     },
     set value(next) {
-      textarea.value = next;
-      handlers.onChange?.(next);
+      write(next, true);
+      changed();
     },
     focus: () => textarea.focus(),
+    setFolded,
+    foldAll,
+    unfoldAll,
+    toggleFolded: () => setFolded(!folded),
+    isFolded: () => folded,
     evaluateCursorBlock,
     evaluateBuffer,
+    flashCodeError,
+    appendSource,
+    insertPatchSource,
+    replaceNamedBlock,
+    addStrategyToScene,
+    patchSource(name) {
+      return findBlocks(textarea.value).find((block) => isPatchBlock(block, name))?.text ?? null;
+    },
+    /** Focus the binding that defines a strategy without changing source. */
+    revealStrategy(name) {
+      const target = findBlocks(textarea.value).find((block) => isPatchBlock(block, name));
+      if (!target) return false;
+
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const declaration = target.text.match(
+        new RegExp(`\\b(?:const|let|var|function)\\s+(${escaped})\\b`),
+      );
+      const localStart = declaration
+        ? declaration.index + declaration[0].lastIndexOf(name)
+        : 0;
+      const start = target.start + localStart;
+      revealRange(start, start + (declaration ? name.length : 0));
+      return true;
+    },
+    revealScene(name) {
+      const target = findBlocks(textarea.value).find(
+        (block) => describeBlock(block.text) === `scene ${name}`,
+      );
+      if (!target) return false;
+      const localStart = Math.max(0, target.text.indexOf(`const ${name}`));
+      revealRange(target.start + localStart, target.start + localStart + name.length + 6);
+      return true;
+    },
     /** Put a stored version back in the editor when the performer reverts (§10.4). */
     replaceBlockFor(name, source) {
       const blocks = findBlocks(textarea.value);
-      const target = blocks.find((b) => describeBlock(b.text) === `patch ${name}`);
-      if (!target) {
-        textarea.value = `${textarea.value.trimEnd()}\n\n${source}\n`;
-      } else {
-        textarea.value =
-          textarea.value.slice(0, target.start) + source + textarea.value.slice(target.end);
-      }
-      handlers.onChange?.(textarea.value);
+      const target = blocks.find((block) => isPatchBlock(block, name));
+      // Through `write` so a revert is itself undoable — putting an old version back
+      // is exactly the kind of move a performer takes back a second later.
+      write(
+        target
+          ? textarea.value.slice(0, target.start) + source + textarea.value.slice(target.end)
+          : `${textarea.value.trimEnd()}\n\n${source}\n`,
+        true,
+      );
+      changed();
     },
   };
 }

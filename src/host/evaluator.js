@@ -1,195 +1,282 @@
-// Evaluator — the staged transaction of PRD §13.2.
+// Evaluator — atomic live replacement for ordinary strategy functions and objects.
 //
-//   1. compile the block                        -> SyntaxError stops here      (S-01)
-//   2. run its registration calls into staging  -> a throw stops here          (S-02)
-//   3. validate the staged shape and targets    -> a bad reference stops here  (S-02)
-//   4. snapshot compatible patch state
-//   5. queue for the next frame boundary
-//   6. invoke the candidate inside an error boundary   (hostLoop)
-//   7. commit on success; restore previous definition and state on failure (hostLoop)
-//   8. add successful source and metadata to history                       (registry)
+// A student writes normal JavaScript bindings, not registration calls:
 //
-// Steps 1-5 live here. Steps 6-8 belong to the frame and live in hostLoop.js.
+//   class NeonTunnel { draw({ audio }) { ... } }
+//   const neonTunnel = new NeonTunnel();
+//   const scene = [checkerZoom, neonTunnel, plasma];
 //
-// Nothing in steps 1-4 can touch the running system: the code runs against a staging
-// transaction, not the registry. That is the mechanical reason a syntax error can
-// never blank the stage.
-//
-// §13.3, plainly: this compiles and runs student JavaScript with `new Function`. That
-// is deliberate live-coding, not a sandbox. An infinite loop still freezes the tab.
+// Top-level class/function/value bindings are retained between block evaluations.
+// Objects with draw() become replaceable strategies immediately. Functions become
+// strategies contextually when a scene uses them. Arrays made from
+// strategies become scenes. All registry changes still land only at a frame boundary.
 
 import { createTransaction, LIVE_API_NAMES } from './liveApi.js';
-import { patchOf } from './stateStore.js';
+import { strategyOf } from './stateStore.js';
+import { findCells, findStatements } from '../language/sourceBlocks.js';
 
-/** Operations that name something which must already exist (or be created by this block). */
-const TARGETED_OPS = new Set(['go', 'add', 'remove', 'removeAll', 'resetPatch']);
+const TARGETED_OPS = new Set(['reset']);
+const DECLARATION = /^\s*(?:const|let|var|class|function)\s+([A-Za-z_$][\w$]*)\b/;
 
 export function createEvaluator({ registry, stateStore, diagnostics }) {
   /** @type {Array<{transaction: object, label: string}>} */
   const queue = [];
+  /** Successful top-level declarations available to later block evaluations. */
+  const bindings = new Map();
+  /** Reverse lookup from first-class values to their JavaScript binding names. */
+  let namesByObject = new WeakMap();
 
-  /**
-   * Steps 1-5. Returns synchronously; visible change happens at the next frame.
-   * @param {string} source
-   * @param {{label?: string}} [options]
-   */
+  function knownNameOf(value) {
+    if ((typeof value === 'object' && value !== null) || typeof value === 'function') {
+      const bound = namesByObject.get(value);
+      if (bound) return bound;
+    }
+    for (const record of registry.listStrategies()) {
+      if (record.definition === value) return record.name;
+    }
+    return null;
+  }
+
+  /** Compile and stage one block or the entire editor buffer. */
   function evaluate(source, { label = 'block' } = {}) {
     if (typeof source !== 'string' || source.trim() === '') {
       return { ok: false, phase: 'empty', error: new Error('Nothing to evaluate') };
     }
 
-    // 1. Compile. A syntax error ends the transaction before anything else happens.
+    // Older builds could append the same library cell twice before the first install
+    // reached the frame boundary. Keep the newest copy at the original cell position:
+    // this removes duplicate class/const declarations without changing scene ordering.
+    const normalized = collapseDuplicatePatchCells(source);
+    const executableSource = normalized.source;
+    if (normalized.names.length) {
+      diagnostics?.warn(
+        `Duplicate patch source repaired: ${normalized.names.join(', ')}`,
+        'The newest cell was evaluated as the replacement. Remove the older duplicate from the editor when convenient.',
+      );
+    }
+
+    const declarations = declarationEntries(executableSource);
+    const declaredNames = new Set(declarations.map((entry) => entry.name));
+    const availableBindings = [...bindings.entries()].filter(
+      ([name]) => !declaredNames.has(name) && !LIVE_API_NAMES.includes(name),
+    );
+    const capture = declarations.length
+      ? `\n;return {${declarations.map(({ name }) => `${JSON.stringify(name)}:${name}`).join(',')}};`
+      : '';
+
     let compiled;
     try {
-      compiled = new Function(...LIVE_API_NAMES, source);
+      compiled = new Function(
+        ...LIVE_API_NAMES,
+        ...availableBindings.map(([name]) => name),
+        `${executableSource}${capture}`,
+      );
     } catch (error) {
-      diagnostics?.error(`Syntax error — ${label} not applied`, formatError(error, source));
+      diagnostics?.error(`Syntax error — ${label} not applied`, formatError(error, executableSource));
       return { ok: false, phase: 'syntax', error };
     }
 
-    // 2. Run the registration calls against a staging transaction.
-    const transaction = createTransaction(source);
+    const transaction = createTransaction(executableSource, { nameOf: knownNameOf });
+    let captured = {};
     try {
-      compiled(...transaction.args());
+      captured =
+        compiled(
+          ...transaction.args(),
+          ...availableBindings.map(([, value]) => value),
+        ) ?? {};
+      const localNameOf = captureDeclarations(transaction, declarations, captured);
+      transaction.resolveCommandTargets(localNameOf);
+      promoteNewReferences(transaction);
     } catch (error) {
-      diagnostics?.error(`Registration error — ${label} not applied`, formatError(error, source));
-      return { ok: false, phase: 'registration', error };
+      diagnostics?.error(`Evaluation error — ${label} not applied`, formatError(error, executableSource));
+      return { ok: false, phase: 'evaluation', error };
     }
 
     if (transaction.isEmpty()) {
-      diagnostics?.warn(
-        `${label} evaluated, but registered nothing`,
-        'Did you mean to call patch(), scene(), or go()?',
-      );
-      return { ok: true, phase: 'noop', staged: [], operations: 0 };
+      // Ordinary JavaScript calls such as `laserFan.addBeams(2)` may intentionally mutate
+      // a live object without producing a registry operation. We cannot distinguish
+      // that useful side effect from a pure helper expression, so report successful
+      // execution without pretending the registry had to change.
+      diagnostics?.success(`${label} evaluated`);
+      return { ok: true, phase: 'executed', staged: [], operations: 0 };
     }
 
-    // 3. Validate that every referenced name will exist once this block is applied.
     const validationError = validateTargets(transaction);
     if (validationError) {
-      diagnostics?.error(`Registration error — ${label} not applied`, validationError.message);
-      return { ok: false, phase: 'registration', error: validationError };
+      diagnostics?.error(`Evaluation error — ${label} not applied`, validationError.message);
+      return { ok: false, phase: 'evaluation', error: validationError };
     }
 
-    // 4 + 5. Snapshot state and queue for the frame boundary. The snapshot is taken
-    // now, before the candidate has had any chance to mutate state.
-    for (const [name, staged] of transaction.stagedPatches) {
-      // Every instance of this patch, since replacing it replaces all of them.
-      staged.stateSnapshot = stateStore.snapshotPatch(name);
+    for (const [name, staged] of transaction.stagedStrategies) {
+      staged.stateSnapshot = stateStore.snapshotStrategy(name);
     }
     queue.push({ transaction, label });
 
     return {
       ok: true,
       phase: 'queued',
-      staged: [...transaction.stagedPatches.keys()],
+      staged: [...transaction.stagedStrategies.keys()],
       operations: transaction.operations.length,
     };
   }
 
+  /** Capture normal JavaScript declarations as environment, strategies, or scenes. */
+  function captureDeclarations(transaction, declarations, captured) {
+    const localNames = new WeakMap();
+
+    for (const { name } of declarations) {
+      const value = captured[name];
+      transaction.bindingUpdates.set(name, value);
+      if ((typeof value === 'object' && value !== null) || typeof value === 'function') {
+        localNames.set(value, name);
+      }
+    }
+
+    const localNameOf = (value) =>
+      ((typeof value === 'object' && value !== null) || typeof value === 'function'
+        ? localNames.get(value)
+        : null) ?? knownNameOf(value);
+
+    // Objects are staged before arrays are interpreted, so the scene validation sees
+    // everything declared in the same buffer as already on its way into the registry.
+    for (const declaration of declarations) {
+      const value = captured[declaration.name];
+      const explicitStrategyName = /^(?:strategy|patch)\s+([A-Za-z_$][\w$]*)$/.exec(
+        declaration.cellLabel ?? '',
+      )?.[1];
+      if (
+        isObjectStrategy(value) ||
+        registry.hasStrategy(declaration.name) ||
+        (typeof value === 'function' && explicitStrategyName === declaration.name)
+      ) {
+        transaction.stageStrategy(value, declaration.source, declaration.name);
+      }
+    }
+
+    for (const declaration of declarations) {
+      const value = captured[declaration.name];
+      const isGoTarget = transaction.operations.some(
+        (op) => op.type === 'go' && op.target === value,
+      );
+      const isExistingScene = registry.listScenes().some((scene) => scene.name === declaration.name);
+      if (
+        isStrategyArray(value) ||
+        (Array.isArray(value) && (isGoTarget || isExistingScene))
+      ) {
+        transaction.defineScene(declaration.name, value, localNameOf);
+      }
+    }
+
+    // A function mentioned by a scene becomes a strategy at that point.
+    // When it was declared in this evaluation, keep its cell as its history source.
+    const declarationsByName = new Map(declarations.map((entry) => [entry.name, entry]));
+    for (const [name, entry] of transaction.referencedStrategies) {
+      const declaration = declarationsByName.get(name);
+      if (declaration) entry.source = declaration.source;
+    }
+    return localNameOf;
+  }
+
+  /** References only stage a version when they are not already the live object. */
+  function promoteNewReferences(transaction) {
+    for (const [name, entry] of transaction.referencedStrategies) {
+      if (transaction.stagedStrategies.has(name)) continue;
+      if (registry.getStrategy(name)?.definition === entry.definition) continue;
+      transaction.stagedStrategies.set(name, entry);
+    }
+  }
+
   function validateTargets(transaction) {
-    const patchNames = new Set([...registry.patchNames(), ...transaction.stagedPatches.keys()]);
-    const sceneNames = new Set(registry.listScenes().map((s) => s.name));
+    const strategyNames = new Set([
+      ...registry.strategyNames(),
+      ...transaction.stagedStrategies.keys(),
+    ]);
+    const sceneNames = new Set([
+      ...registry.listScenes().map((scene) => scene.name),
+      ...transaction.operations.filter((op) => op.type === 'scene').map((op) => op.name),
+    ]);
+
     for (const op of transaction.operations) {
       if (op.type === 'scene') {
-        sceneNames.add(op.name);
-        const missing = op.entries.map((e) => e.patch).filter((n) => !patchNames.has(n));
+        const missing = op.entries
+          .map((entry) => entry.strategy)
+          .filter((name) => !strategyNames.has(name));
         if (missing.length) {
-          const unique = [...new Set(missing)];
-          return new Error(
-            `scene("${op.name}", ...) refers to undefined patch${unique.length > 1 ? 'es' : ''}: ` +
-              `${unique.join(', ')}. Define ${unique.length > 1 ? 'them' : 'it'} first, or ` +
-              `evaluate the whole buffer with Cmd/Ctrl+Shift+Enter.`,
-          );
+          return new Error(`Scene "${op.name}" contains an undefined strategy: ${missing.join(', ')}`);
         }
       } else if (op.type === 'go') {
-        if (!sceneNames.has(op.name)) return new Error(`go("${op.name}") — no scene by that name`);
+        if (!sceneNames.has(op.name)) return new Error(`No scene named "${op.name}"`);
       } else if (TARGETED_OPS.has(op.type)) {
-        // `remove` also accepts an instance id ("swarm#2"), so validate its base name.
-        const base = patchOf(op.name);
-        if (!patchNames.has(base)) {
-          return new Error(`${op.type}("${op.name}") — no patch by that name`);
-        }
+        const base = strategyOf(op.name);
+        if (!strategyNames.has(base)) return new Error(`No strategy named "${base}"`);
       }
     }
     return null;
   }
 
-  /**
-   * Apply every queued transaction. Called by the host at a frame boundary so a
-   * replacement is never spliced in halfway through a rendered frame (R-03).
-   * @returns {string[]} names whose candidate versions will be tested next frame
-   */
+  /** Apply queued object/binding/scene changes at the frame boundary. */
   function applyPending() {
     if (queue.length === 0) return [];
     const staged = [];
 
     for (const { transaction, label } of queue) {
-      // Names this block places into a scene itself. The convenience of auto-adding a
-      // new patch must defer to explicit composition: a block that says
-      //   patch("chaos", ...); scene("wild", ["chaos"]); go("wild");
-      // means chaos belongs to "wild", not also to whatever happened to be running.
-      const composed = composedNames(transaction);
-
-      for (const [name, entry] of transaction.stagedPatches) {
-        const isNew = !registry.hasPatch(name);
-        registry.stagePatch(name, entry.definition, entry.source, entry.stateSnapshot);
-        // Create state for every instance from this version's factory, if it has none
-        // yet. A patch with no instances still gets its bare one, so a registered but
-        // unstaged patch has somewhere to keep state.
-        const ids = registry.activeInstancesOf(name).map((i) => i.id);
-        for (const id of ids.length ? ids : [name]) stateStore.ensure(id, entry.definition.state);
-        // A brand-new patch joins the running scene so it is visible immediately —
-        // once only, so re-evaluating never quietly stacks up copies.
-        if (isNew && !composed.has(name)) registry.addToActiveScene(name, {}, { once: true });
+      const configurationSnapshot = registry.snapshotConfiguration();
+      applyBindingUpdates(transaction.bindingUpdates);
+      for (const [name, entry] of transaction.stagedStrategies) {
+        registry.stageStrategy(
+          name,
+          entry.definition,
+          entry.source,
+          entry.stateSnapshot,
+          configurationSnapshot,
+        );
+        const ids = registry.activeInstancesOf(name).map((instance) => instance.id);
+        for (const id of ids.length ? ids : [name]) {
+          stateStore.ensure(id, registry.boundMethod(name, 'state'));
+        }
         staged.push(name);
       }
-      for (const op of transaction.operations) applyOperation(op, label);
+
+      // Scene arrays may be captured after go() ran inside the JavaScript function.
+      // Definitions therefore apply first, then commands run in their written order.
+      for (const op of transaction.operations.filter((op) => op.type === 'scene')) {
+        applyOperation(op, label);
+      }
+      for (const op of transaction.operations.filter((op) => op.type !== 'scene')) {
+        applyOperation(op, label);
+      }
     }
 
     queue.length = 0;
     return staged;
   }
 
-  function composedNames(transaction) {
-    const names = new Set();
-    for (const op of transaction.operations) {
-      if (op.type === 'scene') for (const entry of op.entries) names.add(entry.patch);
-      else if (op.type === 'add') names.add(op.name);
+  function applyBindingUpdates(updates) {
+    for (const [name, value] of updates) {
+      const previous = bindings.get(name);
+      if ((typeof previous === 'object' && previous !== null) || typeof previous === 'function') {
+        namesByObject.delete(previous);
+      }
+      bindings.set(name, value);
+      if ((typeof value === 'object' && value !== null) || typeof value === 'function') {
+        namesByObject.set(value, name);
+      }
     }
-    return names;
   }
 
   function applyOperation(op, label) {
     switch (op.type) {
       case 'scene':
         registry.defineScene(op.name, op.entries);
-        // A scene may have introduced new instances; give each one its own state.
         for (const instance of registry.activeInstances()) {
-          stateStore.ensure(instance.id, registry.getPatch(instance.patch)?.definition?.state);
+          stateStore.ensure(instance.id, registry.boundMethod(instance.strategy, 'state'));
         }
         break;
       case 'go':
         registry.go(op.name);
         break;
-      case 'add': {
-        const instance = registry.addToActiveScene(op.name, op.config);
-        stateStore.ensure(instance.id, registry.getPatch(op.name)?.definition?.state);
-        if (instance.id !== op.name) diagnostics?.info(`Added ${instance.id}`);
-        break;
-      }
-      case 'remove':
-        registry.removeFromActiveScene(op.name);
-        break;
-      case 'removeAll':
-        registry.removeAllFromActiveScene(op.name);
-        break;
-      case 'clearScene':
-        registry.clearActiveScene();
-        break;
-      case 'resetPatch': {
-        const record = registry.getPatch(op.name);
-        const count = stateStore.resetPatch(op.name, record?.definition?.state);
+      case 'reset': {
+        const count = stateStore.resetStrategy(op.name, registry.boundMethod(op.name, 'state'));
         diagnostics?.info(`${op.name} state reset${count > 1 ? ` (${count} copies)` : ''}`);
         break;
       }
@@ -201,43 +288,148 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
     }
   }
 
-  /**
-   * One-click reversion (S-05). Reverting is an ordinary evaluation of a stored
-   * version: it becomes a new candidate and must survive a frame like any other.
-   */
+  /** Reversion swaps the exact historical object back in as a new candidate. */
   function revert(name, version) {
     const entry = registry.historyEntry(name, version);
     if (!entry) {
       diagnostics?.warn(`No stored version ${version} of ${name}`);
       return { ok: false, phase: 'history' };
     }
-    const transaction = createTransaction(entry.source);
-    transaction.stagedPatches.set(name, {
+    const transaction = createTransaction(entry.source, { nameOf: knownNameOf });
+    transaction.stagedStrategies.set(name, {
       definition: entry.definition,
       source: entry.source,
-      stateSnapshot: stateStore.snapshotPatch(name),
+      stateSnapshot: stateStore.snapshotStrategy(name),
     });
+    transaction.bindingUpdates.set(name, entry.definition);
     queue.push({ transaction, label: `${name} v${version}` });
     return { ok: true, phase: 'queued', staged: [name] };
   }
 
-  /** Drop anything queued but not yet applied — used by "reset project". */
   function discardPending() {
     const dropped = queue.length;
     queue.length = 0;
     return dropped;
   }
 
+  function clearBindings() {
+    bindings.clear();
+    namesByObject = new WeakMap();
+  }
+
+  function snapshotBindings() {
+    return new Map(bindings);
+  }
+
+  function restoreBindings(snapshot) {
+    clearBindings();
+    for (const [name, value] of snapshot ?? []) restoreBinding(name, value);
+  }
+
+  /** Keep the live JavaScript binding aligned when a candidate object rolls back. */
+  function restoreBinding(name, value) {
+    const current = bindings.get(name);
+    if ((typeof current === 'object' && current !== null) || typeof current === 'function') {
+      namesByObject.delete(current);
+    }
+    if (value === null || value === undefined) bindings.delete(name);
+    else {
+      bindings.set(name, value);
+      if ((typeof value === 'object' && value !== null) || typeof value === 'function') {
+        namesByObject.set(value, name);
+      }
+    }
+  }
+
   return {
     evaluate,
     applyPending,
     discardPending,
+    clearBindings,
+    restoreBinding,
+    snapshotBindings,
+    restoreBindings,
     revert,
     pendingCount: () => queue.length,
+    binding: (name) => bindings.get(name),
   };
 }
 
-/** Trim a stack down to the one line a performer can act on (§10.5). */
+/**
+ * Collapse duplicate explicit patch cells before JavaScript compilation.
+ *
+ * Re-evaluating one class cell is already safe because the previous class binding is
+ * excluded from the generated function parameters. The observed `Cannot declare a
+ * class twice` error came from two copies of the entire installed cell in the buffer.
+ * This repair makes that legacy source mean what the user intended: the newest cell
+ * replaces the earlier definition.
+ */
+function collapseDuplicatePatchCells(source) {
+  const groups = new Map();
+  for (const cell of findCells(source)) {
+    const match = /^(?:strategy|patch)\s+([A-Za-z_$][\w$]*)$/.exec(cell.label);
+    if (!match) continue;
+    const group = groups.get(match[1]) ?? [];
+    group.push(cell);
+    groups.set(match[1], group);
+  }
+
+  const replacements = new Map();
+  const names = [];
+  for (const [name, cells] of groups) {
+    if (cells.length < 2) continue;
+    names.push(name);
+    const newest = cells.at(-1).text;
+    replacements.set(cells[0].start, newest);
+    for (const cell of cells.slice(1)) {
+      replacements.set(cell.start, '\n'.repeat(Math.max(1, cell.text.split('\n').length - 1)));
+    }
+  }
+  if (replacements.size === 0) return { source, names };
+
+  let result = '';
+  let cursor = 0;
+  for (const cell of findCells(source)) {
+    if (!replacements.has(cell.start)) continue;
+    result += source.slice(cursor, cell.start);
+    result += replacements.get(cell.start);
+    cursor = cell.end;
+  }
+  result += source.slice(cursor);
+  return { source: result, names };
+}
+
+function isObjectStrategy(value) {
+  return value !== null && typeof value === 'object' && typeof value.draw === 'function';
+}
+
+function canBeStrategy(value) {
+  return typeof value === 'function' || isObjectStrategy(value);
+}
+
+function isStrategyArray(value) {
+  return Array.isArray(value) && value.length > 0 && value.every(canBeStrategy);
+}
+
+function declarationEntries(source) {
+  const seen = new Set();
+  const entries = [];
+  const cells = findCells(source);
+  for (const block of findStatements(source)) {
+    const match = DECLARATION.exec(block.text);
+    if (!match || seen.has(match[1])) continue;
+    seen.add(match[1]);
+    const cell = cells.find((candidate) => block.start >= candidate.start && block.end <= candidate.end);
+    entries.push({
+      name: match[1],
+      text: block.text,
+      source: cell?.text ?? block.text,
+      cellLabel: cell?.label ?? null,
+    });
+  }
+  return entries;
+}
+
 function formatError(error, source) {
   const line = lineFromStack(error, source);
   const where = line ? ` (line ${line})` : '';
@@ -245,8 +437,6 @@ function formatError(error, source) {
 }
 
 function lineFromStack(error, source) {
-  // `new Function` bodies report as "<anonymous>:LINE:COL", offset by the two-line
-  // wrapper the engine adds around the body.
   const match = /<anonymous>:(\d+):\d+/.exec(error.stack ?? '');
   if (!match) return null;
   const line = Number(match[1]) - 2;

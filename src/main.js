@@ -1,4 +1,4 @@
-// Response — wiring.
+// AlgoLab — wiring.
 //
 // This is the only file that touches p5's globals directly, and the only file that
 // assigns window.setup and window.draw. PRD §8: the host owns those functions, and
@@ -19,8 +19,40 @@ import { createPanels } from './ui/panels.js';
 import { createProjection } from './ui/projection.js';
 import { createConfirmDialog } from './ui/confirmDialog.js';
 import { createProjectStore } from './persistence/projectStore.js';
-import { STARTER_SOURCE } from '../starter/starter.js';
-import { LIBRARY, libraryDemoSource } from '../starter/library.js';
+import { createAppController } from './app/controller.js';
+import { evaluateStartupProject } from './app/startupRecovery.js';
+import { STARTER_SOURCE, upgradeLegacyPlasma } from '../starter/starter.js';
+import {
+  LIBRARY,
+  RAVE_PATCH_NAMES,
+  libraryDemoSource,
+  upgradeOpaqueDiagnostics,
+} from '../starter/library.js';
+import { COMMUNITY_PATCHES } from './generated/communityPatches.js';
+import {
+  findCells,
+  moveSceneCellsLast,
+  renameLegacyStarterScene,
+} from './language/sourceBlocks.js';
+
+const STARTER_PATCHES = findCells(STARTER_SOURCE).flatMap((cell) => {
+  const match = /^(?:strategy|patch)\s+([A-Za-z_$][\w$]*)$/.exec(cell.label);
+  if (!match) return [];
+  return [{
+    name: match[1],
+    title: match[1],
+    blurb: 'Included in the starter project.',
+    source: cell.text.trimEnd(),
+    origin: 'system',
+    category: match[1] === 'plasma' ? 'shader' : 'visual',
+  }];
+});
+
+const PATCH_LIBRARY = [
+  ...STARTER_PATCHES,
+  ...LIBRARY.map((entry) => ({ ...entry, title: entry.name, origin: 'system' })),
+  ...COMMUNITY_PATCHES,
+].sort((a, b) => a.title.localeCompare(b.title));
 
 const diagnostics = createDiagnostics();
 const registry = createRegistry();
@@ -28,15 +60,15 @@ const stateStore = createStateStore({ diagnostics });
 const evaluator = createEvaluator({ registry, stateStore, diagnostics });
 const audio = createAudioEngine({ diagnostics });
 
-// Read-only keyboard state, handed to patches as `context.controls` (§9.4).
+// Read-only keyboard state, handed to strategies as one of the draw inputs (§9.4).
 const controls = { keys: new Set(), shift: false, alt: false };
 
 /**
- * p5 drawing isolation for one patch invocation (R-05, §7).
+ * p5 drawing isolation for one strategy invocation (R-05, §7).
  *
  * push()/pop() already save and restore p5's style and transform stack. The reset in
- * between exists for a subtler reason: without it, a patch inherits whatever the
- * *host* last set, so reordering a scene could silently change how a patch looks.
+ * between exists for a subtler reason: without it, an object inherits whatever the
+ * *host* last set, so reordering a scene could silently change how it looks.
  * These are the defaults documented in docs/API.md.
  */
 const drawing = {
@@ -47,6 +79,7 @@ const drawing = {
     blendMode(BLEND);
     rectMode(CORNER);
     ellipseMode(CENTER);
+    imageMode(CORNER);
     angleMode(RADIANS);
     fill(255);
     stroke(255);
@@ -58,14 +91,37 @@ const drawing = {
   },
 };
 
-const host = createHostLoop({ registry, stateStore, evaluator, diagnostics, drawing, controls });
+let showCodeError = () => {};
+const host = createHostLoop({
+  registry,
+  stateStore,
+  evaluator,
+  diagnostics,
+  drawing,
+  controls,
+  onCodeError: (name) => showCodeError(name),
+});
+const controller = createAppController({ registry, stateStore, diagnostics, evaluator, audio, host });
 const projectStore = createProjectStore({ registry, diagnostics });
-const projection = createProjection({ registry, diagnostics });
+const projection = createProjection({
+  controller,
+  onBlocked: () =>
+    diagnostics.warn(
+      'Projection window was blocked',
+      'Allow pop-ups for this page, or use Fullscreen instead.',
+    ),
+  onOpened: () =>
+    diagnostics.success('Projection window open', 'Tab cycles layout; Esc closes it.'),
+});
 const dialog = createConfirmDialog();
 
 // --- editor + panels ------------------------------------------------------------
 
 const stage = document.getElementById('stage');
+const app = document.getElementById('app');
+const codeLayer = document.getElementById('code-layer');
+const foldButton = document.getElementById('fold-code');
+let stageCanvas = null;
 
 const editor = createEditor(document.getElementById('code'), {
   onEvaluate: (source, label) => {
@@ -75,36 +131,56 @@ const editor = createEditor(document.getElementById('code'), {
     if (result.ok) projection.setActiveCode(source);
     return result;
   },
-  onChange: (source) => projectStore.saveSoon(source),
+  onChange: (source) => {
+    projectStore.saveSoon(source);
+    controller.sourceChanged();
+  },
   onEscape: () => stage.focus(),
+  // Paints the text and the box behind each line; see src/ui/styles.css.
+  mirror: document.getElementById('code-mirror'),
+  lineNumbers: document.getElementById('line-numbers'),
+  foldControls: document.getElementById('fold-controls'),
+  foldedView: document.getElementById('folded-blocks'),
+  onFoldChange: (folded) => {
+    foldButton.classList.toggle('is-on', folded);
+    const label = folded
+      ? 'Open complete editor; fold controls remain in the gutter'
+      : 'Return to structured code folds';
+    foldButton.title = label;
+    foldButton.setAttribute('aria-label', label);
+  },
 });
+showCodeError = (name) => editor.flashCodeError(name);
+controller.setSourceProvider(() => editor.value);
 
-// D-01 covers the patch registry and scenes, not just the editor text — so a scene
-// reorder or a parameter tweak is saved too, not only typing.
+foldButton.addEventListener('click', () => editor.toggleFolded());
+editor.setFolded(true);
+
+// Parameter and safety-setting changes also need to save, not only typing.
 registry.subscribe(() => projectStore.saveSoon(editor.value));
 
 const panels = createPanels({
-  registry,
-  stateStore,
-  diagnostics,
-  audio,
-  host,
-  evaluator,
-  editor,
-  onRevert: (name, version, source) => projection.setActiveCode(source),
-  // The shelf lists the library's patches alongside the registered ones, so bringing
-  // one in is the same "+" as adding another copy of something already there.
-  library: LIBRARY,
-  onAddLibrary: (entry) => insertFromLibrary(entry.source, `patch ${entry.name}`),
-  onDemoScene: () => buildDemoScene(),
+  controller,
+  onRevert: ({ name, source }) => {
+    editor.replaceBlockFor(name, source);
+    projection.setActiveCode(source);
+  },
+  library: PATCH_LIBRARY,
+  onInsertLibrary: installFromLibrary,
+  onAddToScene: addPatchToScene,
+  onInsertExample: buildDemoScene,
+  onRestoreSafe: restoreSafeState,
+  onLocateStrategy: (name) => {
+    if (editor.revealStrategy(name)) toggleReference(true);
+  },
 });
 
 // --- p5 lifecycle ---------------------------------------------------------------
 
 window.setup = function setup() {
   const stage = document.getElementById('stage');
-  const canvas = createCanvas(stage.clientWidth, stage.clientHeight);
-  canvas.parent(stage);
+  stageCanvas = createCanvas(stage.clientWidth, stage.clientHeight);
+  stageCanvas.parent(stage);
   // One device pixel per canvas pixel. §13.5 budgets 60 FPS at 1280x720 on a
   // classroom laptop, and a retina backing store quadruples the fill cost.
   pixelDensity(1);
@@ -114,33 +190,82 @@ window.setup = function setup() {
   audio.init();
 
   const saved = projectStore.load();
-  editor.value = saved?.source ?? STARTER_SOURCE;
-  // The starter goes through the ordinary evaluation path — no privileged loading.
-  evaluator.evaluate(editor.value, { label: saved ? 'saved project' : 'starter' });
-  // Register everything the source defines before restoring the saved composition,
-  // so a hand-reordered scene is not overwritten by the scene(...) call in the source.
-  evaluator.applyPending();
-  projectStore.restoreComposition(saved);
+  const source = saved?.source ?? STARTER_SOURCE;
+  const upgradedSource = upgradeLegacyPlasma(source);
+  const diagnosticSource = upgradeOpaqueDiagnostics(upgradedSource);
+  const namedSource = renameLegacyStarterScene(diagnosticSource);
+  const orderedSource = moveSceneCellsLast(namedSource);
+  editor.value = orderedSource;
+  if (upgradedSource !== source) {
+    diagnostics.info(
+      'Updated starter Plasma',
+      'The original bright feedback shader is now a subtle ambient AET colour field.',
+    );
+  }
+  if (diagnosticSource !== upgradedSource) {
+    diagnostics.info(
+      'Updated diagnostic overlays',
+      'Frequency bars and audio meters now draw solid marks with no backing tint.',
+    );
+  }
+  if (namedSource !== diagnosticSource) {
+    diagnostics.info('Renamed the starter scene', 'The default scene binding is now simply scene.');
+  }
+  if (orderedSource !== namedSource) {
+    diagnostics.info(
+      'Organized project cells',
+      'The first patch begins at line 1 and scene arrays load after their patch declarations.',
+    );
+  }
+  // The starter/saved project goes through the ordinary atomic evaluation path. If
+  // one saved cell is broken on reload, recover its other independent cells and keep
+  // a small visible scene running instead of accepting an empty registry.
+  const startup = evaluateStartupProject({
+    source: orderedSource,
+    label: saved ? 'saved project' : 'starter',
+    starterSource: STARTER_SOURCE,
+    evaluator,
+    registry,
+    stateStore,
+    host,
+  });
+  if (startup.recovered) {
+    diagnostics.warn(
+      'Saved project recovered with errors',
+      `${startup.failedBlocks.length} block${startup.failedBlocks.length === 1 ? '' : 's'} could not be evaluated. ` +
+        'Their source is still in the editor. Installed source remains visible in the library; open the failed cell, fix it, and press Cmd/Ctrl+Enter.',
+    );
+  }
+  projectStore.restoreSettings(
+    saved?.safeScene === 'tunnel' && namedSource !== diagnosticSource
+      ? { ...saved, safeScene: 'scene' }
+      : saved,
+  );
   // Panic needs somewhere to go from the first minute, not only after the performer
   // has thought to designate a safe scene (S-06).
   if (registry.safeSceneName() === null) registry.setSafeScene();
 
   diagnostics.info(
     saved ? 'Restored your saved project' : 'Starter project loaded',
-    'Cmd/Ctrl+Enter evaluates the block your cursor is in.',
+    'Cmd/Ctrl+Enter evaluates the cell or statement under your cursor.',
   );
 };
 
 window.draw = function draw() {
-  const snapshot = audio.readFrame(); // once per frame, shared by every patch
-  const frame = host.beginFrame(snapshot);
+  const snapshot = audio.readFrame(); // once per frame, shared by every strategy
+  const drawInputs = host.beginFrame(snapshot, stageCanvas);
 
-  for (const name of registry.activeOrder()) {
-    host.drawPatch(name, frame);
+  // The live coder configures the scene as an ordered array of strategy values.
+  // Each function or object exposes the current drawing behavior.
+  for (const strategy of registry.activeStrategies()) {
+    host.drawStrategy(strategy, drawInputs);
   }
 
   host.commitPendingChanges();
-  panels.setSnapshot(snapshot);
+  // The first confirmed starter/saved scene becomes a complete recovery point.
+  // Later edits never overwrite it; only the explicit Set safe action does.
+  if (!controller.safeStateStatus().exists) controller.ensureSafeState();
+  controller.setAudioSnapshot(snapshot);
 
   // The audience's copy of this frame. No-op unless the projection window is open.
   projection.render(drawingContext.canvas);
@@ -155,6 +280,42 @@ window.windowResized = function windowResized() {
 // --- transport ------------------------------------------------------------------
 
 const overlay = document.getElementById('start-overlay');
+const welcomeFileButton = document.getElementById('file-label');
+const welcomeFileInput = document.getElementById('audio-file');
+const welcomeLoadState = document.getElementById('start-load-state');
+const welcomeLoadLabel = document.getElementById('start-load-label');
+const welcomeLoadProgress = document.getElementById('start-load-progress');
+const welcomeNote = document.getElementById('start-note');
+const loadAudioButton = document.getElementById('load-audio');
+
+function renderAudioLoadStatus(status) {
+  loadAudioButton.classList.toggle('is-loading', status.loading);
+  loadAudioButton.setAttribute('aria-busy', String(status.loading));
+  welcomeLoadState.hidden = !status.loading;
+
+  if (status.loading) {
+    welcomeNote.classList.remove('is-error');
+    welcomeNote.textContent =
+      'Audio files stay in this browser. Sound cannot begin until loading finishes.';
+    welcomeLoadLabel.textContent =
+      status.loadPhase === 'decoding'
+        ? `Decoding ${status.source}…`
+        : Number.isFinite(status.loadProgress)
+          ? `Loading ${status.source} — ${Math.round(status.loadProgress * 100)}%`
+          : `Loading ${status.source}…`;
+    if (status.loadPhase === 'loading' && Number.isFinite(status.loadProgress)) {
+      welcomeLoadProgress.value = status.loadProgress;
+    } else {
+      welcomeLoadProgress.removeAttribute('value');
+    }
+    return;
+  }
+
+  if (status.error && !overlay.hidden) {
+    welcomeNote.textContent = `${status.error}. Choose another audio file or enter with silence.`;
+    welcomeNote.classList.add('is-error');
+  }
+}
 
 async function startAudio() {
   try {
@@ -172,28 +333,49 @@ async function chooseFile(input) {
   const file = input.files?.[0];
   if (!file) return;
   try {
-    await audio.loadFile(file);
+    // Safari must be unlocked by the file input's trusted change event. Waiting for
+    // loadSound's asynchronous decode before doing this can leave a playing analyzer
+    // graph whose master output is still inaudible.
+    await audio.unlock();
+  } catch (error) {
+    diagnostics.error('Could not start audio', `${error.message} — running on silence.`);
+    return;
+  }
+  try {
+    await audio.loadFile(file, { onProgress: renderAudioLoadStatus });
     await startAudio();
   } catch {
-    /* loadFile already reported it */
+    /* loadFile already reported the decode failure */
   }
 }
 
 for (const id of ['audio-file', 'audio-file-2']) {
   document.getElementById(id).addEventListener('change', (event) => chooseFile(event.target));
 }
+welcomeFileButton.addEventListener('click', () => welcomeFileInput.click());
 document.getElementById('load-audio').addEventListener('click', () => {
   document.getElementById('audio-file-2').click();
 });
 document.getElementById('start-audio').addEventListener('click', startAudio);
-document.getElementById('play-toggle').addEventListener('click', () => audio.toggle());
+requestAnimationFrame(() => welcomeFileButton.focus({ preventScroll: true }));
+async function toggleAudio() {
+  try {
+    await audio.toggle();
+  } catch (error) {
+    diagnostics.error('Could not resume audio', error.message);
+  }
+}
+
+document.getElementById('play-toggle').addEventListener('click', toggleAudio);
 
 let looping = false;
-document.getElementById('loop-toggle').addEventListener('click', (event) => {
+function toggleLoop() {
   looping = !looping;
   audio.setLoop(looping);
-  event.currentTarget.classList.toggle('is-on', looping);
-});
+  document.getElementById('loop-toggle').classList.toggle('is-on', looping);
+  diagnostics.info(`Loop ${looping ? 'on' : 'off'}`);
+}
+document.getElementById('loop-toggle').addEventListener('click', toggleLoop);
 
 // --- live input (A-02) -----------------------------------------------------------
 
@@ -239,7 +421,7 @@ document.getElementById('auto-gain').addEventListener('change', (event) => {
 const projectionButton = document.getElementById('projection-open');
 const layoutSelect = document.getElementById('projection-layout');
 
-projectionButton.addEventListener('click', () => {
+function toggleProjection() {
   if (projection.isOpen()) {
     projection.close();
   } else {
@@ -247,14 +429,18 @@ projectionButton.addEventListener('click', () => {
     projection.setLayout(layoutSelect.value);
   }
   projectionButton.classList.toggle('is-on', projection.isOpen());
-});
+}
+projectionButton.addEventListener('click', toggleProjection);
 layoutSelect.addEventListener('change', () => projection.setLayout(layoutSelect.value));
 
-document.getElementById('fullscreen-toggle').addEventListener('click', async () => {
-  // R-06: fullscreen changes the canvas size, never the registrations or their state.
+async function toggleFullscreen() {
+  // Fullscreen the complete performer surface, not only the canvas. The code layer,
+  // runtime status, glyphs, and optional tools are siblings of #stage inside #app.
+  // Targeting #stage alone makes the browser correctly hide all of those siblings.
   if (document.fullscreenElement) await document.exitFullscreen();
-  else await stage.requestFullscreen().catch((error) => diagnostics.warn('Fullscreen refused', error.message));
-});
+  else await app.requestFullscreen().catch((error) => diagnostics.warn('Fullscreen refused', error.message));
+}
+document.getElementById('fullscreen-toggle').addEventListener('click', toggleFullscreen);
 document.addEventListener('fullscreenchange', () => {
   document.getElementById('fullscreen-toggle').classList.toggle('is-on', !!document.fullscreenElement);
   // Wait a frame so the stage has been laid out at its new size before measuring it.
@@ -264,8 +450,15 @@ document.addEventListener('fullscreenchange', () => {
 // --- tools overlay ---------------------------------------------------------------
 
 const side = document.getElementById('side');
+const referenceSide = document.getElementById('reference-side');
 
-const OPACITY_KEY = 'response.toolsAlpha';
+const OPACITY_KEY = 'algolab.toolsAlpha';
+const LEGACY_OPACITY_KEYS = [
+  'livecode-lab.toolsAlpha',
+  'patchlab.toolsAlpha',
+  'patchbay.toolsAlpha',
+  'response.toolsAlpha',
+];
 
 /**
  * How see-through the tools are.
@@ -279,11 +472,8 @@ const OPACITY_KEY = 'response.toolsAlpha';
 function setToolsOpacity(alpha) {
   const value = Math.min(1, Math.max(0.15, Number(alpha) || 0.55));
   document.documentElement.style.setProperty('--tools-alpha', value.toFixed(2));
-  // The editor stays denser than the panel around it, but never fully opaque.
-  document.documentElement.style.setProperty(
-    '--tools-alpha-strong',
-    Math.min(1, value + 0.18).toFixed(2),
-  );
+  const output = document.getElementById('tools-opacity-value');
+  if (output) output.textContent = `${Math.round(value * 100)}%`;
   try {
     localStorage.setItem(OPACITY_KEY, String(value));
   } catch {
@@ -298,6 +488,7 @@ opacityInput.addEventListener('input', () => setToolsOpacity(opacityInput.value)
   let saved = null;
   try {
     saved = localStorage.getItem(OPACITY_KEY);
+    for (const legacyKey of LEGACY_OPACITY_KEYS) saved ??= localStorage.getItem(legacyKey);
   } catch {
     /* ignore */
   }
@@ -308,13 +499,60 @@ function toggleTools(force) {
   const hidden = force ?? !side.classList.contains('is-hidden');
   side.classList.toggle('is-hidden', hidden);
   document.getElementById('tools-toggle').classList.toggle('is-on', !hidden);
+  if (!hidden) {
+    referenceSide.classList.add('is-hidden');
+    document.getElementById('reference-toggle').classList.remove('is-on');
+  }
   // The canvas already fills the window, so nothing needs resizing — the panel is
   // over the top of it, not beside it. That is the point of the overlay.
   return hidden;
 }
-toggleTools(false);
+// Closed on arrival. Everything in the drawer is a setting; nothing in it is a move
+// you make mid-set, and the ones that were — play, panic, projection — are glyphs and
+// key commands now. So the default state of the window is the visuals and the code.
+toggleTools(true);
 
 document.getElementById('tools-toggle').addEventListener('click', () => toggleTools());
+
+function toggleReference(force) {
+  const hidden = force ?? !referenceSide.classList.contains('is-hidden');
+  referenceSide.classList.toggle('is-hidden', hidden);
+  document.getElementById('reference-toggle').classList.toggle('is-on', !hidden);
+  if (!hidden) {
+    side.classList.add('is-hidden');
+    document.getElementById('tools-toggle').classList.remove('is-on');
+  }
+  return hidden;
+}
+toggleReference(true);
+
+document.getElementById('reference-toggle').addEventListener('click', () => toggleReference());
+document.getElementById('reference-close').addEventListener('click', () => toggleReference(true));
+
+/**
+ * Hide the code itself (`e`).
+ *
+ * Distinct from hiding the tools: mid-set you want to look at the composition with
+ * nothing on it at all, and the code is the largest thing on it. Hiding it does not
+ * pause anything — the strategies keep running exactly as they are.
+ */
+function toggleCode(force) {
+  const hidden = force ?? !codeLayer.classList.contains('is-hidden');
+  codeLayer.classList.toggle('is-hidden', hidden);
+  return hidden;
+}
+
+// --- key command help (?) --------------------------------------------------------
+
+const keysOverlay = document.getElementById('keys-overlay');
+function toggleKeys(force) {
+  keysOverlay.hidden = force ?? !keysOverlay.hidden;
+}
+document.getElementById('keys-close').addEventListener('click', () => toggleKeys(true));
+document.getElementById('keys-open').addEventListener('click', () => toggleKeys());
+keysOverlay.addEventListener('click', (event) => {
+  if (event.target === keysOverlay) toggleKeys(true);
+});
 
 const fpsThresholdInput = document.getElementById('fps-threshold');
 fpsThresholdInput.addEventListener('change', () => {
@@ -325,15 +563,21 @@ fpsThresholdInput.addEventListener('change', () => {
 });
 
 function setSafeScene() {
-  const name = registry.setSafeScene();
-  if (name) diagnostics.success(`Safe scene set to "${name}"`, 'Press 0 or "panic" to return here.');
-  else diagnostics.warn('No active scene to mark as safe');
+  return controller.actions.setSafeState();
+}
+
+function restoreSafeState() {
+  const result = controller.actions.restoreSafeState();
+  if (!result.ok) return result;
+  editor.value = result.source;
+  projection.setActiveCode(result.source);
+  projectStore.saveSoon(result.source, 0);
+  controller.sourceChanged();
+  return result;
 }
 
 function panic() {
-  const name = registry.panic();
-  if (name) diagnostics.success(`Panic — returned to "${name}"`);
-  else diagnostics.warn('No safe scene set', 'Press "set safe" while a scene you trust is active.');
+  return restoreSafeState();
 }
 
 document.getElementById('set-safe').addEventListener('click', setSafeScene);
@@ -342,30 +586,98 @@ document.getElementById('panic').addEventListener('click', panic);
 // --- patch library ---------------------------------------------------------------
 
 /**
- * Insert a library patch into the editor and register it.
+ * Insert a library patch into the editor and register it without changing a scene.
  *
  * It goes through the ordinary evaluation path — no privileged loading — so a library
- * patch is exactly as replaceable as one the student typed, and appears in the shelf
- * with a version number like any other.
+ * patch is exactly as replaceable as one the student typed, and appears in Installed
+ * Patches with a version number like any other.
  */
-function insertFromLibrary(source, label) {
-  editor.value = `${editor.value.trimEnd()}\n\n${source}\n`;
-  const result = evaluator.evaluate(source, { label });
-  if (result.ok) projection.setActiveCode(source);
+function installFromLibrary(entry) {
+  const existing = editor.patchSource(entry.name);
+  if (existing) {
+    diagnostics.info(
+      `${entry.title ?? entry.name} source is already in the project`,
+      registry.hasStrategy(entry.name)
+        ? 'Installed does not mean active. Use Add to scene to render it.'
+        : 'Evaluate its patch cell to retry installation; no duplicate source was added.',
+    );
+    return { ok: registry.hasStrategy(entry.name), phase: 'present' };
+  }
+
+  editor.insertPatchSource(entry.source);
+  const result = evaluator.evaluate(entry.source, { label: `patch ${entry.name}` });
+  if (result.ok) {
+    projection.setActiveCode(entry.source);
+    diagnostics.info(
+      `${entry.title ?? entry.name} source installed`,
+      'It is installed in the project but will not render until you add it to the active scene.',
+    );
+  }
+  return result;
+}
+
+function addPatchToScene(entry) {
+  if (!registry.hasStrategy(entry.name)) {
+    diagnostics.warn(`${entry.title ?? entry.name} is not installed`, 'Install its source first.');
+    return { ok: false };
+  }
+  const sceneName = registry.activeSceneName() ?? 'liveScene';
+  const currentOrder = registry.activeInstances().map((instance) => instance.strategy);
+  const result = editor.addStrategyToScene(sceneName, entry.name, currentOrder, {
+    // Plasma samples everything drawn before it, so ordinary additions belong before
+    // it even when the performer presses Add to scene after Plasma is already active.
+    before: entry.name === 'plasma' ? null : 'plasma',
+  });
+  if (!result.ok) {
+    diagnostics.error(
+      `Could not add ${entry.name} to ${sceneName}`,
+      'Edit the scene array directly, then evaluate that scene cell.',
+    );
+    return result;
+  }
+  diagnostics.info(
+    `${entry.title ?? entry.name} added to ${sceneName} source`,
+    'It is not active yet. Press Cmd/Ctrl+Enter in the selected scene cell to evaluate it.',
+  );
   return result;
 }
 
 function buildDemoScene() {
-  // The demo scene names every library patch, so they all have to be registered
-  // before it can be composed.
-  for (const entry of LIBRARY) {
-    if (!registry.hasPatch(entry.name)) insertFromLibrary(entry.source, `patch ${entry.name}`);
+  // Add and evaluate all missing dependency cells in one editor update. Rebuilding the
+  // highlighted/folded editor after every patch made a larger library needlessly slow.
+  const dependencies = RAVE_PATCH_NAMES.map((name) =>
+    LIBRARY.find((entry) => entry.name === name),
+  ).filter(Boolean);
+  const sourcesToEvaluate = [];
+  const sourcesToInsert = [];
+
+  for (const entry of dependencies) {
+    if (registry.hasStrategy(entry.name)) continue;
+    const projectSource = editor.patchSource(entry.name);
+    sourcesToEvaluate.push(projectSource || entry.source);
+    if (!projectSource) sourcesToInsert.push(entry.source);
   }
-  evaluator.applyPending();
-  // Only mention the starter's wash if it is actually there — see libraryDemoSource.
-  const result = insertFromLibrary(libraryDemoSource(registry.hasPatch('wash')), 'scene stacked');
-  if (!result.ok) diagnostics.error('Could not build the demo scene', result.error?.message);
+
+  if (sourcesToInsert.length) editor.insertPatchSource(sourcesToInsert.join('\n\n'));
+  if (sourcesToEvaluate.length) {
+    const installed = evaluator.evaluate(sourcesToEvaluate.join('\n\n'), {
+      label: 'configured example patches',
+    });
+    if (!installed.ok) return installed;
+    evaluator.applyPending();
+  }
+
+  const source = libraryDemoSource();
+  editor.replaceNamedBlock('scene stacked', source);
+  editor.revealScene('stacked');
+  diagnostics.info(
+    'Configured example added to the source',
+    'It is not active yet. Press Cmd/Ctrl+Enter in the selected scene cell to evaluate it.',
+  );
+  return { ok: true, phase: 'inserted' };
 }
+
+document.getElementById('insert-demo-scene').addEventListener('click', buildDemoScene);
 
 // --- project export / import (D-02, D-03) ----------------------------------------
 
@@ -379,7 +691,7 @@ document.getElementById('import-project').addEventListener('click', () => {
 });
 
 /**
- * Start over — the counterpart to "↺" on a single patch.
+ * Start over — the counterpart to "↺" on a single strategy.
  *
  * Deliberately NOT a page reload. Everything the performer authored goes, but the
  * canvas, the host clock, and the music keep running, which is the same promise the
@@ -387,11 +699,11 @@ document.getElementById('import-project').addEventListener('click', () => {
  * that is not saved anywhere else.
  */
 document.getElementById('reset-project').addEventListener('click', async () => {
-  const patchCount = registry.listPatches().length;
+  const strategyCount = registry.listStrategies().length;
   const confirmed = await dialog.ask({
     title: 'Reset this project?',
     body:
-      `This discards your editor contents, all ${patchCount} registered patch(es), ` +
+      `This discards your editor contents, all ${strategyCount} installed patches, ` +
       `their versions and history, every scene, and all patch state, and goes back to ` +
       `the starter project. The music and the canvas keep running.`,
     warning: 'There is no undo for this. Export first if you might want it back.',
@@ -400,10 +712,11 @@ document.getElementById('reset-project').addEventListener('click', async () => {
   if (!confirmed) return;
 
   evaluator.discardPending();
+  evaluator.clearBindings();
   projectStore.clear();
+  host.reset();
   registry.reset();
   stateStore.clear();
-  host.reset();
 
   editor.value = STARTER_SOURCE;
   evaluator.evaluate(STARTER_SOURCE, { label: 'starter' });
@@ -431,11 +744,11 @@ document.getElementById('import-file').addEventListener('change', async (event) 
     title: `Import "${file.name}"?`,
     body:
       `This project contains ${parsed.data.source.split('\n').length} lines of JavaScript ` +
-      `and ${parsed.data.scenes.length} scene definition(s). Importing replaces your current ` +
-      `editor contents and runs this code immediately.`,
+      `including its scene arrays. Importing replaces your current editor contents ` +
+      `and runs this code immediately.`,
     preview: parsed.data.source.slice(0, 1200),
     warning:
-      'Response runs imported code with the same privileges as your own. It is not a ' +
+      'AlgoLab runs imported code with the same privileges as your own. It is not a ' +
       'sandbox — imported code can freeze this tab. Only import projects from someone you trust.',
     confirmLabel: 'Import and run',
   });
@@ -444,10 +757,19 @@ document.getElementById('import-file').addEventListener('change', async (event) 
     return;
   }
 
+  evaluator.discardPending();
+  evaluator.clearBindings();
+  host.reset();
+  registry.reset();
+  stateStore.clear();
   editor.value = parsed.data.source;
-  evaluator.evaluate(parsed.data.source, { label: file.name });
+  const result = evaluator.evaluate(parsed.data.source, { label: file.name });
   evaluator.applyPending();
-  projectStore.restoreComposition(parsed.data);
+  if (!result.ok) {
+    diagnostics.error(`Could not run ${file.name}`, result.error?.message);
+    return;
+  }
+  projectStore.restoreSettings(parsed.data);
   projection.setActiveCode(parsed.data.source);
   diagnostics.success(`Imported ${file.name}`);
 });
@@ -459,36 +781,77 @@ stage.addEventListener('drop', async (event) => {
   const file = event.dataTransfer?.files?.[0];
   if (!file) return;
   try {
-    await audio.loadFile(file);
+    await audio.unlock();
+  } catch (error) {
+    diagnostics.error('Could not start audio', `${error.message} — running on silence.`);
+    return;
+  }
+  try {
+    await audio.loadFile(file, { onProgress: renderAudioLoadStatus });
     await startAudio();
   } catch {
-    /* reported */
+    /* loadFile already reported the decode failure */
   }
 });
 
 // --- performer shortcuts (available once editor focus is released) --------------
+
+/**
+ * Every control that is not a glyph in the corner is one of these.
+ *
+ * That is the trade the minimal display makes: the chrome went away, so the commands
+ * have to be in the hands. `?` prints this list, which is what lets it afford to be a
+ * long one — and is why the list in index.html has to be kept next to this map.
+ */
+const COMMANDS = {
+  ' ': () => toggleAudio(),
+  0: () => panic(), // S-06 / P-05: one action, back to a scene the performer trusts
+  s: () => setSafeScene(),
+  '\\': () => toggleTools(), // the settings drawer
+  r: () => toggleReference(), // project patches and their public interfaces
+  e: () => toggleCode(), // the code itself — see the composition with nothing on it
+  f: () => toggleFullscreen(),
+  p: () => toggleProjection(),
+  l: () => toggleLoop(),
+  a: () => document.getElementById('audio-file-2').click(),
+  m: () => startMicrophone(),
+  '?': () => toggleKeys(),
+  Escape: () => toggleKeys(true),
+};
 
 window.addEventListener('keydown', (event) => {
   controls.keys.add(event.key);
   controls.shift = event.shiftKey;
   controls.alt = event.altKey;
 
-  const inEditor = document.activeElement?.tagName === 'TEXTAREA';
-  if (inEditor || event.metaKey || event.ctrlKey) return;
+  // Structural editor commands deliberately work with the caret still in code.
+  // `event.code` keeps the brackets stable on keyboard layouts where Alt changes
+  // the character reported by `event.key`.
+  const accel = event.metaKey || event.ctrlKey;
+  if (accel && event.altKey && event.code === 'BracketLeft') {
+    event.preventDefault();
+    editor.foldAll();
+    return;
+  }
+  if (accel && event.altKey && event.code === 'BracketRight') {
+    event.preventDefault();
+    editor.unfoldAll();
+    return;
+  }
+  if (accel && event.altKey && event.code === 'Slash') {
+    event.preventDefault();
+    toggleKeys();
+    return;
+  }
 
-  // P-04: performer shortcuts stay live once editor focus is released.
-  if (event.key === ' ') {
-    event.preventDefault();
-    audio.toggle();
-  }
-  if (event.key === '0') {
-    event.preventDefault();
-    panic(); // S-06 / P-05: one action, back to a scene the performer trusts
-  }
-  if (event.key === '\\') {
-    event.preventDefault();
-    toggleTools(); // clear the tools off the canvas to see the whole composition
-  }
+  const tag = document.activeElement?.tagName;
+  const inField = tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT';
+  if (inField || event.metaKey || event.ctrlKey || event.altKey) return;
+
+  const command = COMMANDS[event.key];
+  if (!command) return;
+  event.preventDefault();
+  command();
 });
 window.addEventListener('keyup', (event) => {
   controls.keys.delete(event.key);
@@ -501,7 +864,8 @@ window.addEventListener('beforeunload', () => projectStore.save(editor.value));
 
 // Exposed for the automated acceptance test (tests/e2e/degree3.spec.js) and for
 // students who want to poke at the running system from the browser console.
-window.Response = {
+window.AlgoLab = {
+  controller,
   registry,
   stateStore,
   evaluator,
@@ -512,3 +876,9 @@ window.Response = {
   projection,
   projectStore,
 };
+// Keep already-open console snippets and course test harnesses alive through the
+// product renames. New material uses window.AlgoLab.
+window.LivecodeLab = window.AlgoLab;
+window.Patchlab = window.AlgoLab;
+window.Patchbay = window.AlgoLab;
+window.Response = window.AlgoLab;

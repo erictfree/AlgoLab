@@ -1,304 +1,839 @@
-// The patch library — five more behaviors, ready to insert and perform with.
+// AlgoLab's compact system patch library.
 //
-// These are deliberately not in the starter file. The starter's job is to teach the
-// one idea (§10.2: a first successful replacement in fifteen minutes), and a wall of
-// code works against that. These are what you reach for once that has landed.
-//
-// Every one of them reads `config`, so a scene can hold several copies that differ:
-//
-//   add("ribbon", { y: 0.3, hue: 190 });
-//   add("ribbon", { y: 0.7, hue: 40, mirror: true });
-//
-// and each copy keeps its own state. Between them they cover the spread of techniques
-// the course teaches: spectrum arrays, waveform arrays, a particle system, a
-// beat-triggered lifecycle hook, and nested-loop grid math.
+// The core ten mixing patches deliberately use several forms students should recognize:
+// a plain function, arrow functions, object literals, higher-order factories, and
+// classes. Three diagnostic patches expose the raw waveform, FFT bins, and normalized
+// audio features. A small scene utility sets a solid background. ShaderFlow teaches
+// the built-in fluent GPU pipeline, and Cellular & Blobular demonstrates feedback.
+// Configuration remains ordinary JavaScript, with one param() example for a control
+// that can be performed live from the Parameters panel.
 
-/**
- * @typedef {{ name: string, blurb: string, source: string }} LibraryEntry
- */
+/** @typedef {{ name: string, blurb: string, category: 'visual'|'utility'|'shader'|'user', source: string }} LibraryEntry */
 
 /** @type {LibraryEntry[]} */
 export const LIBRARY = [
   {
-    name: 'bars',
-    blurb: 'Spectrum bars. Copies can split the frequency range between them.',
-    source: `// bars — the spectrum, read straight out of the FFT array.
-//
-// audio.spectrum is 0..255 over the whole frequency range. Slicing it with
-// config.from/config.to lets two copies own different halves of the spectrum.
-//
-//   add("bars", { to: 0.25, hue: 200 });          // just the low end, tall
-//   add("bars", { from: 0.25, to: 1, hue: 40 });  // everything above it
-patch("bars", ({ audio, config }) => {
-  const spectrum = audio.spectrum;
-  if (spectrum.length === 0) return;
-
-  const from = Math.floor((config.from ?? 0) * spectrum.length);
-  const to = Math.floor((config.to ?? 0.5) * spectrum.length);
-  const count = config.count ?? 48;
-  const hue = config.hue ?? 200;
-  const baseline = config.baseline ?? 1;   // 1 = bottom, 0.5 = middle
-  const step = width / count;
-
-  colorMode(HSB, 360, 100, 100, 1);
+    name: 'strobe',
+    category: 'visual',
+    blurb: 'A restrained white beat flash. Plain first-class function patch.',
+    source: `// %% patch strobe
+// strobe — one translucent flash on each detected onset.
+// Put it late in a scene so it flashes over the layers before it.
+function strobe({ audio }) {
+  if (!audio.beat) return;
+  blendMode(ADD);
   noStroke();
-
-  for (let i = 0; i < count; i++) {
-    // Average a slice of bins into one bar, so the bar count is yours to choose
-    // rather than being dictated by the FFT size.
-    const lo = Math.floor(map(i, 0, count, from, to));
-    const hi = Math.max(lo + 1, Math.floor(map(i + 1, 0, count, from, to)));
-    let sum = 0;
-    for (let b = lo; b < hi; b++) sum += spectrum[b];
-    const energy = sum / (hi - lo) / 255;
-
-    const h = energy * height * (config.scale ?? 0.6);
-    fill(hue, 70, 40 + energy * 60, 0.85);
-    rect(i * step, height * baseline - h, step - 2, h);
-  }
-});`,
+  fill(255, 255, 255, 72);
+  rect(0, 0, width, height);
+}`,
   },
 
   {
-    name: 'ribbon',
-    blurb: 'A waveform ribbon. Stack copies at different heights and hues.',
-    source: `// ribbon — the raw waveform as a line across the screen.
-//
-// audio.waveform is roughly -1..1, one value per sample window. This is the most
-// direct picture of the sound there is: it is literally the speaker cone's path.
-//
-//   add("ribbon", { y: 0.35, hue: 190 });
-//   add("ribbon", { y: 0.65, hue: 40, mirror: true });
-patch("ribbon", {
-  state: () => ({ smoothed: [] }),
+    name: 'waveScope',
+    category: 'visual',
+    blurb: 'An additive oscilloscope line drawn from the live waveform. Arrow-function patch.',
+    source: `// %% patch waveScope
+// waveScope — the waveform as a bright oscilloscope trace.
+// It is a first-class arrow function: no wrapper object is required.
+const waveScope = ({ audio }) => {
+  const wave = audio.waveform;
+  if (wave.length === 0) return;
 
-  draw({ audio, state, config, dt }) {
-    const wave = audio.waveform;
-    if (wave.length === 0) return;
+  // These local values are intentionally easy live-coding targets.
+  const yPosition = 0.5;
+  const amplitude = 0.28;
+  const colour = [80, 220, 255, 190];
 
-    const y = height * (config.y ?? 0.5);
-    const amp = (config.amp ?? 0.25) * height;
-    const hue = config.hue ?? 190;
-    const mirror = config.mirror ?? false;
+  blendMode(ADD);
+  noFill();
+  stroke(...colour);
+  strokeWeight(2);
 
-    // Smooth the waveform toward its new shape instead of snapping to it, so the
-    // ribbon reads as a moving object rather than as noise. State is per copy, so
-    // two ribbons smooth independently.
-    if (state.smoothed.length !== wave.length) state.smoothed = Array.from(wave);
-    const k = Math.min(1, dt * (config.responsiveness ?? 14));
-    for (let i = 0; i < wave.length; i++) {
-      state.smoothed[i] += (wave[i] - state.smoothed[i]) * k;
-    }
+  beginShape();
+  const step = Math.max(1, Math.floor(wave.length / 220));
+  for (let i = 0; i < wave.length; i += step) {
+    const x = map(i, 0, wave.length - 1, 0, width);
+    const y = height * yPosition + wave[i] * height * amplitude;
+    vertex(x, y);
+  }
+  endShape();
+};`,
+  },
 
-    colorMode(HSB, 360, 100, 100, 1);
+  {
+    name: 'solidBackground',
+    category: 'utility',
+    blurb: 'Utility: fills the canvas with one configurable colour. Put it first in a scene.',
+    source: `// %% patch solidBackground
+// solidBackground — the simplest possible scene foundation.
+// Put it first in the scene array so later patches draw over it.
+// Make variations with ordinary object spread:
+//   const redBackground = { ...solidBackground, colour: [30, 0, 8] };
+const solidBackground = {
+  colour: [6, 8, 18],
+
+  draw() {
+    background(...this.colour);
+  },
+};`,
+  },
+
+  {
+    name: 'waveform',
+    category: 'utility',
+    blurb: 'Diagnostic: the unprocessed FFT waveform drawn as a single linear trace.',
+    source: `// %% patch waveform
+// waveform — a deliberately plain view of audio.waveform.
+// The samples are raw FFT waveform values from -1 to 1. There is no glow,
+// persistence, gain remapping, or artistic distortion in this patch.
+const waveform = {
+  samples: 512,
+  position: 0.5,
+  height: 0.72,
+  colour: [245, 245, 250, 230],
+
+  draw({ audio }) {
+    const values = audio.waveform;
+    if (values.length < 2) return;
+
+    const center = height * this.position;
+    const amplitude = height * this.height * 0.5;
+    stroke(120, 120, 135, 110);
+    strokeWeight(1);
+    line(0, center, width, center);
+
     noFill();
-    strokeWeight(config.weight ?? 2);
-    stroke(hue, 60, 100, 0.9);
-
+    stroke(...this.colour);
+    strokeWeight(1.5);
     beginShape();
-    for (let i = 0; i < state.smoothed.length; i++) {
-      const x = map(i, 0, state.smoothed.length - 1, 0, width);
-      vertex(x, y + state.smoothed[i] * amp);
+    const points = min(this.samples, values.length);
+    for (let i = 0; i < points; i++) {
+      const sample = floor(map(i, 0, points - 1, 0, values.length - 1));
+      const x = map(i, 0, points - 1, 0, width);
+      const y = center + values[sample] * amplitude;
+      vertex(x, y);
     }
     endShape();
-
-    if (mirror) {
-      stroke(hue, 60, 100, 0.35);
-      beginShape();
-      for (let i = 0; i < state.smoothed.length; i++) {
-        const x = map(i, 0, state.smoothed.length - 1, 0, width);
-        vertex(x, y - state.smoothed[i] * amp);
-      }
-      endShape();
-    }
   },
-});`,
+};`,
   },
 
   {
-    name: 'swarm',
-    blurb: 'A particle system pulled toward a moving point. Copies swarm separately.',
-    source: `// swarm — a particle system. Objects in an array, each with its own velocity.
-//
-// The classic course exercise, made audio-reactive: treble sets how twitchy the
-// particles are, bass sets how hard they are pulled home.
-//
-//   add("swarm", { count: 120, hue: 210 });
-//   add("swarm", { count: 40, hue: 330, orbit: 0.6, size: 6 });
-patch("swarm", {
-  state: () => ({ particles: [], seeded: false }),
+    name: 'frequencyBars',
+    category: 'utility',
+    blurb: 'Diagnostic: raw linear FFT bins grouped into an adjustable bar chart.',
+    source: `// %% patch frequencyBars
+// frequencyBars — raw FFT magnitudes from low frequency on the left to high
+// frequency on the right. Unlike audio.bass/mid/treble, these values are 0..255
+// and have not been normalized by AlgoLab's auto-gain.
+const frequencyBars = {
+  bars: 64,
+  heightRatio: 0.34,
 
-  draw({ audio, state, config, dt, time }) {
-    const count = config.count ?? 90;
-    const hue = config.hue ?? 210;
-    const orbit = config.orbit ?? 0.3;
-    const size = config.size ?? 3;
+  draw({ audio }) {
+    const spectrum = audio.spectrum;
+    if (spectrum.length === 0) return;
 
-    // Seed once, and offset by a random phase so two copies never sit on top of
-    // each other even with identical config.
-    if (!state.seeded) {
-      state.phase = random(TWO_PI);
-      state.seeded = true;
+    const top = height * (1 - this.heightRatio);
+    const chartHeight = height - top - 22;
+    const barWidth = width / this.bars;
+
+    noStroke();
+    for (let bar = 0; bar < this.bars; bar++) {
+      const start = floor((bar / this.bars) * spectrum.length);
+      const end = max(start + 1, floor(((bar + 1) / this.bars) * spectrum.length));
+      let peak = 0;
+      for (let bin = start; bin < end; bin++) peak = max(peak, spectrum[bin]);
+
+      const energy = peak / 255;
+      const h = energy * chartHeight;
+      // Solid marks only: this diagnostic never lays a translucent tint over the scene.
+      if (bar < this.bars * 0.12) fill(100, 145, 255);
+      else if (bar < this.bars * 0.46) fill(190, 125, 255);
+      else fill(255, 190, 95);
+      rect(bar * barWidth, height - 18 - h, max(1, barWidth - 1), h);
     }
-    while (state.particles.length < count) {
-      state.particles.push({ x: random(width), y: random(height), vx: 0, vy: 0 });
+
+    fill(225);
+    textSize(11);
+    textAlign(LEFT, BOTTOM);
+    text('FFT: low frequency', 5, height - 3);
+    textAlign(RIGHT, BOTTOM);
+    text('high frequency', width - 5, height - 3);
+  },
+};`,
+  },
+
+  {
+    name: 'audioMeters',
+    category: 'utility',
+    blurb: 'Diagnostic: labeled normalized level, bass, mid, treble and centroid meters.',
+    source: `// %% patch audioMeters
+// audioMeters — the normalized 0..1 features received by every patch.
+// Band meters share one auto-gain ceiling, so their relative balance is preserved.
+// Turn auto-gain off in the Audio panel to compare normalized and raw behavior.
+const audioMeters = {
+  x: 20,
+  y: 20,
+  width: 360,
+  rowHeight: 22,
+
+  draw({ audio }) {
+    const rows = [
+      ['level', audio.level, [105, 215, 145]],
+      ['bass', audio.bass, [105, 150, 245]],
+      ['mid', audio.mid, [190, 135, 245]],
+      ['treble', audio.treble, [245, 185, 100]],
+      ['centroid', audio.centroid, [100, 215, 225]],
+    ];
+    const meterWidth = min(this.width, width - this.x * 2);
+
+    textSize(12);
+    textAlign(LEFT, CENTER);
+    noStroke();
+    for (let i = 0; i < rows.length; i++) {
+      const [name, value, colour] = rows[i];
+      const y = this.y + i * this.rowHeight;
+      // The meter itself is opaque; there is deliberately no backing track or panel.
+      fill(...colour);
+      rect(this.x, y, meterWidth * constrain(value, 0, 1), this.rowHeight - 4);
+      fill(255);
+      text(name, this.x + 6, y + (this.rowHeight - 4) / 2);
+      textAlign(RIGHT, CENTER);
+      text(value.toFixed(3), this.x + meterWidth - 6, y + (this.rowHeight - 4) / 2);
+      textAlign(LEFT, CENTER);
     }
-    if (state.particles.length > count) state.particles.length = count;
 
-    // The point everything is pulled toward, circling slowly.
-    const a = time * (config.speed ?? 0.4) + state.phase;
-    const tx = width / 2 + cos(a) * width * orbit;
-    const ty = height / 2 + sin(a * 1.3) * height * orbit;
+    const beatY = this.y + rows.length * this.rowHeight + 5;
+    fill(audio.beat ? 255 : 80, audio.beat ? 80 : 80, audio.beat ? 120 : 80);
+    circle(this.x + 7, beatY + 7, 10);
+    fill(235);
+    text('beat', this.x + 19, beatY + 7);
+    textAlign(RIGHT, CENTER);
+    text(
+      \`raw bands  bass \${round(audio.raw.bass)}  mid \${round(audio.raw.mid)}  treble \${round(audio.raw.treble)}\`,
+      this.x + meterWidth,
+      beatY + 7,
+    );
+  },
+};`,
+  },
 
-    const pull = map(audio.bass, 0, 1, 20, 220);
-    const jitter = map(audio.treble, 0, 1, 0, 340);
-    const drag = config.drag ?? 0.94;
+  {
+    name: 'checkerZoom',
+    category: 'visual',
+    blurb: 'A rotating checker field that breathes with bass. Arrow-function patch.',
+    source: `// %% patch checkerZoom
+// checkerZoom — a translucent, rotating club-floor grid.
+// Keep it first: it provides the dark fade behind the other patches.
+// checkerSpeed appears in the Parameters panel.
+param("checkerSpeed", 0.08, { min: -0.4, max: 0.4, step: 0.01 });
 
+const checkerZoom = ({ audio, time, params }) => {
+  const cell = 58 + audio.bass * 38;
+  const extent = Math.hypot(width, height) * 0.75;
+
+  noStroke();
+  fill(4, 4, 10, 35);
+  rect(0, 0, width, height);
+
+  translate(width / 2, height / 2);
+  rotate(time * params.checkerSpeed);
+  rectMode(CENTER);
+  noStroke();
+  blendMode(ADD);
+
+  let row = 0;
+  for (let y = -extent; y <= extent; y += cell) {
+    let col = 0;
+    for (let x = -extent; x <= extent; x += cell) {
+      if ((row + col) % 2 === 0) {
+        const glow = 18 + audio.mid * 34;
+        fill(120, 70, 255, glow);
+        rect(x, y, cell * 0.82, cell * 0.82);
+      }
+      col++;
+    }
+    row++;
+  }
+};`,
+  },
+
+  {
+    name: 'laserFan',
+    category: 'visual',
+    blurb: 'A fan of additive laser beams swept by treble. Configurable object literal.',
+    source: `// %% patch laserFan
+// Make an independent variation with object spread:
+//   const pinkLasers = { ...laserFan, hue: 330, direction: -1 };
+const laserFan = {
+  beams: 13,
+  hue: 165,
+  spread: 0.72,
+  direction: 1,
+  weight: 1.4,
+
+  draw({ audio, time }) {
     colorMode(HSB, 360, 100, 100, 1);
+    blendMode(ADD);
+    noFill();
+    strokeWeight(this.weight + audio.treble * 1.5);
+
+    const sweep = sin(time * 0.7 * this.direction) * width * 0.12;
+    for (let i = 0; i < this.beams; i++) {
+      const t = this.beams === 1 ? 0.5 : i / (this.beams - 1);
+      const targetX = width / 2 + map(t, 0, 1, -1, 1) * width * this.spread + sweep;
+      stroke((this.hue + i * 3) % 360, 75, 100, 0.16 + audio.treble * 0.5);
+      line(width / 2, height, targetX, 0);
+    }
+  },
+};`,
+  },
+
+  {
+    name: 'glitchSlices',
+    category: 'visual',
+    blurb: 'Horizontal digital slices that intensify with treble. Configurable object literal.',
+    source: `// %% patch glitchSlices
+// Treble controls travel distance; a beat adds a bright interruption.
+const glitchSlices = {
+  slices: 18,
+  hue: 320,
+  thickness: 7,
+
+  draw({ audio, time }) {
+    colorMode(HSB, 360, 100, 100, 1);
+    blendMode(ADD);
     noStroke();
 
-    for (const p of state.particles) {
-      const dx = tx - p.x;
-      const dy = ty - p.y;
-      const distance = Math.max(1, Math.hypot(dx, dy));
-
-      p.vx += (dx / distance) * pull * dt + random(-jitter, jitter) * dt;
-      p.vy += (dy / distance) * pull * dt + random(-jitter, jitter) * dt;
-      p.vx *= drag;
-      p.vy *= drag;
-      p.x += p.vx * dt * 60;
-      p.y += p.vy * dt * 60;
-
-      const speed = Math.min(1, Math.hypot(p.vx, p.vy) / 120);
-      fill(hue + speed * 40, 70, 60 + speed * 40, 0.8);
-      circle(p.x, p.y, size + speed * size * 2);
+    for (let i = 0; i < this.slices; i++) {
+      const n = noise(i * 8.17, time * 3.2);
+      if (n < 0.5 && !audio.beat) continue;
+      const y = n * height;
+      const offset = (n - 0.5) * width * audio.treble * 0.45;
+      const barWidth = width * (0.08 + n * 0.28);
+      fill((this.hue + i * 9) % 360, 65, 100, audio.beat ? 0.34 : 0.12);
+      rect((i * 97 + offset) % width, y, barWidth, this.thickness);
     }
   },
-});`,
+};`,
   },
 
   {
-    name: 'pulse',
-    blurb: 'Rings fired on every detected beat. Uses the beat() lifecycle hook.',
-    source: `// pulse — expanding rings, one fired per detected onset.
-//
-// This is what the beat() lifecycle handler is for. beat() runs once on the rising
-// edge of an onset; draw() runs every frame. Keeping "spawn" and "animate" in
-// separate handlers is what makes the rhythm read as rhythm.
-//
-//   add("pulse", { hue: 50 });
-//   add("pulse", { hue: 190, from: 0.7, thickness: 1 });
-patch("pulse", {
-  state: () => ({ rings: [] }),
+    name: 'spectrumHalo',
+    category: 'visual',
+    blurb: 'A circular spectrum of frequency spokes. Configurable object literal.',
+    source: `// %% patch spectrumHalo
+// spectrumHalo — FFT bins wrapped around a circle.
+const spectrumHalo = {
+  spokes: 72,
+  radius: 0.18,
+  length: 0.24,
+  hue: 200,
+  spin: 0.04,
 
-  beat({ state, config }) {
-    // Bounded, always. A ring per beat for thirty minutes is a memory leak.
-    if (state.rings.length > (config.max ?? 24)) state.rings.shift();
-    state.rings.push({ r: (config.from ?? 0) * width * 0.5, life: 1 });
-  },
-
-  draw({ state, config, dt, audio }) {
-    const hue = config.hue ?? 50;
-    const speed = (config.speed ?? 0.55) * width;
-    const fade = config.fade ?? 0.55;
+  draw({ audio, time }) {
+    const spectrum = audio.spectrum;
+    if (spectrum.length === 0) return;
 
     colorMode(HSB, 360, 100, 100, 1);
-    noFill();
+    blendMode(ADD);
+    translate(width / 2, height / 2);
+    rotate(time * this.spin);
+    strokeWeight(1.5);
 
-    for (let i = state.rings.length - 1; i >= 0; i--) {
-      const ring = state.rings[i];
-      ring.r += speed * dt;
-      ring.life -= fade * dt;
-      if (ring.life <= 0) {
-        state.rings.splice(i, 1);
-        continue;
-      }
-      strokeWeight((config.thickness ?? 3) * ring.life);
-      stroke(hue, 60, 100, ring.life * 0.9);
-      circle(width / 2, height / 2, ring.r * 2);
-    }
-
-    // A soft floor so the patch is not invisible in a passage with no onsets.
-    if (state.rings.length === 0 && audio.level > 0.05) {
-      strokeWeight(1);
-      stroke(hue, 40, 60, 0.3);
-      circle(width / 2, height / 2, audio.level * width * 0.4);
+    const base = min(width, height) * this.radius;
+    const maxLength = min(width, height) * this.length;
+    for (let i = 0; i < this.spokes; i++) {
+      const angle = (TWO_PI * i) / this.spokes;
+      const bin = Math.floor(map(i, 0, this.spokes, 0, spectrum.length * 0.65));
+      const energy = spectrum[bin] / 255;
+      const outer = base + energy * maxLength;
+      stroke((this.hue + energy * 90) % 360, 70, 100, 0.25 + energy * 0.65);
+      line(cos(angle) * base, sin(angle) * base, cos(angle) * outer, sin(angle) * outer);
     }
   },
-});`,
+};`,
   },
 
   {
-    name: 'grid',
-    blurb: 'A reactive grid of cells. Copies can be offset and rotated over each other.',
-    source: `// grid — nested loops, and one band of the spectrum per cell.
+    name: 'shaderFlow',
+    category: 'shader',
+    blurb: 'A fluent single-pass ShaderChain with audio- and time-driven operators.',
+    source: `// %% patch shaderFlow
+// shaderFlow — ShaderChain is an ordinary patch object with a fluent API.
+// Each argument may be a number or a function of the normal draw context.
+// Put the finished chain after drawing patches so it transforms their combined image.
+const shaderFlow = new ShaderChain()
+  .rotate(({ time, audio }) => time * 0.035 + audio.mid * 0.08)
+  .scale(({ audio }) => 1.02 + audio.bass * 0.16)
+  .kaleid(6)
+  .hue(({ time, audio }) => sin(time * 0.17) * 0.025 + audio.treble * 0.12)
+  .saturate(1.22)
+  .contrast(1.08);`,
+  },
+
+  {
+    name: 'cellularBlobular',
+    category: 'shader',
+    blurb: 'Soft polygon cells twisted by noise and their previous frame. Feedback shader class.',
+    source: `// %% patch cellularBlobular
+// @title Cellular & Blobular — AlgoLab study
+// @author After Mahalia H-R (IG: mm_hr_)
+// @description A p5/WebGL interpretation of the Hydra sketch mahalia_4.
+// Original sketch: https://hydra.ojack.xyz/?sketch_id=mahalia_4
+// Adaptation license: CC BY-NC-SA 4.0
 //
-// Each cell picks its own frequency band by position, so the grid is a picture of
-// the whole spectrum laid out in two dimensions. Rotating a second copy on top of
-// the first is worth trying.
-//
-//   add("grid", { cols: 16, rows: 9 });
-//   add("grid", { cols: 8, rows: 5, rotate: 0.02, hue: 300, scale: 0.5 });
-patch("grid", ({ audio, config, time }) => {
-  const cols = config.cols ?? 12;
-  const rows = config.rows ?? 7;
-  const hue = config.hue ?? 160;
-  const scale = config.scale ?? 0.9;
-  const spectrum = audio.spectrum;
+// The original Hydra chain starts with a soft 20-sided shape, repeats and scales it,
+// twists it with its previous output, then distorts it with noise. This class keeps
+// two GPU buffers so one frame can modulate the next in the same spirit.
+class CellularBlobular {
+  #buffers = [];
+  #programs = [];
+  #writeIndex = 0;
 
-  const cellW = width / cols;
-  const cellH = height / rows;
-
-  colorMode(HSB, 360, 100, 100, 1);
-  noStroke();
-  rectMode(CENTER);
-
-  // Rotating about the centre — push()/pop() is already wrapped around the whole
-  // patch by the host, so this cannot leak into the next patch in the scene.
-  if (config.rotate) {
-    translate(width / 2, height / 2);
-    rotate(time * config.rotate);
-    translate(-width / 2, -height / 2);
+  constructor({
+    speed = 0.3,
+    sides = 20,
+    cells = 10,
+    twist = 5.5,
+    noiseAmount = 0.16,
+    colour = [0.48, 0.76, 1.0],
+  } = {}) {
+    this.speed = speed;
+    this.sides = sides;
+    this.cells = cells;
+    this.twist = twist;
+    this.noiseAmount = noiseAmount;
+    this.colour = colour;
   }
 
-  for (let x = 0; x < cols; x++) {
-    for (let y = 0; y < rows; y++) {
-      // Map the cell's position onto a frequency band, low at the left.
-      const index = (x + y * cols) / (cols * rows);
-      const energy =
-        spectrum.length > 0
-          ? spectrum[Math.floor(index * spectrum.length * 0.7)] / 255
-          : audio.level;
+  // Hydra evaluates arrow-function arguments on every frame. These two controls do
+  // the same thing in ordinary JavaScript, before their values enter the shader.
+  scale = ({ audio, time }) => {
+    const wave = sin(time * this.speed);
+    return (wave + 2.0) * (wave + 1.5) * (1.0 + audio.bass * 0.12);
+  };
 
-      const size = Math.min(cellW, cellH) * scale * (0.15 + energy * 0.85);
-      fill(hue + energy * 60, 60, 30 + energy * 70, 0.9);
-      rect(x * cellW + cellW / 2, y * cellH + cellH / 2, size, size);
+  repeats = ({ audio, time }) =>
+    1.0 + abs(sin(time * this.speed)) * this.cells + audio.mid * 2.0;
+
+  #vertexSource = \`
+    precision highp float;
+
+    attribute vec3 aPosition;
+    attribute vec2 aTexCoord;
+    varying vec2 vTexCoord;
+
+    void main() {
+      vTexCoord = aTexCoord;
+      vec4 position = vec4(aPosition, 1.0);
+      position.xy = position.xy * 2.0 - 1.0;
+      gl_Position = position;
+    }
+  \`;
+
+  #fragmentSource = \`
+    precision highp float;
+
+    varying vec2 vTexCoord;
+    uniform sampler2D uFeedback;
+    uniform vec2 uResolution;
+    uniform float uTime;
+    uniform vec3 uAudio;
+    uniform float uScale;
+    uniform float uRepeats;
+    uniform float uSides;
+    uniform float uTwist;
+    uniform float uNoiseAmount;
+    uniform vec3 uColour;
+
+    const float PI = 3.141592653589793;
+    const float TAU = 6.283185307179586;
+
+    mat2 turn(float angle) {
+      float sine = sin(angle);
+      float cosine = cos(angle);
+      return mat2(cosine, -sine, sine, cosine);
+    }
+
+    float hash21(vec2 point) {
+      point = fract(point * vec2(123.34, 456.21));
+      point += dot(point, point + 45.32);
+      return fract(point.x * point.y);
+    }
+
+    float valueNoise(vec2 point) {
+      vec2 cell = floor(point);
+      vec2 local = fract(point);
+      local = local * local * (3.0 - 2.0 * local);
+      return mix(
+        mix(hash21(cell), hash21(cell + vec2(1.0, 0.0)), local.x),
+        mix(hash21(cell + vec2(0.0, 1.0)), hash21(cell + vec2(1.0)), local.x),
+        local.y
+      );
+    }
+
+    float fbm(vec2 point) {
+      float result = 0.0;
+      float weight = 0.5;
+      for (int octave = 0; octave < 4; octave++) {
+        result += valueNoise(point) * weight;
+        point = turn(0.73) * point * 2.03 + 13.7;
+        weight *= 0.5;
+      }
+      return result;
+    }
+
+    float polygonDistance(vec2 point, float sides) {
+      float angle = atan(point.y, point.x) + PI;
+      float sector = TAU / max(3.0, sides);
+      return cos(floor(0.5 + angle / sector) * sector - angle) * length(point);
+    }
+
+    void main() {
+      vec2 uv = vTexCoord;
+      vec2 point = uv * 2.0 - 1.0;
+      point.x *= uResolution.x / uResolution.y;
+
+      float drift = uTime * 0.3;
+      vec2 noisePoint = point * 1.4 + vec2(drift * 0.31, -drift * 0.23);
+      vec2 noiseFlow = vec2(
+        fbm(noisePoint + 7.1),
+        fbm(noisePoint.yx - 4.3)
+      ) - 0.5;
+
+      // Hydra's modulateRotate(o0): brightness in the last output becomes a local
+      // rotation in this output. A tiny noise offset keeps the feedback from locking.
+      vec2 feedbackUv = clamp(uv + noiseFlow * 0.012, 0.002, 0.998);
+      vec3 previous = texture2D(uFeedback, feedbackUv).rgb;
+      float feedbackLight = dot(previous, vec3(0.299, 0.587, 0.114));
+      float localTurn = (feedbackLight - 0.22) * uTwist;
+
+      point = turn(-1.0 - uTime * 0.06) * point;
+      point += noiseFlow * (uNoiseAmount + uAudio.y * 0.055);
+      point = turn(localTurn) * point;
+      point /= max(0.35, uScale);
+
+      vec2 cell = fract(point * max(1.0, uRepeats) + 0.5) - 0.5;
+      float distanceToShape = polygonDistance(cell, uSides);
+      float radius = 0.205 + uAudio.x * 0.028;
+      float softness = 0.045 + uAudio.y * 0.025;
+      float body = 1.0 - smoothstep(radius, radius + softness, distanceToShape);
+      float rim = smoothstep(radius - 0.035, radius, distanceToShape) * body;
+
+      float cloudy = 0.72 + fbm(point * 3.0 - drift) * 0.42;
+      vec3 colour = uColour * body * cloudy;
+      colour += uColour * rim * (0.30 + uAudio.z * 0.38);
+
+      // Like Hydra's modulateRotate(), feedback changes coordinates rather than
+      // blending old colour into the new frame. That keeps the cells clean over time.
+      colour = pow(max(colour, 0.0), vec3(0.84));
+
+      gl_FragColor = vec4(colour, 1.0);
+    }
+  \`;
+
+  #makeBuffer() {
+    const buffer = createGraphics(width, height, WEBGL);
+    buffer.pixelDensity(1);
+    buffer.noStroke();
+    buffer.clear();
+    return buffer;
+  }
+
+  #ensureShader() {
+    if (this.#buffers.length === 0) {
+      this.#buffers = [this.#makeBuffer(), this.#makeBuffer()];
+      this.#programs = this.#buffers.map((buffer) =>
+        buffer.createShader(this.#vertexSource, this.#fragmentSource)
+      );
+      return;
+    }
+
+    if (this.#buffers[0].width !== width || this.#buffers[0].height !== height) {
+      for (const buffer of this.#buffers) {
+        buffer.resizeCanvas(width, height);
+        buffer.clear();
+      }
     }
   }
-});`,
+
+  draw({ audio, time }) {
+    this.#ensureShader();
+    const write = this.#buffers[this.#writeIndex];
+    const read = this.#buffers[1 - this.#writeIndex];
+    const program = this.#programs[this.#writeIndex];
+
+    write.shader(program);
+    program.setUniform("uFeedback", read);
+    program.setUniform("uResolution", [width, height]);
+    program.setUniform("uTime", time);
+    program.setUniform("uAudio", [audio.bass, audio.mid, audio.treble]);
+    program.setUniform("uScale", this.scale({ audio, time }));
+    program.setUniform("uRepeats", this.repeats({ audio, time }));
+    program.setUniform("uSides", this.sides);
+    program.setUniform("uTwist", this.twist);
+    program.setUniform("uNoiseAmount", this.noiseAmount);
+    program.setUniform("uColour", this.colour);
+    write.rect(0, 0, width, height);
+    image(write, 0, 0, width, height);
+
+    this.#writeIndex = 1 - this.#writeIndex;
+  }
+
+  dispose() {
+    for (const buffer of this.#buffers) buffer.remove();
+    this.#buffers = [];
+    this.#programs = [];
+    this.#writeIndex = 0;
+  }
+}
+
+const cellularBlobular = new CellularBlobular();`,
+  },
+
+  {
+    name: 'kaleido',
+    category: 'visual',
+    blurb: 'Radial kaleidoscope geometry made by a higher-order patch factory.',
+    source: `// %% patch kaleido
+// A factory returns a configured object with radial symmetry.
+//   const sixFold = makeKaleido(6, 35);
+function makeKaleido(segments, hue) {
+  return {
+    segments,
+    hue,
+
+    draw({ audio, time }) {
+      colorMode(HSB, 360, 100, 100, 1);
+      blendMode(ADD);
+      noFill();
+      translate(width / 2, height / 2);
+      rotate(time * (0.08 + audio.mid * 0.16));
+
+      const inner = min(width, height) * (0.08 + audio.bass * 0.08);
+      const outer = min(width, height) * (0.25 + audio.mid * 0.12);
+      for (let i = 0; i < this.segments; i++) {
+        rotate(TWO_PI / this.segments);
+        stroke((this.hue + i * 360 / this.segments) % 360, 65, 100, 0.42);
+        strokeWeight(1 + audio.treble * 2);
+        triangle(inner, 0, outer, -outer * 0.18, outer, outer * 0.18);
+        circle(outer, 0, 8 + audio.treble * 24);
+      }
+    },
+  };
+}
+
+const kaleido = makeKaleido(12, 285);`,
+  },
+
+  {
+    name: 'pixelRain',
+    category: 'visual',
+    blurb: 'Falling luminous pixels made by a stateful patch factory.',
+    source: `// %% patch pixelRain
+// Every factory call gets independent configuration and scene state.
+function makePixelRain(count, hue) {
+  return {
+    count,
+    hue,
+
+    state() {
+      return { drops: [] };
+    },
+
+    draw({ audio, state, dt }) {
+      while (state.drops.length < this.count) {
+        state.drops.push({
+          x: random(width),
+          y: random(-height, height),
+          speed: random(40, 150),
+          size: random(3, 10),
+        });
+      }
+      if (state.drops.length > this.count) state.drops.length = this.count;
+
+      colorMode(HSB, 360, 100, 100, 1);
+      blendMode(ADD);
+      noStroke();
+      for (const drop of state.drops) {
+        drop.y += drop.speed * (0.5 + audio.treble * 2.2) * dt;
+        if (drop.y > height + drop.size) {
+          drop.y = -drop.size;
+          drop.x = random(width);
+        }
+        fill((this.hue + drop.y / height * 70) % 360, 65, 100, 0.52);
+        rect(drop.x, drop.y, drop.size, drop.size * (1 + audio.level * 3));
+      }
+    },
+  };
+}
+
+const pixelRain = makePixelRain(80, 175);`,
+  },
+
+  {
+    name: 'neonTunnel',
+    category: 'visual',
+    blurb: 'Concentric polygon travel made by a configurable class instance.',
+    source: `// %% patch neonTunnel
+class NeonTunnel {
+  constructor({ rings = 16, sides = 6, hue = 275 } = {}) {
+    this.rings = rings;
+    this.sides = sides;
+    this.hue = hue;
+  }
+
+  polygon(radius) {
+    beginShape();
+    for (let i = 0; i < this.sides; i++) {
+      const angle = (TWO_PI * i) / this.sides;
+      vertex(cos(angle) * radius, sin(angle) * radius);
+    }
+    endShape(CLOSE);
+  }
+
+  draw({ audio, time }) {
+    colorMode(HSB, 360, 100, 100, 1);
+    blendMode(ADD);
+    noFill();
+    translate(width / 2, height / 2);
+    rotate(time * 0.06);
+
+    const limit = Math.hypot(width, height) * 0.62;
+    const speed = 0.12 + audio.bass * 0.5;
+    for (let i = 0; i < this.rings; i++) {
+      const phase = (i / this.rings + time * speed) % 1;
+      const radius = 12 + pow(phase, 1.8) * limit;
+      stroke((this.hue + phase * 100) % 360, 70, 100, (1 - phase) * 0.58);
+      strokeWeight(1 + audio.mid * 2);
+      this.polygon(radius);
+    }
+  }
+}
+
+const neonTunnel = new NeonTunnel();`,
+  },
+
+  {
+    name: 'beatBurst',
+    category: 'visual',
+    blurb: 'Beat-triggered particles made by a class with lifecycle state.',
+    source: `// %% patch beatBurst
+class BeatBurst {
+  constructor({ amount = 24, hue = 25, life = 0.8 } = {}) {
+    this.amount = amount;
+    this.hue = hue;
+    this.life = life;
+  }
+
+  state() {
+    return { particles: [] };
+  }
+
+  beat({ state, audio }) {
+    for (let i = 0; i < this.amount; i++) {
+      const angle = random(TWO_PI);
+      const speed = random(80, 260) * (0.7 + audio.bass);
+      state.particles.push({
+        x: width / 2,
+        y: height / 2,
+        vx: cos(angle) * speed,
+        vy: sin(angle) * speed,
+        life: this.life,
+      });
+    }
+    if (state.particles.length > 360) {
+      state.particles.splice(0, state.particles.length - 360);
+    }
+  }
+
+  draw({ state, dt }) {
+    colorMode(HSB, 360, 100, 100, 1);
+    blendMode(ADD);
+    noStroke();
+    for (let i = state.particles.length - 1; i >= 0; i--) {
+      const particle = state.particles[i];
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      particle.vx *= 0.985;
+      particle.vy *= 0.985;
+      particle.life -= dt;
+      if (particle.life <= 0) {
+        state.particles.splice(i, 1);
+        continue;
+      }
+      fill((this.hue + i * 2) % 360, 70, 100, particle.life / this.life);
+      circle(particle.x, particle.y, 3 + particle.life * 8);
+    }
+  }
+}
+
+const beatBurst = new BeatBurst();`,
   },
 ];
 
+export const RAVE_PATCH_NAMES = [
+  'checkerZoom',
+  'neonTunnel',
+  'spectrumHalo',
+  'kaleido',
+  'pixelRain',
+  'waveScope',
+  'laserFan',
+  'glitchSlices',
+  'beatBurst',
+  'strobe',
+];
+
+export const DIAGNOSTIC_PATCH_NAMES = [
+  'waveform',
+  'frequencyBars',
+  'audioMeters',
+];
+
 /**
- * Ready-made source that stacks copies of the library patches into one scene.
- *
- * Takes the wash layer as a parameter rather than naming the starter's `wash`
- * outright. A scene(...) naming a patch that does not exist fails validation and is
- * rejected whole (S-02) — correct behavior, but it would mean the demo button
- * silently did nothing if the performer had renamed or reset away the starter. The
- * demo should not depend on anything outside the library.
- *
- * @param {boolean} withWash whether a patch named "wash" is currently registered
+ * Update copied system diagnostics without rewriting unrelated student code.
+ * Only the exact former defaults inside the named patch cells are replaced.
  */
-export const libraryDemoSource = (withWash = true) => `// A scene built from several copies of the same patches.
-//
-// Each copy keeps its own state and its own config. Try removing one from the
-// Scene panel, or adding a third ribbon.
-scene("stacked", [${withWash ? '\n  "wash",' : ''}
-  { patch: "grid",   config: { cols: 14, rows: 8, hue: 220, scale: 0.7 } },
-  { patch: "grid",   config: { cols: 7,  rows: 4, hue: 320, scale: 0.35, rotate: 0.05 } },
-  { patch: "ribbon", config: { y: 0.32, hue: 190 } },
-  { patch: "ribbon", config: { y: 0.68, hue: 45, mirror: true } },
-  { patch: "pulse",  config: { hue: 50 } },
-]);
-go("stacked");`;
+export function upgradeOpaqueDiagnostics(source) {
+  const updateCell = (sourceText, name, replacements) =>
+    sourceText.replace(
+      new RegExp(`(// %% patch ${name}\\n[\\s\\S]*?)(?=\\n// %% |$)`),
+      (cell) => replacements.reduce(
+        (updated, [before, after]) => updated.replaceAll(before, after),
+        cell,
+      ),
+    );
+
+  const frequencyUpdated = updateCell(source, 'frequencyBars', [
+    ['panelHeight: 0.34', 'heightRatio: 0.34'],
+    ['this.panelHeight', 'this.heightRatio'],
+    ['fill(100, 145, 255, 230)', 'fill(100, 145, 255)'],
+    ['fill(190, 125, 255, 230)', 'fill(190, 125, 255)'],
+    ['fill(255, 190, 95, 230)', 'fill(255, 190, 95)'],
+  ]);
+
+  return updateCell(frequencyUpdated, 'audioMeters', [
+    ['fill(...colour, 220)', 'fill(...colour)'],
+  ]);
+}
+
+/** Ready-made source that mixes all ten system library patches. */
+export const libraryDemoSource = () => `// %% scene stacked
+// Ten independently configurable patches, composited in array order.
+// Start with the fading checker base; finish with beat overlays.
+const stacked = [
+  checkerZoom,
+  neonTunnel,
+  spectrumHalo,
+  kaleido,
+  pixelRain,
+  waveScope,
+  laserFan,
+  glitchSlices,
+  beatBurst,
+  strobe,
+];
+go(stacked);`;

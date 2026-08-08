@@ -1,8 +1,8 @@
 // Audio engine — shared infrastructure, created once (PRD §7, A-03).
 //
 // Exactly one p5.Amplitude and one p5.FFT exist for the whole session, no matter how
-// many patches are drawing, and no matter how many times the input source changes.
-// Patches never construct their own analyzers; they read the snapshot this module
+// many strategies are drawing, and no matter how many times the input source changes.
+// Strategies never construct their own analyzers; they read the snapshot this module
 // produces.
 //
 // Nothing in the evaluation path calls into this file. That is how A-04 is satisfied:
@@ -26,6 +26,8 @@ export function createAudioEngine({ diagnostics } = {}) {
   let sourceKind = 'none';
   let sourceLabel = 'none';
   let sourceError = null;
+  let loadPhase = null;
+  let loadProgress = null;
   let lastReadAt = null;
 
   /** Called once from the host's setup(). */
@@ -54,10 +56,14 @@ export function createAudioEngine({ diagnostics } = {}) {
   /**
    * Load a browser-readable audio file. This is a user action, not an evaluation, so
    * it is allowed to replace the source.
+   * p5 reports byte progress while the browser reads the file. Decoding happens
+   * afterward and has no measurable progress, so it is exposed as its own phase.
    * @param {File} file
+   * @param {{ onProgress?: (status: ReturnType<typeof status>) => void }} [options]
    */
-  function loadFile(file) {
+  function loadFile(file, { onProgress } = {}) {
     return new Promise((resolve, reject) => {
+      const report = () => onProgress?.(status());
       stopMic();
       if (soundFile) {
         soundFile.stop();
@@ -66,6 +72,12 @@ export function createAudioEngine({ diagnostics } = {}) {
       }
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       objectUrl = URL.createObjectURL(file);
+      sourceKind = 'none';
+      sourceLabel = file.name;
+      sourceError = null;
+      loadPhase = 'loading';
+      loadProgress = null;
+      report();
 
       loadSound(
         objectUrl,
@@ -74,21 +86,35 @@ export function createAudioEngine({ diagnostics } = {}) {
           sourceKind = 'file';
           sourceLabel = file.name;
           sourceError = null;
+          loadPhase = null;
+          loadProgress = null;
           route(loaded);
           features.reset();
           diagnostics?.info(`Loaded ${file.name}`, `${loaded.duration().toFixed(1)}s`);
+          report();
           resolve(loaded);
         },
         (error) => {
           sourceKind = 'none';
           sourceLabel = 'none';
           sourceError = `Could not decode ${file.name}`;
+          loadPhase = null;
+          loadProgress = null;
           // A-07: a failed input is a diagnostic, not a stopped draw loop.
           diagnostics?.error(
             sourceError,
             'Try a .mp3, .wav, .ogg, or .m4a file. The sketch keeps running on silence.',
           );
+          report();
           reject(error);
+        },
+        (progress) => {
+          if (!Number.isFinite(progress)) return;
+          loadProgress = Math.min(1, Math.max(0, progress));
+          // This p5.sound build deliberately caps byte progress at 0.99 while
+          // decodeAudioData is running, so 99% is the handoff to decoding.
+          loadPhase = loadProgress >= 0.99 ? 'decoding' : 'loading';
+          report();
         },
       );
     });
@@ -102,8 +128,7 @@ export function createAudioEngine({ diagnostics } = {}) {
    * @param {string} [deviceId] from listInputs()
    */
   async function useMicrophone(deviceId) {
-    const context = getAudioContext();
-    if (context.state !== 'running') await context.resume();
+    await unlock();
 
     // Ask for permission before touching p5.AudioIn, so a denial produces one clear
     // message instead of a half-initialized input that silently reads zero.
@@ -176,24 +201,42 @@ export function createAudioEngine({ diagnostics } = {}) {
 
   // --- transport ------------------------------------------------------------------
 
+  /**
+   * Unlock p5.sound while execution still belongs to a trusted click/change/drop.
+   *
+   * Safari is stricter than Chromium here: resuming only after an asynchronously
+   * decoded file has loaded can be too late because the original user activation has
+   * ended. p5's helper also performs the tiny platform-specific start sequence its
+   * sound graph expects; the direct resume remains as a defensive fallback.
+   */
+  async function unlock() {
+    const context = getAudioContext();
+    if (typeof userStartAudio === 'function') await userStartAudio();
+    if (context.state !== 'running') await context.resume();
+    if (context.state !== 'running') {
+      throw new Error(`Audio context stayed ${context.state}`);
+    }
+    return context.state;
+  }
+
   /** The explicit user gesture browsers require before audio may start (§10.2). */
   async function start() {
-    const context = getAudioContext();
-    if (context.state !== 'running') await context.resume();
+    const state = await unlock();
     if (sourceKind === 'file' && soundFile && !soundFile.isPlaying()) soundFile.play();
-    return context.state;
+    return state;
   }
 
   function pause() {
     if (soundFile?.isPlaying()) soundFile.pause();
   }
 
-  function toggle() {
+  async function toggle() {
     if (sourceKind !== 'file' || !soundFile) return false;
     if (soundFile.isPlaying()) {
       soundFile.pause();
       return false;
     }
+    await unlock();
     soundFile.play();
     return true;
   }
@@ -205,7 +248,7 @@ export function createAudioEngine({ diagnostics } = {}) {
   // --- analysis -------------------------------------------------------------------
 
   /**
-   * One analysis pass per frame, shared by every patch that frame (A-03, A-05).
+   * One analysis pass per frame, shared by every strategy that frame (A-03, A-05).
    * Returns a frozen snapshot in the shape of §9.5.
    */
   function readFrame() {
@@ -239,6 +282,9 @@ export function createAudioEngine({ diagnostics } = {}) {
       source: sourceLabel,
       error: sourceError,
       failed: sourceError !== null,
+      loading: loadPhase !== null,
+      loadPhase,
+      loadProgress,
       loaded: sourceKind !== 'none',
       playing: sourceKind === 'mic' ? mic !== null : (soundFile?.isPlaying() ?? false),
       position: soundFile?.currentTime() ?? 0,
@@ -250,6 +296,7 @@ export function createAudioEngine({ diagnostics } = {}) {
   return {
     init,
     loadFile,
+    unlock,
     useMicrophone,
     listInputs,
     stopMic,

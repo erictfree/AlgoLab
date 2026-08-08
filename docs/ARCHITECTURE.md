@@ -1,304 +1,211 @@
-# How Response works
+# How AlgoLab works
 
-This document is for the person maintaining Response, and for students who want to
-know why the system is shaped the way it is. PRD §18 argues that the course's
-JavaScript topics are *structurally necessary* here rather than decorative — this is
-where you can check that claim against the code.
-
----
-
-## The one idea
-
-An ordinary p5.js sketch owns `setup()` and `draw()`. Changing it means reloading,
-and reloading destroys the canvas, `frameCount`, every array you built up, and
-possibly the audio context.
-
-Response inverts that. **The host owns `setup()` and `draw()` and never gives them
-up.** Student code contributes *named functions* that the host calls. Replacing a
-name's function is a `Map.set` — nothing about the canvas, the clock, the audio graph,
-or the accumulated state is involved.
-
-Everything else in this codebase exists to make that replacement safe.
-
----
+AlgoLab inverts a normal p5 sketch: the host owns `setup()` and `draw()` permanently;
+student code contributes ordinary strategy functions or objects that the host invokes. Editing a
+strategy never recreates the canvas, clock, audio graph, or unrelated state.
 
 ## Module map
 
-```
-index.html            loads vendored p5 + p5.sound (classic scripts), then src/main.js
-src/main.js           the only file that touches p5 globals or assigns window.draw
-
-src/host/
-  registry.js         Map<name, patch record>; scenes; params; version history
-  stateStore.js       Map<name, state object> — state identity, snapshot, restore
-  liveApi.js          patch/scene/go/add/remove/clearScene/resetPatch/param
-  evaluator.js        the staged evaluation transaction (compile -> stage -> queue)
-  hostLoop.js         beginFrame / drawPatch / commitPendingChanges; error boundaries
-  diagnostics.js      bounded ring of performer-facing messages
-
-src/audio/
-  audioEngine.js      one Amplitude, one FFT, file loading, transport
-  features.js         smoothing, auto-gain, normalization, onset detection (pure)
-
-src/ui/
-  editor.js           textarea + top-level block scanner + key bindings
-  panels.js           patch shelf, scene strip, meters, history, messages
-  projection.js       the audience window: canvas / code / trace layouts
-  confirmDialog.js    the trusted-code confirmation shown before an import
-  styles.css          dark performance theme
-
-src/persistence/
-  projectStore.js     localStorage: source, scenes (as instances), params
-
-starter/
-  starter.js          the three teaching patches loaded on first run
-  library.js          five more (bars, ribbon, swarm, pulse, grid), built to stack
+```text
+src/main.js                 p5 setup/draw and application wiring
+src/app/controller.js       snapshots and actions between model and DOM views
+src/host/registry.js        exact strategy values, instances, scenes, history
+src/host/stateStore.js      per-instance state snapshots and restoration
+src/host/liveApi.js         object-based live commands and validation
+src/host/evaluator.js       binding capture and atomic staging
+src/host/hostLoop.js        lifecycle calls, frame boundaries, rollback
+src/shaders/shaderChain.js  fluent single-input GPU operator compiler and patch
+src/language/sourceBlocks.js DOM-free statement and // %% cell discovery
+src/audio/                  one analyzer graph and pure feature processing
+src/ui/                     editor, read-only model views, projection
+src/persistence/            schema-versioned source and settings storage
+starter/                    object-based starter and strategy library
+community-patches/          one ordinary source file per student contribution
+src/generated/              disposable community catalog built before dev/test
 ```
 
-`src/host/*` and `src/audio/features.js` contain **no p5 and no DOM**. That is not
-tidiness — it is what makes rollback, state identity, and onset detection testable in
-plain Node, which is where `tests/unit/` runs.
+The host and audio feature modules contain no DOM or p5 dependencies, so the core
+identity, rollback, state, and analysis behavior runs in the Node unit suite.
 
----
+`scripts/build-patch-library.mjs` reads, but never executes, every local file in
+`community-patches/`. It validates a small comment header, including the required
+`@category`, and emits one static browser module containing metadata and source text. Git distributes the individual files;
+AlgoLab has no runtime network or directory-listing dependency.
+
+The Patch Library is one persistent catalog grouped by explicit metadata into Utilities,
+Visual patches, Shaders, and User patches. Starter cells are derived directly from
+`STARTER_SOURCE`, additional bundled entries are marked `system`, and generated
+community entries carry their student author and declared category. Its four product states are deliberately
+separate: **Available** is in the catalog, **Installed** has source in the project,
+**Active** has an instance in the current scene, and **Running** survived evaluation and
+rendered. Installing changes only the source and Installed status; it neither removes
+the recipe from the catalog nor activates the patch.
 
 ## The frame
 
-`src/main.js` is short on purpose. This is the whole loop:
-
 ```js
 window.draw = function draw() {
-  const snapshot = audio.readFrame();          // analysis once per frame, shared
-  const frame = host.beginFrame(snapshot);     // clocks, params, scene transitions
+  const snapshot = audio.readFrame();
+  const drawInputs = host.beginFrame(snapshot);
 
-  for (const name of registry.activeOrder()) { // scene order = layer order
-    host.drawPatch(name, frame);               // each inside its own error boundary
+  for (const strategy of registry.activeStrategies()) {
+    host.drawStrategy(strategy, drawInputs);
   }
 
-  host.commitPendingChanges();                 // new code splices in HERE, never mid-frame
+  host.commitPendingChanges();
 };
 ```
 
-`commitPendingChanges()` is at the bottom for a reason. A replacement queued during
-frame *N* is applied at the end of frame *N*, first runs during frame *N+1*, and is
-confirmed or rolled back at the end of *N+1*. A patch is never swapped out halfway
-through a rendered image.
+A scene is literally the user-configured strategy order. Each registry instance is a
+stable object with `{ id, strategy }` plus non-enumerable lifecycle delegates. Those
+delegates resolve the currently registered implementation on every call. Object/class
+methods use `method.apply(implementation, args)`; a function strategy is invoked
+directly. Consequently:
 
----
+- the original function, object, or class instance is retained exactly;
+- `this`, prototypes, getters, and private fields work normally;
+- replacing an implementation does not replace the scene slot;
+- several scene copies can share behavior while retaining separate state.
 
-## The evaluation transaction
+## Binding discovery
 
-From PRD §13.2. Steps 1–5 are in `evaluator.js`; 6–8 belong to the frame and live in
-`hostLoop.js`.
+The evaluator scans complete top-level statements—or explicit `// %%` cells—compiles
+them as JavaScript, and captures declared bindings. It classifies values by behavior:
 
-| # | Step | Where | Failure means |
-| - | ---- | ----- | ------------- |
-| 1 | Compile with `new Function` | evaluator | Syntax error — nothing staged (S-01) |
-| 2 | Run registration calls into a **staging transaction** | liveApi | Registration error — nothing applied (S-02) |
-| 3 | Validate shapes and referenced names | evaluator | Registration error (S-02) |
-| 4 | Snapshot each affected patch's state | stateStore | Warning; code still rolls back, state won't |
-| 5 | Queue for the frame boundary | evaluator | — |
-| 6 | Invoke the candidate inside an error boundary | hostLoop | Rollback to previous version (S-03) |
-| 7 | Commit, or restore previous definition **and** state | registry | — |
-| 8 | File the successful source in history | registry | — |
+- an object with `draw()` is a strategy, named by its binding;
+- a function becomes a strategy when a scene uses it, and remains one on
+  later replacements of that binding;
+- an array entirely composed of strategy values is a scene, named by its binding;
+- unused functions, classes, arrays, and other values remain ordinary reusable bindings;
+- `go`, `reset`, and `param` are the only injected live commands.
 
-The invariant that everything rests on: **steps 1–4 cannot touch the live registry.**
-Student code runs against a staging transaction that the running system has never
-seen. This is why a syntax error, or a block that throws halfway through its
-registrations, is structurally incapable of blanking the stage — not because we catch
-the error carefully, but because there was never a path from that code to the active
-map.
+Bindings are retained between block evaluations, which is why a later
+`const stacked = [checkerZoom, waveScope]` uses the actual earlier values. `go(stacked)` uses
+the scene array itself rather than repeating its name as a string. There is no
+student-facing registration table and no duplicate string identity.
 
-### Candidates
+An explicit cell stores a class/factory and the strategy it constructs as one source
+unit. Evaluating that cell updates all of its declarations together; this prevents a
+new class declaration from leaving an existing instance attached to the old class.
+Before compiling a full buffer, duplicate explicit cells with the same patch name are
+collapsed transactionally: the newest source replaces the older cell at its original
+position. This repairs accidental double installation without asking JavaScript to
+declare the same `class` or `const` twice.
 
-A new version is a *candidate* until it has survived one frame. `registry.stagePatch`
-records the previous definition, version, source, and state snapshot on
-`record.candidate`. Then:
+## Atomic replacement
 
-- `drawPatch` returns without throwing → `confirmPatch` files it in history and clears
-  the candidate. Version numbers only ever go up, and only successful versions are
-  stored.
-- `drawPatch` throws → `rollbackPatch` restores the previous definition and version,
-  `stateStore.restore` puts the snapshot back, and the performer gets a message. The
-  failed version is never filed.
+Evaluation is a transaction:
 
-A candidate that is not in the active scene has no frame to survive, so
-`commitPendingChanges` accepts it directly — nothing on stage is at risk from code
-that isn't drawing.
-
----
-
-## State identity
-
-`stateStore` is a `Map<instanceId, object>`. The factory in `state: () => ({...})` runs
-**once per instance, ever**. Re-evaluating a patch does not re-run it.
-
-This is the mechanism behind PRD §7's "state has an identity". The function object is
-discarded and replaced on every evaluation; the state object is found again by
-identity. It is also why `resetPatch(name)` has to exist as an explicit act — there is
-no other way to get a fresh one.
-
-## Instances
-
-A scene is an ordered list of `{ id, patch, config }`, not of patch names, because the
-same patch may appear several times — two grids at different scales, three ribbons at
-different heights.
-
-**The first instance of a patch takes the bare patch name as its id.** That one
-decision is what kept this from being a breaking change: a scene using each patch once
-produces exactly the id list the old name-based model produced, so `activeOrder()`,
-every stored project, and every existing test stayed valid. Extras are `swarm#2`,
-`swarm#3` — and `#` is therefore forbidden in patch names, or `a#2` would be ambiguous
-between a patch and an instance.
-
-What is shared and what is not:
-
-| | Shared across copies | Per copy |
+| Phase | Action | Failure result |
 | --- | --- | --- |
-| definition, version, history | ✓ | |
-| state | | ✓ |
-| config | | ✓ |
-| `enter` / `exit` / `beat` | | ✓ |
+| Compile | Build a function from the selected source | Nothing changes |
+| Execute | Capture declarations and live commands in staging | Nothing changes |
+| Validate | Check methods, scene members, command targets | Nothing changes |
+| Snapshot | Clone affected per-instance state | Warn if unclonable |
+| Queue | Wait for the bottom of the current frame | No mid-frame swap |
+| Candidate | Run every active copy once | Roll back on a throw |
+| Confirm | Store the successful version in history | Candidate becomes live |
 
-The consequence that matters for recovery: replacing a patch replaces the behavior of
-every copy at once, so `stateStore.snapshotPatch` / `restorePatch` cover all of them.
-A rollback that restored only the copy that happened to throw would leave the others
-running the failed version's state — including copies that never executed, because the
-rollback lands mid-frame and later copies draw with the already-restored definition.
+A replacement queued during draw N is installed at the end of N, first runs in N+1,
+and is confirmed at the end of N+1. A shared implementation is confirmed only after
+every active copy survives; independent state can take different code paths.
 
-`remove()` disambiguates on `#`: with one, it targets that exact instance; without
-one, it treats the argument as a patch name and peels off the last copy, so repeated
-`remove("swarm")` undoes repeated `add("swarm")`.
+Rollback restores four aligned identities: the registry implementation, the captured
+JavaScript binding, the version/source record, and all clone-compatible instance state.
+That binding restoration matters: after a failed `laserFan` edit, a later scene edit
+containing `laserFan` must refer to the restored object, not the failed candidate.
+Scene configuration is part of the same transaction. If a newly selected scene fails
+its first render, the previously running scene and its order remain live.
 
-Lifecycle is tracked in a `Set` of instance ids in `hostLoop`, not on the registry
-record — being on stage is a property of the instance, not of the registration.
+After a candidate succeeds, the host calls `dispose()` on the replaced implementation.
+If a candidate fails, it disposes the failed object after restoring its predecessor;
+reset and import dispose all current implementations before clearing the registry.
+This gives class-based strategies a deterministic place to release WEBGL buffers and
+other external resources without putting them in the cloneable state store.
 
-Snapshots use `structuredClone`, which is why §13.4 asks for JSON-shaped state. A
-value that can't be cloned produces a warning and a `null` snapshot, and `restore`
-treats `null` as "leave it alone" — the code still rolls back, the state doesn't. That
-degradation is deliberate and visible rather than silent.
+## Identity and copies
 
----
+The binding name is the stable strategy identity. The first scene copy uses that bare
+name as its instance id; later copies use `name#2`, `name#3`, and so on.
+
+| Shared by copies | Per copy |
+| --- | --- |
+| implementation, version, source, history | id, state, lifecycle membership |
+
+`stateStore` is a `Map<instanceId, object>`. A strategy's `state()` factory runs once
+per instance. Re-evaluation deliberately does not re-run it; `reset(strategy)` is the
+explicit request for fresh state.
+
+Configuration belongs to the strategy value: closure variables for functions,
+properties for objects, and constructor arguments for classes. Distinct configured
+strategies receive distinct bindings and can be created with factories or object spread.
+The runtime has no second per-scene configuration language.
+
+Scene membership and order have one write path: evaluating a named array. The scene
+strip renders the resulting instance ids but does not mutate them. Installing a library
+patch inserts visible source and evaluates only that patch, leaving it Installed but
+inactive. “Add to scene” edits the visible array and selects its cell; the student must
+evaluate that cell before the new instance becomes Active, then it becomes Running only
+after a successful render.
+
+## Application and view boundary
+
+The registry, state store, evaluator, host loop, audio engine, and diagnostics form the
+runtime model. `src/app/controller.js` translates them into data-only snapshots and a
+small set of named actions. The panels and projection receive that controller, never
+the registry or evaluator. `main.js` is the composition root and adapts browser events,
+p5 callbacks, editor source insertion, project import/export, and keyboard transport.
+
+This is MVC-like rather than framework MVC: the host modules are the model, the app
+controller is the controller boundary, and `src/ui` is the view. Most importantly for
+the course, students can be given the view unchanged while working on mechanics in the
+host and language modules.
+
+The separate Project Patches drawer is a read-only object browser over that boundary.
+It shows Installed patches while labelling Active and Running independently. The
+controller describes public configuration, helper signatures, lifecycle signatures,
+and the function/object/class shape as strings. It uses property descriptors, so
+producing the view neither hands a live student object to the DOM nor invokes a
+student's getter. Scene membership still changes only by evaluating the source array.
+“Jump to source” is an editor navigation action, not a model mutation. The complete
+library and settings remain in the general tools drawer; neither appears in the
+reference drawer.
 
 ## Audio
 
-One `p5.Amplitude` and one `p5.FFT`, created in `setup()` and never recreated.
-Nothing in the evaluation path can reach `audioEngine`, which is how A-04 ("code
-evaluation shall not restart playback or recreate the analyzer") is satisfied
-structurally rather than by discipline.
+`audioEngine` owns one `p5.Amplitude` and one `p5.FFT`; evaluation cannot recreate
+them. Feature processing runs once per frame, and every strategy receives the same
+snapshot. Normalized values use a decaying-peak auto-gain with headroom; the spectral
+bands share one ceiling so their relative balance remains visible. Onset detection uses raw
+band energy so gain normalization does not erase the dynamics needed to find beats.
 
-`features.js` is pure. Two decisions worth knowing:
+There is deliberately no bundled song. Audio remains suspended until a user gesture,
+and the host supplies a silent snapshot when no file or microphone is selected.
 
-- **Auto-gain is a decaying peak.** The ceiling jumps up instantly and sags back
-  slowly, so a steady quiet track still spans 0..1. p5.sound's own values survive
-  under `raw` (settling PRD §19.3 in favor of normalized-by-default).
-- **Onset detection runs on the raw band energy, not the auto-gained value.** Auto-gain
-  exists to flatten dynamics, which is precisely the information onset detection
-  needs; running detection downstream of it means a steady loop reads as permanently
-  loud and nothing ever fires. A beat requires a floor, a frame-to-frame rise, and a
-  large ratio against the recent average — the rise condition is what stops a
-  sustained bass note from firing every frame.
+## Persistence
 
----
+Project schema 6 stores source, the safe-scene preference, and live parameter values.
+Compiled functions and derived scene membership are never stored. Reload evaluates the
+source through the same validation path; its arrays recreate the scene order.
 
-## Layout
+During a running session, the controller's safe snapshot is broader than project
+persistence: it retains the editor source, exact installed implementations and version
+history, evaluator bindings, active scene/order, parameters, and clone-compatible
+instance state. The first successfully rendered starter/saved scene becomes the initial
+safe snapshot; **Set safe** replaces it only on explicit success. A failed evaluation
+cannot overwrite it. Restoration reports skipped uncloneable state instead of silently
+claiming a complete recovery.
 
-The canvas fills the viewport; the performer's tools float over it as a translucent,
-blurred panel that `\` slides away.
+Older schemas are intentionally not read because their source and scene records use
+the removed registration model.
 
-The reason is aspect ratio, not screen real estate. With the tools in a column, the
-performer composed on roughly 5:4 while the projector showed 16:9 — the thing being
-made was never the shape of the thing being shown, so framing decisions did not
-survive the trip to the projector. PRD §10.1 asks for 60% of the viewport; this gives
-100%, and the tools occlude a corner of the composition rather than reshaping it.
+## Trust and performance boundaries
 
-A convenient consequence for P-01: the tools are DOM *over* the canvas, and the
-projection window copies pixels rather than markup, so there is no route by which
-performer chrome can reach the audience even if someone later adds a panel that
-overlaps the middle of the frame.
+`new Function` is not a sandbox. Exceptions are contained, but an infinite loop can
+freeze the tab and evaluated code can access browser globals. AlgoLab is for trusted,
+self-authored local code.
 
-## Projection
-
-`projection.js` opens a popup, gives it a plain 2D canvas, and copies each frame
-across with `drawImage`.
-
-The obvious alternative — moving the p5 canvas into the popup — was rejected. It works
-until the popup is closed, at which point the running sketch loses its drawing surface
-mid-set, which is precisely the class of failure this whole system exists to prevent.
-A copy costs well under a millisecond at 1280×720, only happens while the window is
-open, and leaves the performer's stage intact so both views show the work.
-
-P-01 is a prohibition as much as a feature: no editor errors, file paths, transport
-controls, or private notes. Nothing in `projection.js` reads the diagnostics bus, so
-there is no path from a stack trace to the projector even by accident. The code layout
-is fed only from *successful* evaluations, so a failed edit is never projected.
-
-The trace layout recovers each patch's audio mappings by scanning its stored source
-for `audio.<feature>`. That is what makes it worth projecting — it names the link
-between what the audience is hearing and what they are seeing, which is otherwise
-invisible about this kind of performance.
-
-## Where the course concepts actually live
-
-| Concept | Where |
-| --- | --- |
-| First-class functions | `registry.js` — a patch *is* a function stored under a name |
-| Higher-order functions | `liveApi.js` builds the API bound to a transaction and hands it to `new Function` |
-| Closures | `createRegistry`, `createHostLoop`, etc. — every module is a closure over private state, with no `this` |
-| Objects and interfaces | the `{ state, enter, draw, beat, exit }` lifecycle contract, shared by unlike visual systems |
-| Arrays | `features.js` band history, `hostLoop.js` FPS ring, patch trails |
-| Error handling | `hostLoop.drawPatch` — the boundary that keeps the last valid image alive |
-| Composition | scenes: an ordered list of names, evaluated top to bottom |
-
----
-
-## Trust boundary
-
-Response compiles and runs student JavaScript with `new Function`. Say the rest of
-this out loud in class, because the PRD does (§13.3):
-
-- **Wrapping errors is not a sandbox.** A patch can freeze the tab with an infinite
-  loop, and it can reach browser globals.
-- Response runs **trusted, self-authored local code**. Do not paste in code from
-  strangers.
-- Live code is never sent to a server. There is no backend and no account.
-
-Stronger isolation — a sandboxed frame, a worker, `OffscreenCanvas` — is listed in the
-PRD as a P2 investigation and is deliberately *not* implemented, because a partial
-sandbox that looks like a real one is worse than none.
-
----
-
-## Performance notes
-
-§13.5 budgets under 2 ms of host overhead per frame, and a 30-minute set without
-unbounded memory growth.
-
-That second one is measured, not assumed — `npm run test:soak` is the check, and the
-last full run held **60.1 FPS across 108,866 frames and 7,040 evaluations in 30.2
-minutes, with the heap moving 17.1 MB → 17.2 MB (+0.4%)**. The canvas element, the
-`AudioContext`, and `window.draw` were compared by identity at the end and were the
-same objects they started as, which is the strongest available form of the A-04 and
-R-01 claims: not "audio still works" but "nothing was ever rebuilt".
-
-The things that keep that true:
-
-- one context object, reused for every patch on every frame; `state` is swapped in
-  immediately before the call
-- `registry.paramValues(target)` writes into an existing object rather than building
-  one
-- FPS uses a preallocated `Float32Array` ring
-- diagnostics are a bounded ring; a patch that throws every frame is throttled instead
-  of appending a message per frame
-- panels redraw on registry change; meters update at 15 Hz on a timer, not in `draw()`
-- `pixelDensity(1)` — a retina backing store quadruples fill cost at 1280×720
-
----
-
-## Not yet built (PRD P2)
-
-Web MIDI mapping, crossfades and transition objects, stronger runtime isolation
-(sandboxed frame / worker / `OffscreenCanvas`), WebGL and shader patch lifecycles,
-collaborative rooms, student-defined language adapters, performance recording and
-annotated replay, and export to a standalone conventional p5.js sketch.
-
-P0 and P1 are implemented and tested.
+The draw path reuses one draw-input object, a fixed FPS ring, one analyzer snapshot, and
+bounded diagnostics/history. Panels update on registry changes or a slow timer rather
+than allocating DOM every frame. `pixelDensity(1)` prevents a high-DPI backing store
+from silently quadrupling fill cost.

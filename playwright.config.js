@@ -4,6 +4,10 @@ export default defineConfig({
   testDir: './tests/e2e',
   timeout: 60_000,
   fullyParallel: false,
+  // The Degree 3 scenario measures real rendering throughput. Running a second
+  // animated WEBGL page beside it benchmarks GPU contention, not the one-project
+  // classroom workload the acceptance test specifies.
+  workers: 1,
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:5173',

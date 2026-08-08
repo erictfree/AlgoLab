@@ -1,34 +1,44 @@
-// PRD §10.3 — "the editor determines blocks from top-level patch(...), scene(...),
-// and command expressions."
+// The editor determines blocks from ordinary top-level declarations and commands.
 //
 // The scanner does not need to be a parser. It needs to never mistake a brace inside
 // a string or a comment for structure, because that is what produces an evaluation
-// range that cuts a patch in half.
+// range that cuts a strategy in half.
 
 import { describe, it, expect } from 'vitest';
-import { findBlocks, blockAt, describeBlock } from '../../src/ui/editor.js';
+import {
+  findCells,
+  findBlocks,
+  blockAt,
+  describeBlock,
+  moveSceneCellsLast,
+  renameLegacyStarterScene,
+} from '../../src/language/sourceBlocks.js';
 
 const SOURCE = `// a comment with a brace {
-patch("wash", ({ audio }) => {
-  fill(0, 0, 0, 20);
-  rect(0, 0, width, height);
-});
+const wash = {
+  draw({ audio }) {
+    fill(0, 0, 0, 20);
+    rect(0, 0, width, height);
+  },
+};
 
-patch("rings", ({ audio }) => {
-  const label = "a string with ; and } in it";
-  text(label, 10, 10);
-});
+const rings = {
+  draw({ audio }) {
+    const label = "a string with ; and } in it";
+    text(label, 10, 10);
+  },
+};
 
-scene("tunnel", ["wash", "rings"]);
-go("tunnel")
+const tunnel = [wash, rings];
+go(tunnel)
 `;
 
 describe('findBlocks', () => {
   it('finds each top-level statement', () => {
     const blocks = findBlocks(SOURCE);
     expect(blocks.map((b) => describeBlock(b.text))).toEqual([
-      'patch wash',
-      'patch rings',
+      'strategy wash',
+      'strategy rings',
       'scene tunnel',
       'go tunnel',
     ]);
@@ -36,27 +46,34 @@ describe('findBlocks', () => {
 
   it('is not fooled by braces or semicolons inside strings', () => {
     const blocks = findBlocks(SOURCE);
-    const rings = blocks.find((b) => describeBlock(b.text) === 'patch rings');
+    const rings = blocks.find((b) => describeBlock(b.text) === 'strategy rings');
     expect(rings.text).toContain('a string with ; and } in it');
-    expect(rings.text.trimEnd().endsWith('});')).toBe(true);
+    expect(rings.text.trimEnd().endsWith('};')).toBe(true);
   });
 
   it('ends a statement at a newline when brackets are balanced', () => {
     const blocks = findBlocks(SOURCE);
-    expect(blocks.at(-1).text.trim()).toBe('go("tunnel")');
+    expect(blocks.at(-1).text.trim()).toBe('go(tunnel)');
   });
 
   it('handles template literals, regexes, and block comments', () => {
     const source = [
-      'patch("a", () => { const s = `x ${ { y: 1 } } z`; });',
+      'const a = { draw() { const s = `x ${ { y: 1 } } z`; } };',
       'const r = /}\\/;{/g;',
       '/* } ; } */',
-      'go("a")',
+      'go(a)',
     ].join('\n');
     const blocks = findBlocks(source);
     expect(blocks).toHaveLength(3);
     expect(blocks[0].text).toContain('${ { y: 1 } }');
-    expect(blocks.at(-1).text.trim()).toBe('go("a")');
+    expect(blocks.at(-1).text.trim()).toBe('go(a)');
+  });
+
+  it('recognizes a constructed class instance as a strategy declaration', () => {
+    expect(describeBlock('const plasma = new class Plasma { draw() {} }();')).toBe(
+      'strategy plasma',
+    );
+    expect(describeBlock('const orbiters = new Orbiters();')).toBe('strategy orbiters');
   });
 
   it('returns nothing for an empty or comment-only buffer', () => {
@@ -65,15 +82,101 @@ describe('findBlocks', () => {
   });
 });
 
+describe('explicit evaluation cells', () => {
+  const source = `// %% strategy orbiters
+class Orbiters {
+  draw() {}
+}
+const orbiters = new Orbiters();
+
+// %% scene show
+const show = [orbiters];
+go(show);
+`;
+
+  it('groups a class and its instance into one atomic block', () => {
+    const blocks = findBlocks(source);
+    expect(blocks).toHaveLength(2);
+    expect(blocks.map((block) => describeBlock(block.text))).toEqual([
+      'strategy orbiters',
+      'scene show',
+    ]);
+    expect(blocks[0].text).toContain('class Orbiters');
+    expect(blocks[0].text).toContain('new Orbiters()');
+  });
+
+  it('selects the entire cell from either declaration', () => {
+    const onClass = blockAt(source, source.indexOf('class Orbiters'));
+    const onInstance = blockAt(source, source.indexOf('new Orbiters'));
+    expect(onClass.text).toBe(onInstance.text);
+  });
+
+  it('moves a library patch installed below a scene ahead of that scene', () => {
+    const misplaced = `// course notes
+
+// %% patch wash
+const wash = { draw() {} };
+
+// %% scene tunnel
+const tunnel = [wash, newPatch];
+go(tunnel);
+
+// %% patch newPatch
+const newPatch = { draw() {} };
+`;
+
+    const ordered = moveSceneCellsLast(misplaced);
+    expect(ordered.startsWith('// %% patch wash')).toBe(true);
+    expect(ordered.indexOf('// %% patch wash')).toBeLessThan(ordered.indexOf('// course notes'));
+    expect(ordered.indexOf('// %% patch wash')).toBeLessThan(ordered.indexOf('// %% patch newPatch'));
+    expect(ordered.indexOf('// %% patch newPatch')).toBeLessThan(ordered.indexOf('// %% scene tunnel'));
+    expect(ordered).toContain('// course notes');
+  });
+
+  it('puts a hidden preamble inside the first cell even when the scene is already last', () => {
+    const prefixed = `// course notes\n\n${source}`;
+    const ordered = moveSceneCellsLast(prefixed);
+
+    expect(ordered.startsWith('// %% strategy orbiters\n// course notes')).toBe(true);
+    expect(findCells(ordered)[0].start).toBe(0);
+  });
+
+  it('leaves a project unchanged when its scene is already last', () => {
+    expect(moveSceneCellsLast(source)).toBe(source);
+  });
+
+  it('renames only the marked legacy starter scene', () => {
+    const legacy = `// %% patch plasma
+const plasma = { draw() {} };
+
+// %% scene tunnel
+const tunnel = [plasma];
+go(tunnel);
+`;
+    const renamed = renameLegacyStarterScene(legacy);
+
+    expect(renamed).toContain('// %% scene scene');
+    expect(renamed).toContain('const scene = [plasma];');
+    expect(renamed).toContain('go(scene);');
+    expect(renamed).not.toContain('tunnel');
+  });
+
+  it('does not rename a deliberately different project', () => {
+    expect(renameLegacyStarterScene('const tunnel = [plasma];\ngo(tunnel);')).toBe(
+      'const tunnel = [plasma];\ngo(tunnel);',
+    );
+  });
+});
+
 describe('blockAt', () => {
   it('finds the block containing the cursor', () => {
     const cursor = SOURCE.indexOf('rect(0, 0');
-    expect(describeBlock(blockAt(SOURCE, cursor).text)).toBe('patch wash');
+    expect(describeBlock(blockAt(SOURCE, cursor).text)).toBe('strategy wash');
   });
 
   it('finds the block when the cursor sits on its closing line', () => {
     const cursor = SOURCE.indexOf('text(label');
-    expect(describeBlock(blockAt(SOURCE, cursor).text)).toBe('patch rings');
+    expect(describeBlock(blockAt(SOURCE, cursor).text)).toBe('strategy rings');
   });
 
   it('falls back to the last block past the end of the buffer', () => {

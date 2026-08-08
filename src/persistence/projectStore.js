@@ -1,22 +1,45 @@
 // Local project persistence — D-01.
 //
-// "The current editor source, patch registry, scenes, and declared parameters shall
-// persist locally after refresh."
+// The current editor source and performer settings persist locally after refresh.
 //
-// What is saved is *source and composition*, never compiled functions. On reload the
+// What is saved is source (including composition arrays), never compiled functions. On reload the
 // host replays the source through the ordinary evaluator, so a restored project goes
 // through exactly the same validation path as a live edit — including rollback if a
-// saved patch turns out to throw.
+// saved strategy turns out to throw.
 //
 // The stored shape is versioned. A format change degrades to "start fresh" rather
 // than throwing during startup, because a student mid-semester should never be met
 // with a broken page.
 
-const KEY = 'response.project.v1';
-// v2 stores scenes as instances ({id, patch, config}) rather than bare patch names,
-// so a scene holding the same patch more than once round-trips faithfully.
-const SCHEMA = 2;
-const READABLE_SCHEMAS = new Set([1, 2]);
+// v5 intentionally starts from the compact, self-sufficient Plasma-only starter. Previous local
+// project keys contained the retired built-in patches, so reading them would immediately
+// repopulate a library the course has deliberately removed. Exported v6 projects are
+// still readable and can be imported explicitly.
+const KEY = 'algolab.project.v5';
+const OBSOLETE_KEYS = [
+  'algolab.project.v1',
+  'algolab.project.v2',
+  'algolab.project.v3',
+  'algolab.project.v4',
+];
+const LEGACY_KEYS = [
+  'livecode-lab.project.v1',
+  'patchlab.project.v1',
+  'patchbay.project.v1',
+  'response.project.v1',
+];
+const PROJECT_FORMAT = 'algolab-project';
+const READABLE_FORMATS = new Set([
+  PROJECT_FORMAT,
+  'livecode-lab-project',
+  'patchlab-project',
+  'patchbay-project',
+  'response-project',
+]);
+// v6 makes source the sole scene-composition authority. Persistence stores source and
+// performer settings, never a second mutable copy of scene membership or order.
+const SCHEMA = 6;
+const READABLE_SCHEMAS = new Set([6]);
 
 export function createProjectStore({ registry, diagnostics, storage = globalThis.localStorage } = {}) {
   let timer = null;
@@ -26,8 +49,6 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
       schema: SCHEMA,
       savedAt: Date.now(),
       source: editorSource,
-      scenes: registry.listScenes(),
-      activeScene: registry.activeSceneName(),
       safeScene: registry.safeSceneName(),
       params: registry.listParams().map(({ name, value, min, max, step }) => ({
         name,
@@ -71,7 +92,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
         diagnostics?.warn('Saved project is from an older format — starting fresh');
         return null;
       }
-      return { ...data, scenes: (data.scenes ?? []).map(upgradeScene) };
+      return data;
     } catch (error) {
       diagnostics?.warn('Saved project was unreadable — starting fresh', error.message);
       return null;
@@ -79,25 +100,11 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
   }
 
   /**
-   * Put back the parts replaying the source will not rebuild: scene order the
-   * performer changed by hand, and parameter values they tuned.
-   *
-   * Order matters — this must run AFTER the saved source has been evaluated. The
-   * source contains scene("tunnel", [...]) and param() calls that would otherwise
-   * overwrite exactly what we are restoring.
+   * Put back performer settings that replaying source intentionally does not own.
+   * This runs after source evaluation so the referenced safe scene and parameters exist.
    */
-  function restoreComposition(data) {
+  function restoreSettings(data) {
     if (!data) return;
-    for (const scene of data.scenes ?? []) {
-      // Only patches that actually came back from the source belong in a scene.
-      registry.defineScene(
-        scene.name,
-        upgradeOrder(scene.order).filter((entry) => registry.hasPatch(entry.patch)),
-      );
-    }
-    if (data.activeScene && data.scenes?.some((s) => s.name === data.activeScene)) {
-      registry.go(data.activeScene);
-    }
     if (data.safeScene) registry.setSafeScene(data.safeScene);
     for (const param of data.params ?? []) {
       registry.declareParam(param.name, param.value, param);
@@ -107,20 +114,11 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     }
   }
 
-  const upgradeScene = (scene) => ({ ...scene, order: upgradeOrder(scene.order) });
-
-  /** Accept both v1 (`["wash", "rings"]`) and v2 (instance objects) scene orders. */
-  function upgradeOrder(order) {
-    return (order ?? []).map((entry) =>
-      typeof entry === 'string'
-        ? { patch: entry, config: {} }
-        : { id: entry.id, patch: entry.patch, config: entry.config ?? {} },
-    );
-  }
-
   function clear() {
     try {
       storage?.removeItem(KEY);
+      for (const obsoleteKey of OBSOLETE_KEYS) storage?.removeItem(obsoleteKey);
+      for (const legacyKey of LEGACY_KEYS) storage?.removeItem(legacyKey);
     } catch {
       /* nothing useful to do */
     }
@@ -129,8 +127,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
   // --- export / import (D-02, D-03) ----------------------------------------------
 
   /**
-   * D-02: "a human-readable project containing source, scene definitions, and
-   * configuration."
+   * D-02: a human-readable project containing source and live parameter values.
    *
    * Pretty-printed JSON, with the source split into lines. A single escaped string
    * with `\n` in it is technically readable and practically not — an instructor
@@ -141,12 +138,10 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     const data = snapshot(editorSource);
     return JSON.stringify(
       {
-        format: 'response-project',
+        format: PROJECT_FORMAT,
         schema: SCHEMA,
         exportedAt: new Date(data.savedAt).toISOString(),
         source: data.source.split('\n'),
-        scenes: data.scenes,
-        activeScene: data.activeScene,
         safeScene: data.safeScene,
         params: data.params,
         ...extra,
@@ -161,7 +156,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `response-project-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `algolab-project-${new Date().toISOString().slice(0, 10)}.json`;
     // Chromium ignores a synthetic click on an anchor that is not in the document, so
     // attach it for the duration of the click.
     link.style.display = 'none';
@@ -188,8 +183,8 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     } catch (error) {
       return { ok: false, error: `Not a valid project file — ${error.message}` };
     }
-    if (data?.format !== 'response-project') {
-      return { ok: false, error: 'Not a Response project file' };
+    if (!READABLE_FORMATS.has(data?.format)) {
+      return { ok: false, error: 'Not an AlgoLab project file' };
     }
     if (!READABLE_SCHEMAS.has(data.schema)) {
       return {
@@ -205,8 +200,6 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
       ok: true,
       data: {
         source,
-        scenes: (Array.isArray(data.scenes) ? data.scenes : []).map(upgradeScene),
-        activeScene: data.activeScene ?? null,
         safeScene: data.safeScene ?? null,
         params: Array.isArray(data.params) ? data.params : [],
       },
@@ -217,7 +210,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     save,
     saveSoon,
     load,
-    restoreComposition,
+    restoreSettings,
     clear,
     exportProject,
     download,

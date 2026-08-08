@@ -1,6 +1,6 @@
 // Dependency-free static server for the course build.
 //
-// Response is a plain HTML page — there is no bundler and no compile step. But ES
+// AlgoLab is a plain HTML page — there is no bundler and no compile step. But ES
 // modules will not load from a `file://` URL, so the page needs an HTTP origin.
 // This is that origin, and nothing more. Node's standard library only, so the
 // course build keeps working with no network access (PRD D-04, D-05).
@@ -55,6 +55,6 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Response — serving ${ROOT}`);
+  console.log(`AlgoLab — serving ${ROOT}`);
   console.log(`  http://localhost:${PORT}`);
 });

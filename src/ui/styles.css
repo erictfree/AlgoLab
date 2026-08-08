@@ -1,4 +1,4 @@
-/* Response — performer theme.
+/* AlgoLab — performer theme.
  *
  * PRD §10.1: dark, usable in low light, readable at 1280x720, stage at least 60% of
  * the viewport. Nothing here draws on top of the canvas: diagnostics live in the
@@ -16,14 +16,26 @@
   --warn: #f0b429;
   --bad: #ff5c6c;
   --accent: #7aa2f7;
+  /* Projected-code palette: saturated enough to read as algorave, separated enough
+   * that syntax remains legible rather than becoming a rainbow of equal emphasis. */
+  --code-text: #f2efff;
+  --code-comment: #aa91c7;
+  --code-string: #c6ff4a;
+  --code-number: #ff55d7;
+  --code-keyword: #a783ff;
+  --code-call: #24f5d0;
+  --code-host: #ffe94a;
+  /* Hydra-like backing: just enough black behind each code line to hold the type
+   * together over a bright frame, without becoming an editor panel. */
+  --code-line-bg: rgba(0, 0, 0, calc(0.12 + var(--tools-alpha) * 0.26));
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-  /* How much of the visuals shows through the tools. Driven live by the slider in
-   * the stage bar, because the right value depends entirely on what is playing:
-   * over a dark set you want it low to see anything at all, over a bright one you
-   * want it high to read the code. There is no single correct number. */
+  /* How much of the visuals shows through the tools — the drawer's fill, and the box
+   * behind each line of code. Driven live by the slider in the drawer, because the
+   * right value depends entirely on what is playing: over a dark set you want it low
+   * to see anything at all, over a bright one you want it high to read the code.
+   * There is no single correct number. */
   --tools-alpha: 0.55;
-  --tools-alpha-strong: 0.73; /* the editor, which has to be read exactly */
 }
 
 * {
@@ -97,13 +109,390 @@ input:focus-visible {
   display: block;
 }
 
-#side {
+/* --- the code layer ------------------------------------------------------------
+ *
+ * The editor is not in a panel and not in a column: it is the whole window, edge to
+ * edge, with the visuals running underneath it. Nothing between the code and the
+ * thing the code is making.
+ *
+ * What makes that readable is the box behind each line rather than a wash over the
+ * whole surface. A wash over an edge-to-edge editor is a wash over the entire frame —
+ * it would dim the composition everywhere, including the four fifths of the window
+ * with no text on it at all. Per-line boxes cost visibility only where there are
+ * actually glyphs, so the composition stays untouched wherever the code is not.
+ *
+ * A textarea cannot draw them, so #code-mirror paints the text and its boxes and the
+ * textarea sits transparently on top holding the caret, the selection, and the value.
+ * The two have to keep identical font metrics, padding and box sizing or the caret
+ * drifts off the glyphs — every shared property below is load-bearing.
+ */
+
+#code-layer {
+  position: absolute;
+  /* Above the canvas, below everything else: the start card, the glyph row and the
+   * drawer all have to be able to sit on top of the code rather than under it. */
+  z-index: 1;
+  inset: 0;
+  transition: opacity 160ms ease;
+}
+#code-layer.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#folded-code {
+  /* One coordinate system for both summary rows and expanded editors. The browser's
+   * native disclosure marker occupies the final 9px before the code column. */
+  --folded-gutter-width: 58px;
+  --folded-code-column: 83px;
+  --folded-marker-width: 12px;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: none;
+  overflow: auto;
+  /* Preserve the top breathing room formerly occupied by the fold/unfold toolbar.
+   * Those actions now live in the key-command sheet. */
+  padding: 35px 12px 34px;
+  scrollbar-width: none;
+}
+#folded-code::-webkit-scrollbar {
+  display: none;
+}
+#code-layer.is-folded #folded-code {
+  display: block;
+}
+#code-layer.is-folded #line-numbers,
+#code-layer.is-folded #fold-controls,
+#code-layer.is-folded #code-mirror,
+#code-layer.is-folded #code {
+  visibility: hidden;
+  pointer-events: none;
+}
+#folded-blocks {
+  width: min(1040px, calc(100vw - 24px));
+  overflow: hidden;
+  background: transparent;
+  border-top: 0;
+}
+.folded-block {
+  margin: 0;
+  background: transparent;
+}
+.folded-block > summary {
+  position: relative;
+  min-height: 28px;
+  padding: 3px 10px 3px calc(var(--folded-code-column) - var(--folded-marker-width));
+  cursor: pointer;
+  color: rgba(205, 205, 214, 0.86);
+  font: 15px/22px var(--mono);
+  white-space: pre;
+}
+.folded-block > summary::marker {
+  color: rgba(205, 205, 214, 0.8);
+  font-size: 11px;
+}
+.folded-block > summary:hover,
+.folded-block > summary:focus-visible,
+.folded-block[open] > summary {
+  background: transparent;
+}
+.folded-block > summary:focus-visible {
+  outline: none;
+  box-shadow: inset 2px 0 var(--accent);
+}
+.folded-line {
+  color: rgba(150, 150, 160, 0.56);
+  font: 12px/22px var(--mono);
+  user-select: none;
+}
+.folded-block > summary > .folded-line {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  /* A single inline number rounds one pixel wider than the multi-line <pre> gutter
+   * in Chromium; compensate so their glyph right edges coincide exactly. */
+  width: calc(var(--folded-gutter-width) - 1px);
+  padding-right: 9px;
+  text-align: right;
+}
+.folded-preview {
+  display: inline-block;
+  padding-right: 4px;
+  color: var(--code-text);
+  background: var(--code-line-bg);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.88);
+}
+.folded-block > summary:hover .folded-preview,
+.folded-block > summary:focus-visible .folded-preview,
+.folded-block[open] > summary .folded-preview {
+  background: rgba(0, 0, 0, calc(0.2 + var(--tools-alpha) * 0.3));
+}
+.folded-ellipsis {
+  color: rgba(170, 170, 180, 0.58);
+}
+.folded-open {
+  display: none;
+}
+.folded-block[open] .folded-closed {
+  display: none;
+}
+.folded-block[open] > summary .folded-open {
+  display: inline;
+}
+.folded-source {
+  position: relative;
+  padding: 0;
+  margin: 0;
+}
+.folded-source-mirror,
+.folded-source-editor {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--folded-gutter-width);
+  width: calc(100% - var(--folded-gutter-width));
+  margin: 0;
+  padding: 0 10px 0 calc(var(--folded-code-column) - var(--folded-gutter-width));
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+  color: var(--code-text);
+  background: transparent;
+  font: 15px/22px var(--mono);
+  text-align: left;
+  white-space: pre;
+  tab-size: 2;
+}
+.folded-source-mirror {
+  pointer-events: none;
+}
+.folded-source-mirror > span {
+  position: relative;
+  display: block;
+  width: fit-content;
+  min-height: 22px;
+  background: var(--code-line-bg);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.88);
+}
+.folded-source-mirror > span:not(:empty) {
+  padding-right: 4px;
+}
+.folded-indent-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--guide-level) * 2ch);
+  border-left: 1px solid rgba(160, 160, 172, 0.2);
+  pointer-events: none;
+}
+.folded-source-editor {
+  z-index: 1;
+  resize: none;
+  outline: none;
+  caret-color: #fff;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.folded-source-editor:focus-visible {
+  /* The global textarea focus ring reads as a bright blue panel outline here.
+   * The caret and the active-cell wash below provide the local focus cue. */
+  outline: none;
+}
+.folded-source-editor::selection {
+  background: rgba(122, 162, 247, 0.42);
+  -webkit-text-fill-color: transparent;
+}
+.folded-source:focus-within {
+  background: transparent;
+  box-shadow: none;
+}
+.folded-source-numbers {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--folded-gutter-width);
+  margin: 0;
+  padding-right: 9px;
+  overflow: hidden;
+  color: rgba(150, 150, 160, 0.56);
+  border-right: 1px solid rgba(122, 122, 134, 0.28);
+  background: transparent;
+  font: 12px/22px var(--mono);
+  text-align: right;
+  user-select: none;
+  pointer-events: none;
+}
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+#code-mirror,
+#code {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border: none;
+  padding: 10px 14px 26px 54px;
+  /* An INTEGER line height, not 1.5 (which would be 22.5px). The textarea lays its
+   * lines out internally and the mirror lays them out as blocks; a fractional advance
+   * gives the two a chance to round differently, and that error accumulates down the
+   * buffer — right at the top, a line out by the bottom. Keep this a whole number. */
+  font: 15px/22px var(--mono);
+  letter-spacing: normal;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  scrollbar-width: none;
+}
+#code-mirror::-webkit-scrollbar,
+#code::-webkit-scrollbar,
+#line-numbers::-webkit-scrollbar {
+  display: none;
+}
+
+#line-numbers {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 1;
+  width: 45px;
+  margin: 0;
+  padding: 10px 8px 26px 0;
+  overflow: hidden;
+  color: rgba(170, 145, 199, 0.62);
+  background: transparent;
+  font: 12px/22px var(--mono);
+  text-align: right;
+  user-select: none;
+  pointer-events: none;
+  scrollbar-width: none;
+}
+
+#fold-controls {
+  --fold-scroll-y: 0px;
+  position: absolute;
+  inset: 0 auto 0 43px;
+  z-index: 3;
+  width: 12px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.raw-fold-control {
+  position: absolute;
+  top: calc(var(--fold-line-top) - var(--fold-scroll-y));
+  left: 0;
+  width: 12px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  color: rgba(205, 205, 214, 0.72);
+  background: transparent;
+  font: 10px/22px var(--mono);
+  text-align: center;
+  pointer-events: auto;
+}
+.raw-fold-control:hover,
+.raw-fold-control:focus-visible {
+  color: #fff;
+  background: var(--code-line-bg);
+}
+
+#code-mirror {
+  color: var(--code-text);
+  background: none;
+  pointer-events: none;
+  overflow: hidden;
+}
+/* One block per line, each only as wide as its own text — which is what makes the
+ * boxes hug the code the way Hydra does rather than forming a slab. An empty line
+ * keeps the vertical rhythm through min-height and shows no box, having no width.
+ * The backing is deliberately light and translucent: it follows the glyphs while the
+ * composition remains visible everywhere else.
+ *
+ * padding-right only: any padding on the left would shift the text off the transparent
+ * textarea's own layout and put the caret between the wrong characters. */
+#code-mirror > span {
+  display: block;
+  width: fit-content;
+  min-height: 22px; /* one line; must equal the line-height above exactly */
+  background: var(--code-line-bg);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.88);
+}
+/* An empty line has nothing to sit behind, and must not show the trailing few pixels
+ * as a stub — it keeps its height and no width at all. */
+#code-mirror > span:not(:empty) {
+  padding-right: 4px;
+}
+#code-mirror.flash-ok > span,
+.folded-source-mirror.flash-ok > span {
+  background: rgba(45, 116, 70, 0.5);
+}
+#code-mirror.flash-bad > span,
+.folded-source-mirror.flash-bad > span {
+  background: rgba(138, 45, 57, 0.55);
+}
+.folded-block.flash-bad > summary .folded-preview,
+.folded-block.flash-bad .folded-source-mirror > span {
+  background: rgba(138, 45, 57, 0.55);
+}
+
+/* Token colours (src/ui/highlight.js).
+ *
+ * Anything not listed keeps the body colour — punctuation, whitespace and ordinary
+ * names are most of a file, and colouring them too is what turns a highlighter into
+ * confetti. The four that earn a colour are the four you scan for: what is prose
+ * (comment), what is a literal (string, number), and what is being called. */
+.t-comment {
+  color: var(--code-comment);
+}
+.t-string {
+  color: var(--code-string);
+}
+.t-number {
+  color: var(--code-number);
+}
+.t-keyword {
+  color: var(--code-keyword);
+}
+.t-call {
+  color: var(--code-call);
+}
+/* The small command vocabulary around otherwise ordinary JavaScript objects. */
+.t-host {
+  color: var(--code-host);
+  font-weight: 700;
+}
+
+#code {
+  z-index: 2;
+  resize: none;
+  /* Transparent text: the glyphs you read are the mirror's, underneath. The caret and
+   * the selection are the textarea's, which is why it is the one on top. */
+  color: transparent;
+  caret-color: #fff;
+  background: none;
+}
+#code::selection {
+  background: rgba(122, 162, 247, 0.4);
+}
+#code::placeholder {
+  color: var(--dim);
+}
+
+.right-drawer {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 3;
-  width: 380px;
+  z-index: 5;
+  width: 400px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -121,61 +510,130 @@ input:focus-visible {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
   transition: transform 160ms ease;
 }
-#side.is-hidden {
+.right-drawer.is-hidden {
   transform: translateX(100%);
+  pointer-events: none;
 }
 
-/* Always reachable, including when the panel is off-screen. */
-#tools-toggle {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 4;
-  padding: 4px 10px;
-  background: color-mix(in srgb, var(--panel-2) 85%, transparent);
-  backdrop-filter: blur(8px);
+#reference-side {
+  width: 350px;
 }
-#side:not(.is-hidden) ~ #tools-toggle {
-  right: 396px;
+.reference-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.reference-header .brand {
+  flex: 1;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.reference-explainer {
+  padding: 8px 10px;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line);
+  background: rgba(15, 15, 19, 0.46);
+  font-size: 10px;
+  line-height: 1.45;
+}
+#reference-close {
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-size: 16px;
+}
+#strategy-reference-list {
+  min-height: 0;
+  padding: 6px 10px 12px;
+  overflow: auto;
+}
+
+/* --- the glyph row -------------------------------------------------------------
+ *
+ * The entire always-visible chrome: a few unlabelled glyphs in the corner the code
+ * does not start in. No borders and no fills — a button that is only a glyph
+ * disappears into the visuals until you look for it, and every one of them is also a
+ * key command, so the row is a reminder rather than how you actually work mid-set.
+ */
+
+#icons {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  z-index: 4;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  transition: opacity 160ms ease;
+}
+#icons.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+/* The drawer opens over this corner, so the glyphs step aside for it rather than
+ * ending up underneath — every one of them has to stay clickable while it is open. */
+#side:not(.is-hidden) ~ #icons {
+  right: 410px;
+}
+#reference-side:not(.is-hidden) ~ #icons {
+  right: 360px;
+}
+
+button.glyph {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: rgba(215, 215, 222, 0.55);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  text-shadow: 0 1px 3px #000, 0 0 6px #000;
+}
+button.glyph:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+}
+button.glyph.is-on {
+  color: var(--ok);
+}
+button.glyph.danger {
+  color: rgba(255, 179, 187, 0.5);
+}
+button.glyph.danger:hover:not(:disabled) {
+  background: rgba(90, 42, 48, 0.6);
+  color: #fff;
 }
 
 @media (max-width: 900px) {
-  #side {
+  .right-drawer,
+  #reference-side {
     width: 300px;
   }
-  #side:not(.is-hidden) ~ #tools-toggle {
-    right: 316px;
+  #side:not(.is-hidden) ~ #icons,
+  #reference-side:not(.is-hidden) ~ #icons {
+    right: 310px;
+  }
+  #code-layer {
+    width: 60vw;
   }
 }
 
 /* --- transport --------------------------------------------------------------- */
 
-#transport {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  padding: 8px;
-  border-bottom: 1px solid var(--line);
-}
-#transport .brand {
+#stagebar .brand {
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--accent);
   margin-right: auto;
 }
-#transport button {
-  padding: 4px 8px;
-}
 #file-label {
   cursor: pointer;
-  border: 1px dashed var(--line);
-  border-radius: 3px;
-  padding: 4px 8px;
-  font-size: 11px;
-}
-#file-label:hover {
-  border-color: var(--accent);
 }
 #audio-file {
   display: none;
@@ -191,25 +649,25 @@ input:focus-visible {
 
 #stagebar {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  padding: 6px 8px;
+  min-height: 40px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--line);
   background: rgba(22, 22, 27, var(--tools-alpha));
 }
 #stagebar .spacer {
   flex: 1;
 }
-#tools-opacity-wrap {
+.stagebar-control {
   display: flex;
   align-items: center;
   gap: 5px;
   font-size: 10px;
   color: var(--dim);
 }
-#tools-opacity {
-  width: 68px;
+.stagebar-control select {
+  min-width: 118px;
 }
 button.danger {
   border-color: #5a2a30;
@@ -306,41 +764,22 @@ input[type='number'] {
 
 /* --- editor ------------------------------------------------------------------ */
 
-#editor-wrap {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 46%;
-  min-height: 180px;
-  border-bottom: 1px solid var(--line);
-}
-#code {
-  flex: 1;
-  width: 100%;
-  resize: none;
-  border: none;
-  border-top: 2px solid transparent;
-  padding: 8px 10px;
-  /* Denser than the panel around it — code is the thing you have to read exactly. */
-  background: rgba(13, 13, 16, var(--tools-alpha-strong));
-  color: var(--text);
-  font: 12px/1.5 var(--mono);
-  tab-size: 2;
-  white-space: pre;
-  overflow: auto;
-}
-#code.flash-ok {
-  border-top-color: var(--ok);
-  background: #0d130f;
-}
-#code.flash-bad {
-  border-top-color: var(--bad);
-  background: #140d0f;
-}
+/* Opposite corner from the runtime bar, so the two never collide. */
 #editor-hint {
-  padding: 4px 10px;
-  font-size: 11px;
-  color: var(--dim);
-  border-top: 1px solid var(--line);
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  z-index: 4;
+  font-size: 10px;
+  color: rgba(124, 124, 138, 0.75);
+  text-shadow: 0 1px 3px #000, 0 0 6px #000;
+  pointer-events: none;
+}
+#side:not(.is-hidden) ~ #editor-hint {
+  right: 412px;
+}
+#reference-side:not(.is-hidden) ~ #editor-hint {
+  right: 362px;
 }
 
 /* --- panels ------------------------------------------------------------------ */
@@ -356,9 +795,10 @@ details.panel {
   border-bottom: 1px solid var(--line);
 }
 details.panel > summary {
-  padding: 6px 10px;
+  min-height: 34px;
+  padding: 8px 10px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--dim);
@@ -367,8 +807,42 @@ details.panel > summary {
 details.panel > summary:hover {
   color: var(--text);
 }
+details.panel > summary:focus-visible,
+.library-group > summary:focus-visible,
+.compact-settings > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 details.panel > .body {
   padding: 4px 10px 10px;
+}
+.summary-count {
+  float: right;
+  color: #626270;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+#side button {
+  min-height: 26px;
+}
+
+.compact-settings {
+  margin-top: 5px;
+  border-top: 1px solid #1b1b21;
+}
+.compact-settings > summary {
+  min-height: 30px;
+  padding: 7px 0 4px;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.compact-settings[open] > summary {
+  color: var(--text);
 }
 
 .row {
@@ -404,8 +878,103 @@ details.panel > .body {
   white-space: pre-wrap;
   word-break: break-word;
 }
-.patch.is-idle .name {
+.audio-load-state {
+  display: grid;
+  grid-template-columns: max-content minmax(70px, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  color: var(--call);
+  font-size: 10px;
+}
+.audio-load-state[hidden] {
+  display: none;
+}
+.audio-load-state progress {
+  width: 100%;
+  height: 5px;
+  appearance: none;
+  -webkit-appearance: none;
+  overflow: hidden;
+  background: #1b1b21;
+  border: 0;
+  border-radius: 999px;
+}
+.audio-load-state progress::-webkit-progress-bar {
+  background: #1b1b21;
+}
+.audio-load-state progress::-webkit-progress-value {
+  background: var(--call);
+}
+.audio-load-state progress::-moz-progress-bar {
+  background: var(--call);
+}
+#load-audio.is-loading {
+  color: var(--call);
+  animation: audio-load-pulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes audio-load-pulse {
+  to {
+    opacity: 0.38;
+  }
+}
+.strategy.is-idle .name {
   color: var(--dim);
+}
+.filter-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin: 5px 0 7px;
+}
+.filter-tabs button {
+  min-width: 0;
+  padding: 4px 5px;
+  color: var(--dim);
+  border-color: var(--line);
+  background: rgba(16, 16, 20, 0.55);
+  font-size: 10px;
+}
+.filter-tabs button[aria-pressed='true'] {
+  color: var(--text);
+  border-color: rgba(197, 165, 222, 0.5);
+  background: rgba(197, 165, 222, 0.1);
+}
+.filter-tabs button span {
+  color: inherit;
+  opacity: 0.7;
+}
+.patch-status {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--dim);
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+.patch-status.installed {
+  color: var(--code-comment);
+  border-color: rgba(190, 155, 220, 0.25);
+}
+.patch-status.active {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.patch-status.running {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+}
+.patch-status.failed {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 35%, transparent);
+}
+.strategy .actions button:not(.icon) {
+  padding: 3px 7px;
+  white-space: nowrap;
+  font-size: 10px;
 }
 .param input[type='range'] {
   width: 120px;
@@ -416,19 +985,150 @@ details.panel > .body {
   font-size: 11px;
 }
 
-/* Library patches that have not been brought in yet: present, but clearly not live. */
-.patch.is-available .name {
-  color: var(--dim);
+/* Installed strategies are a read-only object browser. The summary remains as compact
+ * as the old shelf row; opening it reveals only a data projection, never the live
+ * student object itself. */
+.strategy-reference {
+  border-bottom: 1px solid #1b1b21;
 }
-.section-label {
-  margin: 8px 0 2px;
+.strategy-reference:last-child {
+  border-bottom: none;
+}
+.strategy-reference > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.strategy-reference > summary::-webkit-details-marker {
+  display: none;
+}
+.strategy-reference > summary::before {
+  content: '›';
+  width: 8px;
+  color: var(--dim);
+  transform-origin: center;
+  transition: transform 100ms ease;
+}
+.strategy-reference[open] > summary::before {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+.strategy-reference > .row-error {
+  padding-left: 16px;
+}
+.strategy-api {
+  margin: 1px 0 7px 16px;
+  padding: 5px 7px 7px;
+  border-left: 1px solid var(--line);
+  color: var(--dim);
   font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: #4d4d58;
 }
-.name.dim {
+.strategy-kind {
+  margin-bottom: 5px;
+  color: var(--text);
+}
+.strategy-api-section + .strategy-api-section {
+  margin-top: 5px;
+}
+.strategy-api-label {
+  margin-bottom: 2px;
+  color: #565663;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.strategy-api code {
+  display: block;
+  overflow: hidden;
+  color: var(--code-call);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-api-properties code {
+  color: var(--code-number);
+}
+
+/* Lifecycle filters and content groups are independent: a patch keeps its category
+ * while moving from Available to Installed to Active. */
+.library-group + .library-group {
+  margin-top: 5px;
+}
+.library-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  min-height: 31px;
+  padding: 7px 2px 5px;
+  border-bottom: 1px solid rgba(197, 165, 222, 0.2);
+  color: var(--code-comment);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.library-group-heading > span:first-child {
+  flex: 1;
+}
+.library-group-heading > span:last-child {
+  color: #565663;
+  font-weight: 400;
+}
+.library-group[open] .library-group-heading {
+  color: var(--text);
+}
+.library-group > .row {
+  padding-left: 12px;
+}
+.shader-operator-reference {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.shader-operator-reference > summary {
+  padding: 7px 1px 4px;
+  color: var(--code-keyword);
+  cursor: pointer;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.shader-operator-body {
+  padding: 2px 1px 5px;
   color: var(--dim);
+  font-size: 10px;
+  line-height: 1.55;
+}
+.shader-operator-body p {
+  margin: 4px 0;
+}
+.shader-operator-body div + div {
+  margin-top: 4px;
+}
+.shader-operator-body strong {
+  display: block;
+  color: var(--text);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.shader-operator-body code {
+  display: inline-block;
+  margin: 1px 2px 1px 0;
+  padding: 0 3px;
+  border: 1px solid rgba(197, 165, 222, 0.16);
+  color: var(--code-call);
+  font: inherit;
+}
+.strategy.is-available .name {
+  color: var(--dim);
+}
+.library-origin {
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-origin.student {
+  color: var(--code-comment);
 }
 
 /* Glyph buttons: square, so a row of them lines up and stays hittable in a dark room. */
@@ -462,6 +1162,35 @@ button.icon {
   font-size: 11px;
   padding: 4px 0;
 }
+.scene-eval-note {
+  margin: 3px 0 5px;
+  padding: 6px 7px;
+  border-left: 2px solid rgba(197, 165, 222, 0.32);
+  background: rgba(197, 165, 222, 0.055);
+}
+.scene-eval-note strong {
+  color: var(--text);
+}
+.empty-scene {
+  margin: 3px 0 6px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  background: rgba(15, 15, 19, 0.52);
+}
+.empty-scene strong {
+  color: var(--text);
+  font-size: 11px;
+}
+.empty-scene p {
+  margin: 4px 0 8px;
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.empty-scene button {
+  color: var(--code-call);
+  border-color: rgba(67, 227, 199, 0.28);
+}
 
 .chip {
   display: inline-flex;
@@ -490,20 +1219,26 @@ button.icon {
 
 /* --- monitors ---------------------------------------------------------------- */
 
+/* Bottom-left, outside the drawer and outside the code layer. Whether it is still
+ * running, and what it last said, are the two things that must never be behind a
+ * toggle — so this is the one piece of chrome with no way to hide it. */
 #runtime-bar {
+  position: absolute;
+  left: 12px;
+  bottom: 8px;
+  z-index: 4;
+  max-width: min(70vw, 720px);
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: center;
-  padding: 6px 10px;
-  border-top: 1px solid var(--line);
-  background: rgba(22, 22, 27, var(--tools-alpha));
-  font-size: 11px;
+  font-size: 10px;
+  text-shadow: 0 1px 3px #000, 0 0 6px #000;
 }
 #runtime-bar .label {
-  color: var(--dim);
+  color: rgba(124, 124, 138, 0.8);
 }
 #runtime-bar .value {
-  color: var(--text);
+  color: rgba(215, 215, 222, 0.75);
 }
 #runtime-bar .value.warn {
   color: var(--warn);
@@ -521,30 +1256,8 @@ button.icon {
   white-space: nowrap;
 }
 
-.meters {
-  display: grid;
-  grid-template-columns: 42px 1fr;
-  gap: 3px 8px;
-  align-items: center;
-}
-.meter {
-  height: 8px;
-  background: #1c1c22;
-  border-radius: 2px;
-  overflow: hidden;
-  --fill: 0%;
-}
-.meter::after {
-  content: '';
-  display: block;
-  height: 100%;
-  width: var(--fill);
-  background: var(--accent);
-  transition: width 60ms linear;
-}
-.meter.level::after {
-  background: var(--ok);
-}
+/* Audio visualizers are patches now, so the reading lives on the stage rather than in
+ * a panel that has to be open. What remains here is input configuration and onset. */
 #beat-dot {
   display: inline-block;
   width: 10px;
@@ -564,30 +1277,361 @@ button.icon {
   position: absolute;
   inset: 0;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
   align-items: center;
   justify-content: center;
-  background: rgba(6, 6, 8, 0.94);
-  text-align: center;
-  padding: 20px;
-  z-index: 2;
+  /* The silent starter scene is already running underneath. Keep it visibly alive
+   * while the performer chooses an audio source instead of turning arrival into a
+   * static black waiting room. */
+  background: rgba(5, 4, 8, 0.52);
+  -webkit-backdrop-filter: blur(3px) saturate(0.9);
+  backdrop-filter: blur(3px) saturate(0.9);
+  padding: 32px;
+  /* This is the one true modal in the performance view: on arrival it sits above
+   * the editor, drawers, and glyphs so there is one obvious first decision. */
+  z-index: 7;
+  overflow: hidden;
 }
-#start-overlay h1 {
-  font-size: 20px;
-  letter-spacing: 0.12em;
-  margin: 0;
-  color: var(--accent);
+#start-overlay::before {
+  content: '';
+  position: absolute;
+  inset: -24%;
+  pointer-events: none;
+  opacity: 0.72;
+  background:
+    radial-gradient(circle at 18% 42%, rgba(238, 40, 119, 0.5), transparent 20%),
+    radial-gradient(circle at 80% 28%, rgba(115, 83, 163, 0.58), transparent 23%),
+    radial-gradient(circle at 76% 78%, rgba(177, 84, 160, 0.42), transparent 18%),
+    radial-gradient(circle at 24% 82%, rgba(247, 143, 39, 0.42), transparent 17%),
+    repeating-radial-gradient(
+      circle at center,
+      transparent 0 78px,
+      rgba(255, 255, 255, 0.055) 80px 82px
+    );
+  filter: blur(16px) saturate(1.18);
+  transform-origin: center;
+  animation: welcome-ambient-drift 16s ease-in-out infinite alternate;
 }
-#start-overlay p {
-  max-width: 46ch;
-  color: var(--dim);
+.welcome-card {
+  position: relative;
+  z-index: 1;
+  width: min(900px, calc(100vw - 64px));
+  max-height: min(760px, calc(100vh - 64px));
+  overflow: auto;
+  color: #211d24;
+  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.62),
+    0 0 44px rgba(115, 83, 163, 0.14);
+}
+@keyframes welcome-ambient-drift {
+  from {
+    transform: rotate(-4deg) scale(1);
+  }
+  to {
+    transform: rotate(6deg) scale(1.12);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #start-overlay::before {
+    animation: none;
+  }
+}
+.welcome-header {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  min-height: 104px;
+  padding: 18px 26px;
+  border-bottom: 1px solid #dedbe1;
+}
+.welcome-department-mark {
+  display: block;
+  width: min(350px, 45%);
+  flex: 0 0 auto;
+  border-radius: 2px;
+}
+.welcome-department-mark:focus-visible {
+  outline: 2px solid #ee2877;
+  outline-offset: 5px;
+}
+.welcome-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+}
+.welcome-name {
+  min-width: 0;
+  padding-left: 24px;
+  border-left: 1px solid #dedbe1;
+}
+#start-overlay .welcome-name h1 {
+  margin: 0 0 5px;
+  font-size: clamp(24px, 4vw, 38px);
+  line-height: 0.95;
+  letter-spacing: 0.16em;
+  color: #7353a3;
+}
+#start-overlay .welcome-name p {
   margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0.13em;
+  color: #5e5864;
+}
+#start-overlay .welcome-name .welcome-school {
+  margin-top: 11px;
+  color: #b154a0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.welcome-body {
+  padding: 28px 30px 24px;
+}
+#start-overlay .welcome-intro {
+  max-width: 72ch;
+  margin: 0;
+  color: #2b2630;
+  font-size: 15px;
+  line-height: 1.65;
+}
+#start-overlay .welcome-intro a {
+  color: #7353a3;
+  text-decoration-color: rgba(115, 83, 163, 0.45);
+  text-underline-offset: 0.16em;
+}
+#start-overlay .welcome-intro a:hover {
+  color: #b154a0;
+  text-decoration-color: currentColor;
+}
+.welcome-concepts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 26px 0 0;
+  border-top: 1px solid #dedbe1;
+  border-bottom: 1px solid #dedbe1;
+}
+.welcome-concepts > div {
+  min-width: 0;
+  padding: 18px 20px 19px;
+}
+.welcome-concepts > div:first-child {
+  padding-left: 0;
+}
+.welcome-concepts > div + div {
+  border-left: 1px solid #dedbe1;
+}
+.welcome-concepts dt {
+  margin-bottom: 9px;
+  color: #f78f27;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+.welcome-concepts dd {
+  margin: 0;
+  color: #625c68;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.welcome-concepts kbd {
+  padding: 1px 4px;
+  color: #fff;
+  background: #2b2630;
+  border: 1px solid #2b2630;
+  border-radius: 2px;
+  box-shadow: none;
+  font: inherit;
+  white-space: nowrap;
+}
+.welcome-start {
+  padding: 20px 30px 22px;
+  background: #f4f1f5;
+  border-top: 1px solid #dedbe1;
+}
+#start-overlay .welcome-start > p:first-child {
+  max-width: none;
+  margin: 0 0 12px;
+  color: #2b2630;
+  font-size: 12px;
+  font-weight: 700;
 }
 #start-overlay button {
-  padding: 8px 18px;
-  font-size: 14px;
+  min-height: 38px;
+  padding: 8px 15px;
+  font-size: 12px;
+  letter-spacing: 0.015em;
+  color: #2b2630;
+  background: #fff;
+  border-color: #c9c3ce;
+}
+#start-overlay button:hover:not(:disabled),
+#start-overlay button:focus-visible {
+  color: #2b2630;
+  border-color: #b154a0;
+  background: #fbf5fa;
+}
+#start-overlay button:focus-visible {
+  outline: 2px solid #7353a3;
+  outline-offset: 2px;
+}
+#start-overlay button.start-primary {
+  color: #fff;
+  background: #ee2877;
+  border-color: #ee2877;
+  font-weight: 700;
+}
+#start-overlay button.start-primary:hover:not(:disabled),
+#start-overlay button.start-primary:focus-visible {
+  color: #fff;
+  background: #d91f69;
+  border-color: #d91f69;
+}
+#start-overlay .start-actions {
+  flex-wrap: wrap;
+}
+#start-overlay #start-note {
+  max-width: none;
+  margin: 12px 0 0;
+  color: #77717d;
+  font-size: 10px;
+  line-height: 1.45;
+}
+#start-overlay #start-note.is-error {
+  color: #b4234d;
+  font-weight: 700;
+}
+#start-overlay .welcome-load-state {
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.7fr);
+  margin-top: 13px;
+  padding: 0;
+  color: #7353a3;
+}
+#start-overlay .welcome-load-state span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#start-overlay .welcome-load-state progress {
+  height: 7px;
+  background: #dedbe1;
+}
+#start-overlay .welcome-load-state progress::-webkit-progress-bar {
+  background: #dedbe1;
+}
+#start-overlay .welcome-load-state progress::-webkit-progress-value {
+  background: linear-gradient(90deg, #ee2877, #7353a3);
+}
+#start-overlay .welcome-load-state progress::-moz-progress-bar {
+  background: #b154a0;
 }
 #start-overlay[hidden] {
   display: none;
+}
+
+@media (max-width: 700px) {
+  #start-overlay {
+    align-items: flex-start;
+    padding: 14px;
+  }
+  .welcome-card {
+    width: 100%;
+    max-height: calc(100vh - 28px);
+  }
+  .welcome-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 18px;
+  }
+  .welcome-department-mark {
+    width: min(370px, 100%);
+  }
+  .welcome-name {
+    padding: 0;
+    border-left: 0;
+  }
+  .welcome-body,
+  .welcome-start {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .welcome-concepts {
+    grid-template-columns: 1fr;
+  }
+  .welcome-concepts > div,
+  .welcome-concepts > div:first-child {
+    padding: 13px 0;
+  }
+  .welcome-concepts > div + div {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+  #start-overlay .start-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+/* --- key commands (?) ---------------------------------------------------------- */
+
+#keys-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 4, 6, 0.72);
+  padding: 24px;
+}
+#keys-overlay[hidden] {
+  display: none;
+}
+.keys-card {
+  width: min(460px, 100%);
+  max-height: 80vh;
+  overflow: auto;
+  padding: 18px 22px;
+  background: rgba(17, 17, 20, 0.96);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.keys-card h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.keys-card p {
+  margin: 0 0 12px;
+  color: var(--dim);
+  font-size: 11px;
+}
+.keys-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 14px;
+  margin: 0 0 14px;
+  font-size: 11px;
+}
+.keys-card dt {
+  white-space: nowrap;
+}
+.keys-card dd {
+  margin: 0;
+  color: var(--dim);
+}
+.keys-card kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 10px;
+  color: var(--text);
 }

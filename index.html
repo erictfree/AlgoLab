@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Response — p5.js live visual playground</title>
+    <title>AlgoLab — p5.js live visual playground</title>
 
     <!--
       p5 and p5.sound are pinned course builds, vendored locally so the project runs
@@ -23,149 +23,259 @@
     <div id="app">
       <!-- STAGE — never replaced by an editor error (§10.1) -->
       <main id="stage">
-        <div id="start-overlay">
-          <h1>RESPONSE</h1>
-          <p>
-            Choose an audio file or use live input, then start the audio context.
-            Browsers require a click before any sound can play.
-          </p>
-          <div class="start-actions">
-            <label id="file-label" for="audio-file">choose audio file…</label>
-            <input id="audio-file" type="file" accept="audio/*" />
-            <button id="start-mic" type="button">use microphone</button>
-          </div>
-          <button id="start-audio" type="button">start</button>
-          <p id="start-note">You can also start without audio and edit against silence.</p>
+        <div
+          id="start-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="welcome-title"
+          aria-describedby="welcome-description"
+        >
+          <article class="welcome-card">
+            <header class="welcome-header">
+              <a
+                class="welcome-department-mark"
+                href="https://aet.utexas.edu/"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Visit the Department of Arts and Entertainment Technologies website"
+              >
+                <img
+                  class="welcome-logo"
+                  src="assets/brand/aet-logo-full-color-gradient.png"
+                  alt="Department of Arts and Entertainment Technologies"
+                />
+              </a>
+              <div class="welcome-name">
+                <h1 id="welcome-title">ALGOLAB</h1>
+                <p>AUDIO-REACTIVE VISUAL LIVE CODING IN THE BROWSER</p>
+                <p class="welcome-school">THE UNIVERSITY OF TEXAS AT AUSTIN</p>
+              </div>
+            </header>
+
+            <div class="welcome-body">
+              <p id="welcome-description" class="welcome-intro">
+                AlgoLab is a browser-based visual instrument from the
+                <a href="https://aet.utexas.edu/" target="_blank" rel="noopener noreferrer">Department of Arts and Entertainment Technologies</a>
+                at The University of Texas at Austin.
+                Build visuals with JavaScript patches, arrange them into a scene,
+                and change the composition while it runs.
+              </p>
+
+              <dl class="welcome-concepts">
+                <div>
+                  <dt>PATCH</dt>
+                  <dd>An object, function, or class instance that knows how to draw.</dd>
+                </div>
+                <div>
+                  <dt>SCENE</dt>
+                  <dd>An ordered array of patches that AlgoLab draws together.</dd>
+                </div>
+                <div>
+                  <dt>LIVE</dt>
+                  <dd>Edit a block and press <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd>.</dd>
+                </div>
+              </dl>
+
+            </div>
+
+            <footer class="welcome-start">
+              <p>Choose what the visuals should respond to:</p>
+              <div class="start-actions">
+                <button id="file-label" class="start-primary" type="button">
+                  choose audio file
+                </button>
+                <input id="audio-file" type="file" accept="audio/*" />
+                <button id="start-mic" type="button">use microphone</button>
+                <button id="start-audio" type="button">enter with silence</button>
+              </div>
+              <div id="start-load-state" class="audio-load-state welcome-load-state" hidden role="status" aria-live="polite">
+                <span id="start-load-label">Loading audio…</span>
+                <progress id="start-load-progress" max="1"></progress>
+              </div>
+              <p id="start-note">
+                Audio files stay in this browser. Sound cannot begin until you choose an option.
+              </p>
+            </footer>
+          </article>
         </div>
       </main>
 
-      <aside id="side">
-        <div id="transport">
-          <span class="brand">RESPONSE</span>
-          <button id="load-audio" type="button" title="Load an audio file" aria-label="Load an audio file">load audio</button>
-          <input id="audio-file-2" type="file" accept="audio/*" hidden />
-          <button id="use-mic" type="button" title="Switch to microphone or line input" aria-label="Switch to microphone or line input">
-            live input
-          </button>
-          <button id="play-toggle" type="button" title="Play / pause the audio source" aria-label="Play / pause the audio source">
-            play/pause
-          </button>
-          <button id="loop-toggle" type="button" title="Loop the audio source" aria-label="Loop the audio source">loop</button>
+      <!-- CODE LAYER (§10.1) — the code sits directly on the visuals, edge to edge,
+           with no panel around it. #code-mirror renders the text and the translucent
+           box behind each line; #line-numbers is a read-only gutter. The textarea on
+           top is transparent and holds the caret, selection, and value. It remains the
+           only source of truth — both displays are painted from it and never read. -->
+      <div id="code-layer">
+        <div id="folded-code">
+          <span class="visually-hidden">Folded patch editor</span>
+          <div id="folded-blocks"></div>
         </div>
+        <pre id="line-numbers" aria-hidden="true"></pre>
+        <div id="fold-controls" aria-label="Code folding"></div>
+        <pre id="code-mirror" aria-hidden="true"></pre>
+        <textarea
+          id="code"
+          spellcheck="false"
+          autocomplete="off"
+          autocapitalize="off"
+          aria-label="Live code editor"
+        ></textarea>
+      </div>
 
-        <!-- PERFORMANCE CONTROLS (§10.6, S-06, P-05) -->
+
+      <!-- RUNTIME MONITOR (§10.1) — outside the drawer, because the one thing a
+           performer must be able to see at all times is whether it is still running. -->
+      <div id="runtime-bar">
+        <span><span class="label">fps</span> <span class="value" id="stat-fps">0</span></span>
+        <span class="value" id="stat-strategies" title="Running patches, active scene instances, and installed patch sources">0 running · 0 active · 0 installed</span>
+        <span class="value" id="stat-status">ready</span>
+      </div>
+
+      <!-- KEY COMMANDS (?) -->
+      <div id="keys-overlay" hidden>
+        <div class="keys-card">
+          <h2>Key commands</h2>
+          <p>Editor commands work while typing. Press <kbd>Esc</kbd> to use the performance keys.</p>
+          <dl>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Enter</kbd></dt><dd>evaluate the cell or statement under the cursor</dd>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd></dt><dd>evaluate the whole buffer</dd>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>/</kbd></dt><dd>comment or uncomment the selected lines</dd>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Z</kbd></dt><dd>undo · <kbd>Shift</kbd> to redo</dd>
+            <dt><kbd>Enter</kbd></dt><dd>new line with smart indentation</dd>
+            <dt><kbd>Tab</kbd></dt><dd>indent · <kbd>Shift</kbd> to outdent</dd>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>[</kbd></dt><dd>fold all objects, functions, classes and scenes</dd>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>]</kbd></dt><dd>unfold all while keeping every fold control available</dd>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>/</kbd></dt><dd>show or hide this key-command sheet while editing</dd>
+            <dt><kbd>Esc</kbd></dt><dd>release editor focus</dd>
+            <dt><kbd>Space</kbd></dt><dd>play / pause</dd>
+            <dt><kbd>0</kbd></dt><dd>restore the complete safe state</dd>
+            <dt><kbd>s</kbd></dt><dd>capture the current project as the safe state</dd>
+            <dt><kbd>\</kbd></dt><dd>show / hide the tools drawer</dd>
+            <dt><kbd>r</kbd></dt><dd>show / hide the installed-patch reference</dd>
+            <dt><kbd>e</kbd></dt><dd>show / hide the code</dd>
+            <dt><kbd>f</kbd></dt><dd>fullscreen</dd>
+            <dt><kbd>p</kbd></dt><dd>projection window</dd>
+            <dt><kbd>l</kbd></dt><dd>loop the audio source</dd>
+            <dt><kbd>a</kbd></dt><dd>load an audio file</dd>
+            <dt><kbd>m</kbd></dt><dd>live input</dd>
+            <dt><kbd>?</kbd></dt><dd>this list after leaving the editor</dd>
+          </dl>
+          <button id="keys-close" type="button">close</button>
+        </div>
+      </div>
+
+      <!-- TOOLS DRAWER — everything that is a setting rather than a performance move.
+           Hidden by default (§10.1 wants the stage; this gives it the whole window). -->
+      <aside id="side" class="right-drawer is-hidden">
         <div id="stagebar">
-          <button id="projection-open" type="button" title="Open the audience projection window" aria-label="Open the audience projection window">
-            projection
-          </button>
-          <select id="projection-layout" title="What the audience sees" aria-label="Projection layout">
-            <option value="canvas">canvas</option>
-            <option value="code">canvas + code</option>
-            <option value="trace">canvas + trace</option>
-          </select>
-          <button id="fullscreen-toggle" type="button" title="Fullscreen the stage" aria-label="Fullscreen the stage">
-            fullscreen
-          </button>
-          <label id="tools-opacity-wrap" title="How much of the visuals shows through these tools">
-            <span>see-through</span>
-            <input
-              id="tools-opacity"
-              type="range"
-              min="0.15"
-              max="1"
-              step="0.05"
-              value="0.55"
-              aria-label="Tools panel opacity"
-            />
+          <span class="brand">ALGOLAB</span>
+          <label class="stagebar-control">
+            <span>audience</span>
+            <select id="projection-layout" title="What the audience sees" aria-label="Projection layout">
+              <option value="canvas">canvas</option>
+              <option value="code">canvas + code</option>
+              <option value="trace">canvas + trace</option>
+            </select>
           </label>
-          <span class="spacer"></span>
-          <button id="set-safe" type="button" title="Mark the current scene as the safe scene" aria-label="Mark the current scene as the safe scene">
-            set safe
-          </button>
-          <button id="panic" type="button" class="danger" title="Return to the safe scene (0)" aria-label="Return to the safe scene (0)">
-            panic
-          </button>
-        </div>
-
-        <!-- CODE EDITOR (§10.1) -->
-        <div id="editor-wrap">
-          <textarea
-            id="code"
-            spellcheck="false"
-            autocomplete="off"
-            autocapitalize="off"
-            aria-label="Live code editor"
-          ></textarea>
-          <div id="editor-hint">
-            <strong>Cmd/Ctrl+Enter</strong> evaluate block · <strong>Shift</strong> for whole
-            buffer · <strong>Esc</strong> release focus · then <strong>Space</strong> play,
-            <strong>0</strong> panic, <strong>\</strong> hide tools
-          </div>
         </div>
 
         <div id="panels">
           <details class="panel" open>
-            <summary>Audio monitor</summary>
+            <summary>Audio</summary>
             <div class="body">
               <div class="row">
                 <span class="name" id="audio-source">no source</span>
                 <span class="version" id="audio-position">suspended</span>
                 <span id="beat-dot" title="Onset detected"></span>
+                <span class="actions">
+                  <button id="loop-toggle" type="button" title="Loop the audio source" aria-label="Loop the audio source">loop</button>
+                </span>
+              </div>
+              <div id="audio-load-state" class="audio-load-state" hidden role="status" aria-live="polite">
+                <span id="audio-load-label">Loading audio…</span>
+                <progress id="audio-load-progress" max="1"></progress>
               </div>
               <div id="audio-error" class="row-error" hidden></div>
               <label class="row">
-                <span class="name">input</span>
+                <span class="name">input device</span>
                 <select id="input-device" aria-label="Audio input device">
                   <option value="">(file or default)</option>
                 </select>
               </label>
-              <div class="meters">
-                <span class="version">level</span>
-                <div class="meter level" id="meter-level"></div>
-                <span class="version">bass</span>
-                <div class="meter" id="meter-bass"></div>
-                <span class="version">mid</span>
-                <div class="meter" id="meter-mid"></div>
-                <span class="version">treble</span>
-                <div class="meter" id="meter-treble"></div>
-              </div>
-              <label class="row param">
-                <span class="name">smoothing</span>
-                <span class="version" id="smoothing-value">0.6</span>
-                <input id="smoothing" type="range" min="0" max="0.95" step="0.05" value="0.6" />
-              </label>
-              <label class="row">
-                <span class="name">auto-gain</span>
-                <input id="auto-gain" type="checkbox" checked />
-              </label>
+              <details class="compact-settings">
+                <summary>Analysis settings</summary>
+                <label class="row param">
+                  <span class="name">smoothing</span>
+                  <span class="version" id="smoothing-value">0.6</span>
+                  <input id="smoothing" type="range" min="0" max="0.95" step="0.05" value="0.6" />
+                </label>
+                <label class="row">
+                  <span class="name">auto-gain</span>
+                  <input id="auto-gain" type="checkbox" checked />
+                </label>
+              </details>
             </div>
           </details>
 
-          <details class="panel" open>
-            <summary>Patch shelf</summary>
-            <div class="body">
-              <div class="hint">
-                <strong>+</strong> adds a copy to the scene · <strong>−</strong> removes
-                one · <strong>↺</strong> resets its state
-              </div>
-              <div id="patch-shelf"></div>
-            </div>
-          </details>
-
-          <details class="panel" open>
+          <details class="panel" id="scene-panel" open>
             <summary>Scene — <span id="scene-name">—</span></summary>
             <div class="body">
               <div id="scene-strip"></div>
-              <div class="hint" id="safe-scene-note">No safe scene set.</div>
+              <div class="hint scene-eval-note">
+                Scene edits run after <strong>Cmd/Ctrl+Enter</strong> in the scene cell.
+              </div>
+              <div class="hint" id="safe-scene-note">No safe snapshot yet.</div>
+              <div class="row scene-actions">
+                <span class="name">Recovery point</span>
+                <span class="actions">
+                  <button id="set-safe" type="button" title="Capture source, installed patch versions, active scene, parameters and runtime state" aria-label="Set safe state">Set safe</button>
+                  <button id="restore-safe" type="button" title="Restore the last complete safe state" aria-label="Restore safe state" disabled>Restore</button>
+                </span>
+              </div>
+              <div class="row" id="demo-scene-row">
+                <span class="name">Demo scene</span>
+                <span class="actions">
+                  <button
+                    id="insert-demo-scene"
+                    type="button"
+                    title="Insert a configured library scene into the source"
+                    aria-label="Insert a configured library scene into the source"
+                  >Insert demo</button>
+                </span>
+              </div>
             </div>
           </details>
 
-          <details class="panel">
-            <summary>Parameters</summary>
+          <details class="panel" id="library-panel">
+            <summary>Patch library <span class="summary-count" id="library-summary-count">0/0 installed</span></summary>
+            <div class="body">
+              <div class="hint">
+                Install adds source. Add to scene edits the scene; press <strong>Cmd/Ctrl+Enter</strong> to run it.
+              </div>
+              <div id="library-filters" class="filter-tabs" role="group" aria-label="Filter patch library">
+                <button type="button" data-library-filter="all" aria-pressed="true">All <span id="library-count-all">0</span></button>
+                <button type="button" data-library-filter="installed" aria-pressed="false">Installed <span id="library-count-installed">0</span></button>
+                <button type="button" data-library-filter="active" aria-pressed="false">Active <span id="library-count-active">0</span></button>
+              </div>
+              <div id="strategy-library"></div>
+              <details class="shader-operator-reference">
+                <summary>Shader operators</summary>
+                <div class="shader-operator-body">
+                  <p><code>new ShaderChain()</code> turns the image already drawn by earlier patches into one post-processing patch.</p>
+                  <div><strong>Transform</strong> <code>rotate</code> <code>scale</code> <code>pixelate</code> <code>repeat</code> <code>repeatX</code> <code>repeatY</code> <code>kaleid</code> <code>scroll</code> <code>scrollX</code> <code>scrollY</code></div>
+                  <div><strong>Color</strong> <code>posterize</code> <code>shift</code> <code>invert</code> <code>contrast</code> <code>brightness</code> <code>luma</code> <code>thresh</code> <code>color</code> <code>saturate</code> <code>hue</code> <code>colorama</code> <code>sum</code> <code>rgba</code></div>
+                  <p>Every argument may be a number or <code>({ audio, time }) =&gt; value</code>. Blend and modulate operators will arrive with multi-source routing.</p>
+                </div>
+              </details>
+            </div>
+          </details>
+
+          <details class="panel" id="parameters-panel">
+            <summary>Parameters <span class="summary-count" id="parameter-summary-count">0</span></summary>
             <div class="body" id="param-list"></div>
           </details>
 
-          <details class="panel" open>
+          <details class="panel" id="messages-panel">
             <summary>Messages</summary>
             <div class="body" id="diagnostics-list"></div>
           </details>
@@ -203,29 +313,58 @@
                 <span class="name">warn below FPS</span>
                 <input id="fps-threshold" type="number" min="1" max="120" step="1" value="30" />
               </label>
+              <label class="row param" id="tools-opacity-wrap" title="How much of the visuals shows through these tools">
+                <span class="name">drawer opacity</span>
+                <span class="version" id="tools-opacity-value">55%</span>
+                <input
+                  id="tools-opacity"
+                  type="range"
+                  min="0.15"
+                  max="1"
+                  step="0.05"
+                  value="0.55"
+                  aria-label="Tools panel opacity"
+                />
+              </label>
             </div>
           </details>
         </div>
-
-        <!-- RUNTIME MONITOR (§10.1) -->
-        <div id="runtime-bar">
-          <span><span class="label">fps</span> <span class="value" id="stat-fps">0</span></span>
-          <span
-            ><span class="label">active</span> <span class="value" id="stat-patches">0/0</span></span
-          >
-          <span class="value" id="stat-status">ready</span>
-        </div>
       </aside>
 
-      <!-- After #side, so the CSS sibling selector can shift it clear of the panel. -->
-      <button
-        id="tools-toggle"
-        type="button"
-        title="Show or hide the performer tools (\)"
-        aria-label="Show or hide the performer tools"
-      >
-        tools
-      </button>
+      <!-- PROJECT PATCH REFERENCE — deliberately separate from settings and the
+           source library. This is documentation for the objects currently known to the
+           runtime, not another way to compose or mutate the active scene. -->
+      <aside id="reference-side" class="right-drawer is-hidden" aria-label="Project patch reference">
+        <div class="reference-header">
+          <span class="brand">PROJECT PATCHES</span>
+          <button id="reference-close" type="button" aria-label="Close project patch reference">×</button>
+        </div>
+        <div class="reference-explainer">Installed means source is in this project. Each patch below says separately whether it is Active or Running.</div>
+        <div id="strategy-reference-list"></div>
+      </aside>
+
+      <!-- GLYPH ROW — the whole of the always-visible chrome. Every one of these has a
+           key command; the row exists so nothing is discoverable only by memory.
+           After both drawers, so the CSS sibling selector can shift it clear of either. -->
+      <div id="icons">
+        <button id="play-toggle" type="button" class="glyph" title="Play / pause the audio source (space)" aria-label="Play / pause the audio source">▶</button>
+        <button id="load-audio" type="button" class="glyph" title="Load an audio file (a)" aria-label="Load an audio file">♪</button>
+        <input id="audio-file-2" type="file" accept="audio/*" hidden />
+        <button id="use-mic" type="button" class="glyph" title="Switch to microphone or line input (m)" aria-label="Switch to microphone or line input">◉</button>
+        <button id="projection-open" type="button" class="glyph" title="Open the audience projection window (p)" aria-label="Open the audience projection window">▣</button>
+        <button id="fullscreen-toggle" type="button" class="glyph" title="Fullscreen the stage (f)" aria-label="Fullscreen the stage">⤢</button>
+        <button id="panic" type="button" class="glyph danger" title="Restore the complete safe state (0)" aria-label="Restore safe state (0)">✖</button>
+        <button id="fold-code" type="button" class="glyph" title="Fold code into cells" aria-label="Fold code into cells">▤</button>
+        <button id="reference-toggle" type="button" class="glyph" title="Project patch reference (r)" aria-label="Project patch reference">{ }</button>
+        <button id="tools-toggle" type="button" class="glyph" title="Show or hide the performer tools (\)" aria-label="Show or hide the performer tools">☰</button>
+        <button id="keys-open" type="button" class="glyph" title="Key commands (?)" aria-label="Key commands">?</button>
+      </div>
+
+      <!-- After both drawers too, so it steps aside for either one the same way. -->
+      <div id="editor-hint">
+        <strong>Cmd/Ctrl+Enter</strong> run block · <strong>Esc</strong> release ·
+        <strong>?</strong> keys
+      </div>
     </div>
 
     <script type="module" src="src/main.js"></script>
