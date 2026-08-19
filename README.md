@@ -4,9 +4,10 @@ AlgoLab is a browser-based instrument and teaching environment for **live-coding
 audio-reactive visuals with JavaScript and p5.js**. Music continues playing and the
 canvas continues drawing while you edit the code that creates the image.
 
-It was created for **AET 350C — _Visuals in the Loop: Reactive Systems for
-Algorave_**, but it can also be used as a standalone introduction to creative coding,
-object-oriented programming, higher-order functions, audio analysis, and shaders.
+It was created for **AET 350C — Advanced Creative Coding** at **The University of
+Texas at Austin**, but it can also be used as a standalone introduction to creative
+coding, object-oriented programming, higher-order functions, audio analysis, and
+shaders.
 
 ## What you do in AlgoLab
 
