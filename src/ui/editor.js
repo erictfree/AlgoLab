@@ -407,6 +407,15 @@ export function createEditor(textarea, handlers) {
 
       bodyEditor.addEventListener('keydown', (event) => {
         const accel = event.metaKey || event.ctrlKey;
+        if (
+          (event.key === 'Backspace' || event.key === 'Delete') &&
+          bodyEditor.selectionStart !== bodyEditor.selectionEnd
+        ) {
+          event.preventDefault();
+          const from = bodyEditor.selectionStart;
+          replaceFoldedRange(bodyEditor, from, bodyEditor.selectionEnd, '', from);
+          return;
+        }
         if (event.key === 'Enter' && accel) {
           event.preventDefault();
           const current = blockForFoldKey(textarea.value, foldKey);
@@ -502,6 +511,20 @@ export function createEditor(textarea, handlers) {
     foldedSource = null;
     setFolded(true);
   }
+
+  // A structured project is several independent textareas, one per open cell. Native
+  // selection cannot cross those fields, so Cmd/Ctrl+A inside one of them used to
+  // paint a convincing selection that was only the current cell. Move to the single
+  // authoritative textarea before selecting all; Delete, Cut, paste-over-selection,
+  // and undo then retain their ordinary browser behavior over the complete project.
+  foldedView?.addEventListener('keydown', (event) => {
+    const accel = event.metaKey || event.ctrlKey;
+    if (!accel || event.altKey || event.key.toLowerCase() !== 'a') return;
+    event.preventDefault();
+    setFolded(false);
+    textarea.focus();
+    textarea.select();
+  });
 
   function revealRange(start, end = start) {
     // Navigation should respect the presentation the performer chose. In structured
@@ -712,6 +735,21 @@ export function createEditor(textarea, handlers) {
 
   textarea.addEventListener('keydown', (event) => {
     const accel = event.metaKey || event.ctrlKey;
+
+    // Chromium normally deletes a selected textarea range itself. Handle it here as
+    // well because this transparent textarea sits over a separate syntax mirror, and
+    // some Chrome/macOS paths leave the painted selection intact without performing
+    // the native edit. `write()` still takes the browser insertion path when possible,
+    // preserving undo and emitting the ordinary input notification.
+    if (
+      (event.key === 'Backspace' || event.key === 'Delete') &&
+      textarea.selectionStart !== textarea.selectionEnd
+    ) {
+      event.preventDefault();
+      const from = textarea.selectionStart;
+      replaceRange(from, textarea.selectionEnd, '', from);
+      return;
+    }
 
     if (event.key === 'Enter' && accel) {
       event.preventDefault();

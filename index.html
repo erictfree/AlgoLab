@@ -423,7 +423,10 @@
            key command; the row exists so nothing is discoverable only by memory.
            After both drawers, so the CSS sibling selector can shift it clear of either. -->
       <div id="icons">
-        <button id="play-toggle" type="button" class="glyph" title="Play / pause the audio source (space)" aria-label="Play / pause the audio source">▶</button>
+        <div id="audio-transport" aria-label="Audio playback controls">
+          <button id="play-toggle" type="button" class="transport-control" title="Play or pause the audio file (space)" aria-label="Play audio" disabled>▶ play</button>
+          <button id="loop-performance-toggle" type="button" class="transport-control" title="Loop the audio file (l)" aria-label="Loop audio" aria-pressed="false">↻ loop</button>
+        </div>
         <button id="load-audio" type="button" class="glyph" title="Load an audio file (a)" aria-label="Load an audio file">♪</button>
         <input id="audio-file-2" type="file" accept="audio/*" hidden />
         <button id="use-mic" type="button" class="glyph" title="Switch to microphone or line input (m)" aria-label="Switch to microphone or line input">◉</button>

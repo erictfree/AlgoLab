@@ -25,39 +25,57 @@ const RAVE_PATCHES = [
 const MIX_ORDER = RAVE_PATCH_NAMES;
 
 describe('the rave teaching library', () => {
-  it('keeps the starter shader subtle and upgrades the original bright feedback version', () => {
+  it('makes the starter Plasma visibly controllable and upgrades known untouched versions', () => {
     expect(STARTER_SOURCE).toContain('float softBlob(');
-    expect(STARTER_SOURCE).toContain('float warp = 0.0012 + bass * 0.005;');
+    expect(STARTER_SOURCE).toContain('speed = 0.35;');
+    expect(STARTER_SOURCE).toContain('motion = 0.48;');
     expect(STARTER_SOURCE).toContain(
-      'intensity = ({ audio }) => 0.0038 + audio.bass * 0.006 + audio.mid * 0.002;',
+      'intensity = ({ audio }) => 0.035 + audio.bass * 0.080 + audio.mid * 0.035;',
     );
+    expect(STARTER_SOURCE).toContain('warp = ({ audio }) => 0.004 + audio.bass * 0.018;');
     expect(STARTER_SOURCE).toContain(
       'this.#program.setUniform("uIntensity", this.intensity({ audio, time }));',
     );
+    expect(STARTER_SOURCE).toContain('this.#program.setUniform("uSpeed", this.speed);');
     expect(STARTER_SOURCE).not.toContain('float bands = 0.5 + 0.5 * cos(');
 
     const legacy = STARTER_SOURCE
-      .replace('float warp = 0.0012 + bass * 0.005;', 'float warp = 0.008 + bass * 0.035;')
       .replace(
-        'float radius = length(centered);',
-        'float bands = 0.5 + 0.5 * cos(\n        radius * 16.0\n      );\n      vec3 plasmaColour = mix(cyan, magenta, 0.5);\n      float radius = length(centered);',
+        'vec2 sampleUv = clamp(uv + flow * uWarp, 0.002, 0.998);',
+        'float warp = 0.008 + bass * 0.035;\n      vec2 sampleUv = clamp(uv + flow * warp, 0.002, 0.998);',
+      )
+      .replace(
+        'float bloom = 1.0 + bass * 0.35 + mid * 0.15;',
+        'float bands = 0.5 + 0.5 * cos(\n        radius * 16.0\n      );\n      vec3 plasmaColour = mix(cyan, magenta, 0.5);\n      float bloom = 1.0 + bass * 0.35 + mid * 0.15;',
       );
 
     expect(upgradeLegacyPlasma(legacy)).toBe(STARTER_SOURCE);
 
-    const previousSubtle = STARTER_SOURCE
+    const previousControlled = STARTER_SOURCE
       .replace(
-        '\n\n  // An arrow function can be a live parameter too. It receives the same changing\n  // draw context as the patch, then turns the audio into one shader value.\n  // Try doubling 0.006, or replace audio.bass with audio.treble.\n  intensity = ({ audio }) => 0.0038 + audio.bass * 0.006 + audio.mid * 0.002;',
-        '',
+        'intensity = ({ audio }) => 0.035 + audio.bass * 0.080 + audio.mid * 0.035;',
+        'intensity = ({ audio }) => 0.0038 + audio.bass * 0.006 + audio.mid * 0.002;',
       )
-      .replace('    uniform float uIntensity;\n', '')
-      .replace('ambient *= uIntensity;', 'ambient *= 0.0038 + bass * 0.006 + mid * 0.002;')
+      .replace('float drift = uTime * uSpeed;', 'float drift = uTime * 0.075;')
       .replace(
-        '    this.#program.setUniform("uIntensity", this.intensity({ audio, time }));\n',
-        '',
+        'vec3 scene = vec3(red, green, blue) * 0.88;',
+        'vec3 scene = vec3(red, green, blue) * 0.94;',
       );
 
-    expect(upgradeLegacyPlasma(previousSubtle)).toBe(STARTER_SOURCE);
+    expect(upgradeLegacyPlasma(previousControlled)).toBe(STARTER_SOURCE);
+
+    const previousStarter = STARTER_SOURCE
+      .replace('speed = 0.35;', 'speed = 0.22;')
+      .replace('motion = 0.48;', 'motion = 0.34;')
+      .replace(
+        'intensity = ({ audio }) => 0.035 + audio.bass * 0.080 + audio.mid * 0.035;',
+        'intensity = ({ audio }) => 0.022 + audio.bass * 0.055 + audio.mid * 0.020;',
+      )
+      .replace('warp = ({ audio }) => 0.004 + audio.bass * 0.018;', 'warp = ({ audio }) => 0.0025 + audio.bass * 0.012;')
+      .replace('vec3 scene = vec3(red, green, blue) * 0.88;', 'vec3 scene = vec3(red, green, blue) * 0.90;');
+
+    expect(upgradeLegacyPlasma(previousStarter)).toBe(STARTER_SOURCE);
+
   });
 
   it('evaluates the arrow-controlled Plasma as ordinary live JavaScript', () => {
@@ -85,6 +103,24 @@ describe('the rave teaching library', () => {
     expect(entries.get('pixelRain').source).toContain('function makePixelRain(');
     expect(entries.get('neonTunnel').source).toContain('class NeonTunnel');
     expect(entries.get('beatBurst').source).toContain('class BeatBurst');
+  });
+
+  it('includes a minimal time-driven object patch as the first visual example', () => {
+    const entry = LIBRARY.find(({ name }) => name === 'breathingEllipse');
+    expect(entry).toMatchObject({
+      category: 'visual',
+      blurb: expect.stringContaining('sin(time'),
+    });
+    expect(entry.source).toContain('speed: 2');
+    expect(entry.source).toContain('draw({ time })');
+    expect(entry.source).toContain('sin(time * this.speed)');
+    expect(entry.source).toContain('background(8, 8, 12)');
+    expect(entry.source).toContain('ellipse(width / 2, height / 2, diameter, diameter)');
+
+    const h = createTestHost();
+    expect(h.evaluator.evaluate(entry.source).ok).toBe(true);
+    h.host.commitPendingChanges();
+    expect(h.registry.hasStrategy('breathingEllipse')).toBe(true);
   });
 
   it('gives an arrow-function patch a declared live parameter', () => {

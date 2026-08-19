@@ -45,6 +45,7 @@ describe('audio file loading status', () => {
       duration: () => 125,
       isPlaying: () => false,
       currentTime: () => 0,
+      setLoop: vi.fn(),
     };
     succeed(loaded);
     await expect(pending).resolves.toBe(loaded);
@@ -54,13 +55,40 @@ describe('audio file loading status', () => {
       loadPhase: null,
       loadProgress: null,
       loaded: true,
+      looping: false,
     });
+    expect(loaded.setLoop).toHaveBeenCalledWith(false);
     expect(updates.map((update) => update.loadPhase)).toEqual([
       'loading',
       'loading',
       'decoding',
       null,
     ]);
+  });
+
+  it('remembers loop mode before a file exists and applies it when the file loads', async () => {
+    let succeed;
+    globalThis.loadSound = vi.fn((_url, onSuccess) => {
+      succeed = onSuccess;
+    });
+    const engine = createAudioEngine();
+    const file = new Blob(['not real audio']);
+    Object.defineProperty(file, 'name', { value: 'loop.mp3' });
+    const loaded = {
+      duration: () => 10,
+      isPlaying: () => false,
+      currentTime: () => 0,
+      setLoop: vi.fn(),
+    };
+
+    expect(engine.setLoop(true)).toBe(true);
+    expect(engine.status().looping).toBe(true);
+    const pending = engine.loadFile(file);
+    succeed(loaded);
+    await pending;
+
+    expect(loaded.setLoop).toHaveBeenCalledWith(true);
+    expect(engine.status().looping).toBe(true);
   });
 
   it('clears loading state and exposes a useful error when decoding fails', async () => {

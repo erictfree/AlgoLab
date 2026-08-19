@@ -5,6 +5,7 @@
 // classes. Three diagnostic patches expose the raw waveform, FFT bins, and normalized
 // audio features. A small scene utility sets a solid background. ShaderFlow teaches
 // the built-in fluent GPU pipeline, and Cellular & Blobular demonstrates feedback.
+// Breathing Ellipse is the deliberately tiny first example: one object and one shape.
 // Configuration remains ordinary JavaScript, with one param() example for a control
 // that can be performed live from the Parameters panel.
 
@@ -12,6 +13,25 @@
 
 /** @type {LibraryEntry[]} */
 export const LIBRARY = [
+  {
+    name: 'breathingEllipse',
+    category: 'visual',
+    blurb: 'One ellipse animated by sin(time × speed). Minimal object patch.',
+    source: `// %% patch breathingEllipse
+// breathingEllipse — one object, one shape, one changing value.
+const breathingEllipse = {
+  speed: 2,
+
+  draw({ time }) {
+    const diameter = 160 + sin(time * this.speed) * 90;
+    background(8, 8, 12); // Clear the previous frame so shrinking stays visible.
+    noStroke();
+    fill(255, 90, 190);
+    ellipse(width / 2, height / 2, diameter, diameter);
+  },
+};`,
+  },
+
   {
     name: 'strobe',
     category: 'visual',

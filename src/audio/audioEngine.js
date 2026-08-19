@@ -29,6 +29,7 @@ export function createAudioEngine({ diagnostics } = {}) {
   let loadPhase = null;
   let loadProgress = null;
   let lastReadAt = null;
+  let looping = false;
 
   /** Called once from the host's setup(). */
   function init() {
@@ -83,6 +84,7 @@ export function createAudioEngine({ diagnostics } = {}) {
         objectUrl,
         (loaded) => {
           soundFile = loaded;
+          soundFile.setLoop?.(looping);
           sourceKind = 'file';
           sourceLabel = file.name;
           sourceError = null;
@@ -242,7 +244,9 @@ export function createAudioEngine({ diagnostics } = {}) {
   }
 
   function setLoop(value) {
-    soundFile?.setLoop(!!value);
+    looping = Boolean(value);
+    soundFile?.setLoop(looping);
+    return looping;
   }
 
   // --- analysis -------------------------------------------------------------------
@@ -287,6 +291,7 @@ export function createAudioEngine({ diagnostics } = {}) {
       loadProgress,
       loaded: sourceKind !== 'none',
       playing: sourceKind === 'mic' ? mic !== null : (soundFile?.isPlaying() ?? false),
+      looping,
       position: soundFile?.currentTime() ?? 0,
       duration: soundFile?.duration() ?? 0,
       contextState: typeof getAudioContext === 'function' ? getAudioContext().state : 'unknown',

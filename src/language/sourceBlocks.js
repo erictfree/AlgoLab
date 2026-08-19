@@ -151,6 +151,10 @@ export function renameLegacyStarterScene(source) {
   const renamed = legacy.text
     .replace(/^\/\/\s*%%\s*scene\s+tunnel\s*$/m, '// %% scene scene')
     .replace(/\b(const|let|var)\s+tunnel\s*=/, '$1 scene =')
+    .replace(
+      /\b(const|let|var)\s+scene\s*=\s*\[\s*plasma\s*,?\s*\]\s*;?/,
+      '$1 scene = [\n  plasma,\n];',
+    )
     .replace(/\bgo\s*\(\s*tunnel\s*\)/, 'go(scene)');
   return `${source.slice(0, legacy.start)}${renamed}${source.slice(legacy.end)}`;
 }

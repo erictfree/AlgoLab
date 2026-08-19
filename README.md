@@ -31,10 +31,10 @@ server).
 Then: choose an audio file → **start** → open the Patch Library → install a patch →
 add it to the scene → evaluate that scene with `Cmd/Ctrl+Enter`.
 
-The window is the visuals, your code lying on top of them in one corner, and seven
-glyphs in the other. Everything else is a key command — press **`?`** for the list.
-**`\`** opens the settings drawer (shelf, scene, messages, history, import/export);
-**`e`** clears the code off so you can see the whole frame.
+The window is the visuals, your code lying on top, a labeled **Play / Loop** transport,
+and a compact row of performance controls. Everything else is also a key command —
+press **`?`** for the list. **`\`** opens the tools drawer; **`e`** clears the code
+off so you can see the whole frame.
 
 ## Test it
 
@@ -72,6 +72,7 @@ stateful strategies, syntax errors, and first-frame crashes. Last full run:
 
 | | |
 | --- | --- |
+| **`docs/INSTRUCTIONAL_MANUAL.md`** | Student curriculum from a first patch to a live audio-reactive set. |
 | **`docs/API.md`** | What students write. Start here. |
 | **`docs/ARCHITECTURE.md`** | How it works and why it's shaped this way. |
 | `src/main.js` | The whole draw loop, in about ten lines. |
@@ -96,8 +97,8 @@ version history and one-click revert · local project persistence.
 `laserFan#2`, `laserFan#3` — each with its own persistent state, plus ten
 ready-to-compose system patches. Configuration uses ordinary closures, object properties,
 constructors, and factories. Class instances can also own offscreen WEBGL buffers
-and shaders; the starter includes an audio-reactive live shader with deterministic
-resource cleanup.
+and shaders; the starter includes an audio-reactive live shader with obvious public
+speed, motion, intensity, and warp controls plus deterministic resource cleanup.
 
 *P1, course-ready performance:* microphone and line input with device selection ·
 live smoothing and auto-gain controls · silence fallback on any input failure ·

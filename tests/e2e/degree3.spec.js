@@ -205,7 +205,10 @@ test('D-01: source, installed patches, and scene order survive a refresh', async
     const marker = '// %% patch marker\nconst marker = { draw() { circle(10, 10, 5); } };\n\n';
     editor.value = editor.value
       .replace('// %% scene scene', `${marker}// %% scene scene`)
-      .replace('const scene = [plasma];', 'const scene = [marker, plasma];');
+      .replace(
+        'const scene = [\n  plasma,\n];',
+        'const scene = [\n  marker,\n  plasma,\n];',
+      );
     editor.dispatchEvent(new Event('input', { bubbles: true }));
     window.AlgoLab.evaluator.evaluate(editor.value, { label: 'buffer' });
   });

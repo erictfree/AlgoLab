@@ -344,7 +344,9 @@ A class strategy may own an offscreen `WEBGL` graphics buffer and composite it i
 the 2D stage. It can use `canvas` as a `sampler2D` source, which makes a strategy placed
 last in a scene a true post-processing pass. Create resources lazily in `draw()`, pass
 `audio` and `time` through uniforms, and release resources in `dispose()`. The starter's
-`Plasma` class is a complete example.
+`Plasma` class is a complete example. Its public `speed` and `motion` numbers and its
+audio-mapped `intensity` and `warp` functions sit together above the shader strings;
+editing those four values is the intended first experiment.
 
 ## Audio
 

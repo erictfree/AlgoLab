@@ -21,10 +21,16 @@ class Plasma {
   #output = null;
   #program = null;
 
-  // An arrow function can be a live parameter too. It receives the same changing
-  // draw context as the patch, then turns the audio into one shader value.
-  // Try doubling 0.006, or replace audio.bass with audio.treble.
-  intensity = ({ audio }) => 0.0038 + audio.bass * 0.006 + audio.mid * 0.002;
+  // -------------------------------------------------------------------------
+  // LIVE CONTROLS — change these, then press Cmd/Ctrl+Enter anywhere in this cell.
+  // -------------------------------------------------------------------------
+  speed = 0.35;  // 0.05 = drifting, 0.8 = restless
+  motion = 0.48; // 0 = fixed colour fields, 0.8 = wide travel
+
+  // A control may also be a function of the live draw context. These are evaluated
+  // every frame. Change the multipliers, or swap bass/mid/treble to remap the music.
+  intensity = ({ audio }) => 0.035 + audio.bass * 0.080 + audio.mid * 0.035;
+  warp = ({ audio }) => 0.004 + audio.bass * 0.018;
 
   #vertexSource = \`
     precision highp float;
@@ -50,6 +56,9 @@ class Plasma {
     uniform float uTime;
     uniform vec3 uAudio;
     uniform float uIntensity;
+    uniform float uSpeed;
+    uniform float uMotion;
+    uniform float uWarp;
 
     float softBlob(vec2 point, vec2 center, float radius) {
       vec2 delta = (point - center) / radius;
@@ -64,55 +73,55 @@ class Plasma {
       float bass = uAudio.x;
       float mid = uAudio.y;
       float treble = uAudio.z;
-      float drift = uTime * 0.075;
+      float drift = uTime * uSpeed;
       vec2 flow = vec2(
-        sin(centered.y * 2.2 + drift),
-        cos(centered.x * 2.0 - drift * 0.83)
+        sin(centered.y * 3.5 + drift + mid * 2.0),
+        cos(centered.x * 3.2 - drift * 0.83 + treble * 2.4)
       );
-      float warp = 0.0012 + bass * 0.005;
-      vec2 sampleUv = clamp(uv + flow * warp, 0.002, 0.998);
+      vec2 sampleUv = clamp(uv + flow * uWarp, 0.002, 0.998);
 
-      vec2 split = flow * (0.00025 + treble * 0.0014);
+      vec2 split = flow * (0.0005 + treble * 0.002);
       float red = texture2D(uScene, clamp(sampleUv + split, 0.002, 0.998)).r;
       float green = texture2D(uScene, sampleUv).g;
       float blue = texture2D(uScene, clamp(sampleUv - split, 0.002, 0.998)).b;
       // A slow feedback decay keeps preceding patches visible without allowing this
       // ambient layer to accumulate into the bright bands of the original Plasma.
-      vec3 scene = vec3(red, green, blue) * 0.94;
+      vec3 scene = vec3(red, green, blue) * 0.88;
 
       vec2 pinkCenter = vec2(
-        -0.58 + sin(drift * 0.71) * 0.16,
-        -0.12 + cos(drift * 0.53) * 0.14
+        -0.50 + sin(drift * 0.71) * uMotion,
+        -0.12 + cos(drift * 0.53) * uMotion * 0.75
       );
       vec2 purpleCenter = vec2(
-        0.58 + cos(drift * 0.47) * 0.14,
-        -0.46 + sin(drift * 0.61) * 0.12
+        0.50 + cos(drift * 0.47) * uMotion * 0.85,
+        -0.40 + sin(drift * 0.61) * uMotion
       );
       vec2 orangeCenter = vec2(
-        -0.48 + cos(drift * 0.39) * 0.12,
-        0.62 + sin(drift * 0.44) * 0.10
+        -0.44 + cos(drift * 0.39) * uMotion * 0.8,
+        0.52 + sin(drift * 0.44) * uMotion * 0.7
       );
       vec2 cyanCenter = vec2(
-        0.52 + sin(drift * 0.58) * 0.13,
-        0.54 + cos(drift * 0.42) * 0.12
+        0.46 + sin(drift * 0.58) * uMotion * 0.9,
+        0.48 + cos(drift * 0.42) * uMotion * 0.8
       );
 
-      float pink = softBlob(centered, pinkCenter, 0.82);
-      float purple = softBlob(centered, purpleCenter, 0.90);
-      float orange = softBlob(centered, orangeCenter, 0.76);
-      float cyan = softBlob(centered, cyanCenter, 0.88);
+      float bloom = 1.0 + bass * 0.35 + mid * 0.15;
+      float pink = softBlob(centered, pinkCenter, 0.72 * bloom);
+      float purple = softBlob(centered, purpleCenter, 0.82 * bloom);
+      float orange = softBlob(centered, orangeCenter, 0.68 * bloom);
+      float cyan = softBlob(centered, cyanCenter, 0.80 * bloom);
 
       vec3 ambient =
-        vec3(0.93, 0.16, 0.47) * pink +
-        vec3(0.45, 0.33, 0.64) * purple +
-        vec3(0.97, 0.56, 0.15) * orange +
-        vec3(0.06, 0.48, 0.62) * cyan;
+        vec3(1.00, 0.08, 0.55) * pink +
+        vec3(0.48, 0.18, 0.95) * purple +
+        vec3(1.00, 0.42, 0.04) * orange +
+        vec3(0.02, 0.75, 1.00) * cyan;
       ambient *= uIntensity;
 
       float radius = length(centered);
       float vignette = 1.0 - smoothstep(0.34, 1.55, radius);
       vec3 colour = scene + ambient;
-      colour *= 0.94 + vignette * 0.06;
+      colour *= 0.92 + vignette * 0.12;
 
       gl_FragColor = vec4(colour, 1.0);
     }
@@ -138,6 +147,9 @@ class Plasma {
     this.#program.setUniform("uTime", time);
     this.#program.setUniform("uAudio", [audio.bass, audio.mid, audio.treble]);
     this.#program.setUniform("uIntensity", this.intensity({ audio, time }));
+    this.#program.setUniform("uSpeed", this.speed);
+    this.#program.setUniform("uMotion", this.motion);
+    this.#program.setUniform("uWarp", this.warp({ audio, time }));
     this.#output.rect(0, 0, width, height);
     image(this.#output, 0, 0, width, height);
   }
@@ -153,66 +165,57 @@ const plasma = new Plasma();
 
 // %% scene scene
 // Array order is layer order. Keep plasma last when you add another patch.
-const scene = [plasma];
+const scene = [
+  plasma,
+];
 go(scene);
 `;
 
-/**
- * Upgrade only the untouched original Plasma fragment shader inside a saved project.
- * Patch configuration, installed library patches, and scene order remain source-owned.
- * If a performer already changed the old shader's identifying lines, it is treated as
- * their version and left alone.
- */
+/** Upgrade known untouched starter Plasma versions without disturbing other cells. */
 export function upgradeLegacyPlasma(source) {
-  const legacySignatures = [
-    'float warp = 0.008 + bass * 0.035;',
-    'float bands = 0.5 + 0.5 * cos(',
-    'vec3 plasmaColour = mix(',
+  const knownVersions = [
+    // The original high-contrast feedback Plasma.
+    [
+      'float warp = 0.008 + bass * 0.035;',
+      'float bands = 0.5 + 0.5 * cos(',
+      'vec3 plasmaColour = mix(',
+    ],
+    // The first subtle ambient Plasma, before its intensity became a JS control.
+    [
+      'uniform vec3 uAudio;\n\n    float softBlob',
+      'ambient *= 0.0038 + bass * 0.006 + mid * 0.002;',
+      'float drift = uTime * 0.075;',
+    ],
+    // The immediately previous starter: one subtle arrow-function control.
+    [
+      'intensity = ({ audio }) => 0.0038 + audio.bass * 0.006 + audio.mid * 0.002;',
+      'float drift = uTime * 0.075;',
+      'vec3 scene = vec3(red, green, blue) * 0.94;',
+    ],
+    // The brighter ambient starter immediately before this standalone Plasma pass.
+    [
+      'speed = 0.22;',
+      'intensity = ({ audio }) => 0.022 + audio.bass * 0.055 + audio.mid * 0.020;',
+      'vec3 scene = vec3(red, green, blue) * 0.90;',
+    ],
   ];
-  let upgraded = source;
+  if (!knownVersions.some((signatures) => signatures.every((part) => source.includes(part)))) {
+    return source;
+  }
 
-  const startToken = '  #fragmentSource = `';
-  const endToken = '\n  `;\n\n  #ensureShader()';
-  const range = (text) => {
-    const start = text.indexOf(startToken);
-    const end = start === -1 ? -1 : text.indexOf(endToken, start);
-    return start === -1 || end === -1
-      ? null
-      : { start, end: end + '\n  `;'.length };
+  const cellRange = (text) => {
+    const marker = /^\/\/\s*%%\s*(?:patch|strategy)\s+plasma\s*$/m.exec(text);
+    if (!marker) return null;
+    const start = marker.index;
+    const rest = text.slice(start + marker[0].length);
+    const next = /^\/\/\s*%%\s+/m.exec(rest);
+    const end = next ? start + marker[0].length + next.index : text.length;
+    return { start, end };
   };
-  if (legacySignatures.every((signature) => upgraded.includes(signature))) {
-    const oldRange = range(upgraded);
-    const newRange = range(STARTER_SOURCE);
-    if (oldRange && newRange) {
-      const replacement = STARTER_SOURCE.slice(newRange.start, newRange.end);
-      upgraded = `${upgraded.slice(0, oldRange.start)}${replacement}${upgraded.slice(oldRange.end)}`;
-    }
-  }
+  const oldCell = cellRange(source);
+  const newCell = cellRange(STARTER_SOURCE);
+  if (!oldCell || !newCell) return source;
 
-  // Add the arrow-function control to the immediately previous subtle Plasma.
-  // Exact signatures keep custom shader mappings untouched.
-  const previousSubtleSignatures = [
-    'class Plasma {\n  #output = null;\n  #program = null;',
-    'uniform vec3 uAudio;\n\n    float softBlob',
-    'ambient *= 0.0038 + bass * 0.006 + mid * 0.002;',
-    'this.#program.setUniform("uAudio", [audio.bass, audio.mid, audio.treble]);',
-  ];
-  if (
-    !upgraded.includes('intensity = ({ audio }) =>') &&
-    previousSubtleSignatures.every((signature) => upgraded.includes(signature))
-  ) {
-    upgraded = upgraded
-      .replace(
-        '  #program = null;\n',
-        `  #program = null;\n\n  // An arrow function can be a live parameter too. It receives the same changing\n  // draw context as the patch, then turns the audio into one shader value.\n  // Try doubling 0.006, or replace audio.bass with audio.treble.\n  intensity = ({ audio }) => 0.0038 + audio.bass * 0.006 + audio.mid * 0.002;\n`,
-      )
-      .replace('    uniform vec3 uAudio;\n', '    uniform vec3 uAudio;\n    uniform float uIntensity;\n')
-      .replace('ambient *= 0.0038 + bass * 0.006 + mid * 0.002;', 'ambient *= uIntensity;')
-      .replace(
-        '    this.#program.setUniform("uAudio", [audio.bass, audio.mid, audio.treble]);\n',
-        '    this.#program.setUniform("uAudio", [audio.bass, audio.mid, audio.treble]);\n    this.#program.setUniform("uIntensity", this.intensity({ audio, time }));\n',
-      );
-  }
-
-  return upgraded;
+  const replacement = STARTER_SOURCE.slice(newCell.start, newCell.end).trimEnd();
+  return `${source.slice(0, oldCell.start)}${replacement}\n\n${source.slice(oldCell.end).trimStart()}`;
 }

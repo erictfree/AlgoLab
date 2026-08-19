@@ -156,7 +156,9 @@ go(tunnel);
     const renamed = renameLegacyStarterScene(legacy);
 
     expect(renamed).toContain('// %% scene scene');
-    expect(renamed).toContain('const scene = [plasma];');
+    expect(renamed).toContain(`const scene = [
+  plasma,
+];`);
     expect(renamed).toContain('go(scene);');
     expect(renamed).not.toContain('tunnel');
   });

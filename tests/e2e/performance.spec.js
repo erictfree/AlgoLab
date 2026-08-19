@@ -1,6 +1,9 @@
 // P1 course-ready behavior in the real page: projection, panic, and import.
 
 import { test, expect } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+
+const TONE = fileURLToPath(new URL('../fixtures/test-tone.wav', import.meta.url));
 
 async function boot(page, { tools = true, folded = false, welcome = false } = {}) {
   await page.goto('/index.html');
@@ -207,8 +210,8 @@ test.describe('multiple copies of one strategy', () => {
       .toEqual(['plasma']);
     await replaceInEditorAndEvaluate(
       page,
-      'const scene = [plasma];',
-      'const scene = [plasma, plasma, plasma];',
+      'const scene = [\n  plasma,\n];',
+      'const scene = [\n  plasma,\n  plasma,\n  plasma,\n];',
     );
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
@@ -234,8 +237,8 @@ test.describe('multiple copies of one strategy', () => {
     await expect(page.locator('[data-instance="plasma#2"] button')).toHaveCount(0);
     await replaceInEditorAndEvaluate(
       page,
-      'const scene = [plasma, plasma, plasma];',
-      'const scene = [plasma, plasma];',
+      'const scene = [\n  plasma,\n  plasma,\n  plasma,\n];',
+      'const scene = [\n  plasma,\n  plasma,\n];',
     );
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
@@ -267,8 +270,8 @@ test.describe('multiple copies of one strategy', () => {
 
     await replaceInEditorAndEvaluate(
       page,
-      'const scene = [plasma];',
-      'const scene = [laserFan, laserFan, plasma];',
+      'const scene = [\n  plasma,\n];',
+      'const scene = [\n  laserFan,\n  laserFan,\n  plasma,\n];',
     );
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length))
@@ -335,12 +338,13 @@ go(laserScene);`);
     await boot(page);
 
     const library = page.locator('#strategy-library');
-    await expect(library.locator('[data-library]')).toHaveCount(17);
-    await expect(page.getByRole('button', { name: /^All 17$/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(library.locator('[data-library]')).toHaveCount(18);
+    await expect(page.getByRole('button', { name: /^All 18$/ })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('[data-library="laserFan"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-library="plasma"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-available="laserFan"]')).toContainText('laserFan');
     await expect(page.locator('[data-available="waveScope"]')).toBeVisible();
+    await expect(page.locator('[data-available="breathingEllipse"]')).toBeVisible();
     await expect(page.locator('[data-library="waveform"]')).toContainText('Available');
     await expect(page.locator('[data-library="frequencyBars"]')).toContainText('Available');
     await expect(page.locator('[data-library="audioMeters"]')).toContainText('Available');
@@ -488,8 +492,8 @@ go(show);`;
 
     await replaceInEditorAndEvaluate(
       page,
-      'const scene = [plasma];',
-      'const scene = [shaderFlow, plasma];',
+      'const scene = [\n  plasma,\n];',
+      'const scene = [\n  shaderFlow,\n  plasma,\n];',
     );
 
     await expect
@@ -512,6 +516,10 @@ go(show);`;
     const plasma = page.locator('#reference-side [data-strategy="plasma"]');
     await plasma.locator('summary').click();
     await expect(plasma).toContainText('Plasma instance · running');
+    await expect(plasma).toContainText('speed: 0.22');
+    await expect(plasma).toContainText('motion: 0.34');
+    await expect(plasma).toContainText('intensity({ audio })');
+    await expect(plasma).toContainText('warp({ audio })');
     await expect(plasma).toContainText('draw({ audio, time, canvas })');
     await expect(plasma).toContainText('dispose()');
 
@@ -631,6 +639,34 @@ test.describe('the demo scene', () => {
 });
 
 test.describe('the minimal display', () => {
+  test('keeps labeled play/pause and loop controls visible and synchronized', async ({ page }) => {
+    await boot(page, { tools: false, folded: true, welcome: true });
+
+    const play = page.locator('#play-toggle');
+    const loop = page.locator('#loop-performance-toggle');
+    await expect(play).toBeVisible();
+    await expect(play).toBeDisabled();
+    await expect(loop).toBeVisible();
+    await expect(loop).toHaveAttribute('aria-pressed', 'false');
+
+    await page.locator('#audio-file').setInputFiles(TONE);
+    await expect(page.locator('#start-overlay')).toBeHidden({ timeout: 15_000 });
+    await expect(play).toBeEnabled();
+    await expect(play).toHaveAttribute('aria-label', 'Pause audio');
+
+    await loop.click();
+    await expect(loop).toHaveAttribute('aria-pressed', 'true');
+    expect(await page.evaluate(() => window.AlgoLab.audio.status().looping)).toBe(true);
+
+    await play.click();
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.audio.status().playing)).toBe(false);
+    await expect(play).toHaveAttribute('aria-label', 'Play audio');
+
+    await page.locator('#tools-toggle').click();
+    await selectTool(page, 'Audio');
+    await expect(page.locator('#loop-toggle')).toHaveAttribute('aria-pressed', 'true');
+  });
+
   test('introduces AlgoLab and offers three explicit ways to begin', async ({ page }) => {
     await boot(page, { tools: false, folded: true, welcome: true });
 
@@ -764,13 +800,13 @@ test.describe('the minimal display', () => {
     await expect(plasma.locator('.folded-source')).toHaveCSS('box-shadow', 'none');
     await page.evaluate(() => {
       const editor = document.querySelector('.folded-block[open] .folded-source-editor');
-      const at = editor.value.indexOf('0.0012');
+      const at = editor.value.indexOf('0.004');
       editor.focus();
-      editor.setSelectionRange(at, at + '0.0012'.length);
+      editor.setSelectionRange(at, at + '0.004'.length);
     });
-    await foldedEditor.pressSequentially('0.0022');
+    await foldedEditor.pressSequentially('0.006');
     await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
-    await expect(page.locator('#code')).toHaveValue(/float warp = 0\.0022/);
+    await expect(page.locator('#code')).toHaveValue(/warp = \(\{ audio \}\) => 0\.006/);
 
     await foldedEditor.press('Control+Alt+]');
     await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
@@ -791,6 +827,28 @@ test.describe('the minimal display', () => {
     await page.getByRole('button', { name: 'Fold patch plasma' }).click();
     await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
     await expect(plasma).not.toHaveAttribute('open', '');
+  });
+
+  test('select all from a folded cell selects and deletes the complete project', async ({ page }) => {
+    await boot(page, { tools: false, folded: true });
+    const plasma = page.locator('.folded-block', { hasText: 'patch plasma' });
+    await plasma.locator('summary').click();
+    const foldedEditor = plasma.getByRole('textbox', { name: 'Edit patch plasma' });
+    await foldedEditor.focus();
+
+    await foldedEditor.press('Control+a');
+    await expect(page.locator('#code-layer')).not.toHaveClass(/is-folded/);
+    const selection = await page.locator('#code').evaluate((editor) => ({
+      start: editor.selectionStart,
+      end: editor.selectionEnd,
+      length: editor.value.length,
+    }));
+    expect(selection).toEqual({ start: 0, end: selection.length, length: selection.length });
+
+    // A synthetic key has no browser default action. The application itself must
+    // remove the range, covering Chrome/macOS paths where native deletion is skipped.
+    await page.locator('#code').dispatchEvent('keydown', { key: 'Backspace' });
+    await expect(page.locator('#code')).toHaveValue('');
   });
 
   test('briefly acknowledges evaluation on the visible folded patch', async ({ page }) => {

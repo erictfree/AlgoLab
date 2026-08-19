@@ -42,6 +42,8 @@ export function createPanels({
     status: el('stat-status'),
     audioSource: el('audio-source'),
     audioPosition: el('audio-position'),
+    playToggle: el('play-toggle'),
+    loopToggles: [el('loop-toggle'), el('loop-performance-toggle')],
     audioLoadState: el('audio-load-state'),
     audioLoadLabel: el('audio-load-label'),
     audioLoadProgress: el('audio-load-progress'),
@@ -429,6 +431,18 @@ export function createPanels({
     nodes.fps.className = `value ${live.fps < 30 ? 'warn' : ''}`;
 
     const status = live.audioStatus;
+    const canPlay = status.kind === 'file' && status.loaded && !status.loading;
+    nodes.playToggle.disabled = !canPlay;
+    nodes.playToggle.textContent = status.playing && status.kind === 'file' ? '❚❚ pause' : '▶ play';
+    nodes.playToggle.setAttribute(
+      'aria-label',
+      status.playing && status.kind === 'file' ? 'Pause audio' : 'Play audio',
+    );
+    nodes.playToggle.classList.toggle('is-on', status.playing && status.kind === 'file');
+    for (const button of nodes.loopToggles) {
+      button.classList.toggle('is-on', status.looping);
+      button.setAttribute('aria-pressed', String(status.looping));
+    }
     nodes.audioSource.textContent = status.source === 'none' ? 'No audio selected' : status.source;
     nodes.audioPosition.textContent =
       status.loading

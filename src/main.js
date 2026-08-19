@@ -200,7 +200,7 @@ window.setup = function setup() {
   if (upgradedSource !== source) {
     diagnostics.info(
       'Updated starter Plasma',
-      'The original bright feedback shader is now a subtle ambient AET colour field.',
+      'Its live speed, motion, intensity, and warp controls are now grouped at the top.',
     );
   }
   if (diagnosticSource !== upgradedSource) {
@@ -398,14 +398,22 @@ async function toggleAudio() {
 
 document.getElementById('play-toggle').addEventListener('click', toggleAudio);
 
-let looping = false;
+function setLoop(value) {
+  const looping = audio.setLoop(value);
+  for (const id of ['loop-toggle', 'loop-performance-toggle']) {
+    const button = document.getElementById(id);
+    button.classList.toggle('is-on', looping);
+    button.setAttribute('aria-pressed', String(looping));
+  }
+  return looping;
+}
+
 function toggleLoop() {
-  looping = !looping;
-  audio.setLoop(looping);
-  document.getElementById('loop-toggle').classList.toggle('is-on', looping);
+  const looping = setLoop(!audio.status().looping);
   diagnostics.info(`Loop ${looping ? 'on' : 'off'}`);
 }
 document.getElementById('loop-toggle').addEventListener('click', toggleLoop);
+document.getElementById('loop-performance-toggle').addEventListener('click', toggleLoop);
 
 // --- live input (A-02) -----------------------------------------------------------
 
@@ -614,7 +622,7 @@ function performanceSnapshot(name) {
     })),
     audio: {
       analysis: audio.featureOptions(),
-      loop: looping,
+      loop: audio.status().looping,
     },
     view: {
       folded: editor.isFolded(),
@@ -690,9 +698,7 @@ function applyPerformanceSettings(performance) {
   smoothingValue.textContent = Number(analysis.smoothing).toFixed(2);
   document.getElementById('auto-gain').checked = Boolean(analysis.autoGain);
 
-  looping = Boolean(performance.audio?.loop);
-  audio.setLoop(looping);
-  document.getElementById('loop-toggle').classList.toggle('is-on', looping);
+  setLoop(Boolean(performance.audio?.loop));
 
   const view = performance.view ?? {};
   if (typeof view.folded === 'boolean') editor.setFolded(view.folded);
