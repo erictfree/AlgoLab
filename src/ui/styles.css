@@ -488,7 +488,9 @@ input:focus-visible {
 
 .right-drawer {
   position: absolute;
-  top: 0;
+  /* Keep the performance controls as a fixed landmark. Drawers begin underneath
+   * their 24px row plus its top and bottom breathing room. */
+  top: 36px;
   right: 0;
   bottom: 0;
   z-index: 5;
@@ -564,7 +566,7 @@ input:focus-visible {
   position: absolute;
   top: 6px;
   right: 10px;
-  z-index: 4;
+  z-index: 6;
   display: flex;
   gap: 2px;
   align-items: center;
@@ -611,15 +613,6 @@ button.transport-control.is-on {
 button.transport-control:disabled {
   color: rgba(124, 124, 138, 0.38);
 }
-/* The drawer opens over this corner, so the glyphs step aside for it rather than
- * ending up underneath — every one of them has to stay clickable while it is open. */
-#side:not(.is-hidden) ~ #icons {
-  right: 410px;
-}
-#reference-side:not(.is-hidden) ~ #icons {
-  right: 360px;
-}
-
 button.glyph {
   min-width: 26px;
   height: 24px;
@@ -651,10 +644,6 @@ button.glyph.danger:hover:not(:disabled) {
   .right-drawer,
   #reference-side {
     width: 300px;
-  }
-  #side:not(.is-hidden) ~ #icons,
-  #reference-side:not(.is-hidden) ~ #icons {
-    right: 310px;
   }
   #code-layer {
     width: 60vw;
@@ -906,6 +895,27 @@ input[type='number'] {
   text-transform: uppercase;
   color: var(--dim);
   border-bottom: 1px solid var(--line);
+}
+.tool-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 10px;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line);
+}
+.tool-section-heading h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.tool-section-heading button {
+  padding-inline: 8px;
+  color: var(--accent);
 }
 .tool-section > .body {
   padding: 4px 10px 10px;

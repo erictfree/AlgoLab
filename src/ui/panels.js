@@ -94,6 +94,7 @@ export function createPanels({
   function renderLibrary(snapshot) {
     const known = new Map(snapshot.strategies.map((strategy) => [strategy.name, strategy]));
     const installed = new Set(snapshot.installedPatches);
+    const inSceneSource = new Set(snapshot.scene.sourceOrder);
     const installedCount = library.filter((entry) => installed.has(entry.name)).length;
     const activeCount = library.filter((entry) => known.get(entry.name)?.active).length;
     nodes.libraryAllCount.textContent = String(library.length);
@@ -118,7 +119,7 @@ export function createPanels({
     const sections = LIBRARY_GROUPS.flatMap((group) => {
       const entries = visible.filter((entry) => entry.category === group.key);
       if (entries.length === 0) return [];
-      return [librarySection(group, entries, known, installed)];
+      return [librarySection(group, entries, known, installed, inSceneSource)];
     });
     nodes.library.replaceChildren(...sections);
   }
@@ -219,7 +220,7 @@ export function createPanels({
     return result;
   }
 
-  function librarySection(group, entries, known, installed) {
+  function librarySection(group, entries, known, installed, inSceneSource) {
     const section = document.createElement('details');
     section.className = 'library-group';
     section.dataset.libraryGroup = group.key;
@@ -234,7 +235,12 @@ export function createPanels({
     heading.append(label, count);
     section.append(
       heading,
-      ...entries.map((entry) => libraryRow(entry, known.get(entry.name), installed.has(entry.name))),
+      ...entries.map((entry) => libraryRow(
+        entry,
+        known.get(entry.name),
+        installed.has(entry.name),
+        inSceneSource.has(entry.name),
+      )),
     );
     section.addEventListener('toggle', () => {
       if (section.open) libraryOpenGroups.add(group.key);
@@ -243,7 +249,7 @@ export function createPanels({
     return section;
   }
 
-  function libraryRow(entry, strategy, sourceInstalled) {
+  function libraryRow(entry, strategy, sourceInstalled, inSceneSource) {
     const installed = sourceInstalled || Boolean(strategy);
     const active = Boolean(strategy?.active);
     const running = Boolean(strategy?.running);
@@ -288,6 +294,13 @@ export function createPanels({
         `${entry.title ?? entry.name} source is installed but did not register; open it to fix and evaluate`,
         () => onLocateStrategy?.(entry.name),
       );
+    } else if (!active && inSceneSource) {
+      action = button(
+        'Added — run scene',
+        `${entry.title} is in the active scene source and waiting for Cmd/Ctrl+Enter`,
+        () => {},
+      );
+      action.disabled = true;
     } else if (!active) {
       action = button(
         'Add to scene',

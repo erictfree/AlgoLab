@@ -391,6 +391,14 @@ go(laserScene);`);
     // performer still explicitly evaluates that scene cell before anything renders.
     await page.getByRole('button', { name: 'Add installed patch laserFan to the active scene source' }).click();
     await expect(page.locator('#code')).toHaveValue(/const scene = \[[\s\S]*laserFan,/);
+    await expect(
+      page.getByRole('button', {
+        name: 'laserFan is in the active scene source and waiting for Cmd/Ctrl+Enter',
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Add installed patch laserFan to the active scene source' }),
+    ).toHaveCount(0);
     expect(
       await page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length),
     ).toBe(0);
@@ -1296,6 +1304,49 @@ test.describe('S-06 / P-05 safe-state recovery', () => {
 });
 
 test.describe('named Performance recall', () => {
+  test('starts a new Plasma performance from the button or modifier shortcut without deleting named performances', async ({ page }) => {
+    await boot(page);
+    await selectTool(page, 'Project');
+
+    await page.locator('#performance-name').fill('Keep this one');
+    await page.getByRole('button', { name: 'Save current' }).click();
+
+    const alternate = [
+      '// %% patch alternate',
+      'const alternate = { draw() { circle(40, 40, 20); } };',
+      '// %% scene other',
+      'const other = [alternate];',
+      'go(other);',
+    ].join('\n');
+    await page.evaluate((source) => {
+      window.AlgoLab.editor.value = source;
+      window.AlgoLab.editor.evaluateBuffer();
+    }, alternate);
+    await page.locator('#performance-name').fill('Unsaved name');
+
+    await expect(
+      page.getByRole('button', { name: 'Start a new performance from the Plasma starter' }),
+    ).toBeVisible();
+    await page.locator('#code').focus();
+    await page.keyboard.press('Control+Alt+n');
+    const dialog = page.locator('.dialog-backdrop');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('named performances stay saved');
+    await dialog.getByRole('button', { name: 'Start with Plasma' }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['plasma']);
+    await expect(page.locator('#code')).toHaveValue(/const scene = \[\s*plasma,\s*\]/);
+    await expect(page.locator('#code')).not.toHaveValue(/\/\/ %% patch effects/);
+    await expect(page.locator('#performance-name')).toHaveValue('');
+    await expect(page.locator('#performance-name')).toBeFocused();
+    await expect(page.locator('.performance-row')).toContainText('Keep this one');
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.controller.snapshot().safeState))
+      .toMatchObject({ exists: true, sceneName: 'scene', dirty: false });
+  });
+
   test('saves and recalls source, scene, parameters, audio analysis and view settings', async ({ page }) => {
     await boot(page);
     await selectTool(page, 'Project');
@@ -1388,6 +1439,34 @@ test.describe('named Performance recall', () => {
     await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('keeperScene');
     expect(await page.locator('#code').inputValue()).toContain('const keeperScene');
     await expect(page.locator('#diagnostics-list')).toContainText('previous performance restored');
+  });
+});
+
+test.describe('anchored performance controls', () => {
+  test('keeps the top-right controls fixed while both drawers open underneath', async ({ page }) => {
+    await boot(page, { tools: false });
+    const layout = () => page.evaluate(() => {
+      const rect = (selector) => {
+        const box = document.querySelector(selector).getBoundingClientRect();
+        return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+      };
+      return {
+        icons: rect('#icons'),
+        tools: rect('#side'),
+        reference: rect('#reference-side'),
+      };
+    });
+
+    const closed = await layout();
+    await page.locator('#tools-toggle').click();
+    const toolsOpen = await layout();
+    expect(toolsOpen.icons.right).toBeCloseTo(closed.icons.right, 1);
+    expect(toolsOpen.tools.top).toBeGreaterThanOrEqual(toolsOpen.icons.bottom);
+
+    await page.locator('#reference-toggle').click();
+    const referenceOpen = await layout();
+    expect(referenceOpen.icons.right).toBeCloseTo(closed.icons.right, 1);
+    expect(referenceOpen.reference.top).toBeGreaterThanOrEqual(referenceOpen.icons.bottom);
   });
 });
 

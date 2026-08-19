@@ -955,27 +955,9 @@ document.getElementById('import-project').addEventListener('click', () => {
   document.getElementById('import-file').click();
 });
 
-/**
- * Start over — the counterpart to "↺" on a single strategy.
- *
- * Deliberately NOT a page reload. Everything the performer authored goes, but the
- * canvas, the host clock, and the music keep running, which is the same promise the
- * rest of the system makes. It is behind a confirmation because it discards source
- * that is not saved anywhere else.
- */
-document.getElementById('reset-project').addEventListener('click', async () => {
-  const strategyCount = registry.listStrategies().length;
-  const confirmed = await dialog.ask({
-    title: 'Reset this project?',
-    body:
-      `This discards your editor contents, all ${strategyCount} installed patches, ` +
-      `their versions and history, every scene, and all patch state, and goes back to ` +
-      `the starter project. The music and the canvas keep running.`,
-    warning: 'There is no undo for this. Export first if you might want it back.',
-    confirmLabel: 'Reset to starter',
-  });
-  if (!confirmed) return;
-
+/** Replace the working project in place while the canvas, clock, audio, and named
+ * performances continue uninterrupted. */
+function loadStarterProject(message) {
   evaluator.discardPending();
   evaluator.clearBindings();
   projectStore.clear();
@@ -987,8 +969,62 @@ document.getElementById('reset-project').addEventListener('click', async () => {
   evaluator.evaluate(STARTER_SOURCE, { label: 'starter' });
   evaluator.applyPending();
   registry.setSafeScene();
+  // The new Plasma is still a candidate until it renders successfully. Capture the
+  // complete safe checkpoint two frames later, but only if the performer has not
+  // already moved on to another edit.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (editor.value === STARTER_SOURCE && registry.activeSceneName() === 'scene') {
+      controller.actions.setSafeState();
+    }
+  }));
   projection.setActiveCode('');
-  diagnostics.success('Project reset to the starter');
+  diagnostics.success(message);
+}
+
+async function confirmStarterProject({ title, body, warning, confirmLabel, message }) {
+  const strategyCount = registry.listStrategies().length;
+  const confirmed = await dialog.ask({
+    title,
+    body: body(strategyCount),
+    warning,
+    confirmLabel,
+  });
+  if (!confirmed) return false;
+  loadStarterProject(message);
+  return true;
+}
+
+async function startNewPerformance() {
+  const started = await confirmStarterProject({
+    title: 'Start a new performance?',
+    body: (strategyCount) =>
+      `This replaces the working source, all ${strategyCount} installed patches, ` +
+      `their history, scenes, and state with the Plasma starter. Your named ` +
+      `performances stay saved, and the music and canvas keep running.`,
+    warning: 'Unsaved working edits cannot be recovered. Save, update, or export them first if needed.',
+    confirmLabel: 'Start with Plasma',
+    message: 'New performance ready — Plasma',
+  });
+  if (!started) return;
+  performanceNameInput.value = '';
+  performanceNameInput.focus();
+}
+
+document.getElementById('new-performance').addEventListener('click', startNewPerformance);
+
+/** Start over — the destructive project-file counterpart to the clearer performer
+ * action above. Kept for students who think in terms of resetting a project. */
+document.getElementById('reset-project').addEventListener('click', () => {
+  confirmStarterProject({
+    title: 'Reset this project?',
+    body: (strategyCount) =>
+      `This discards your editor contents, all ${strategyCount} installed patches, ` +
+      `their versions and history, every scene, and all patch state, and goes back to ` +
+      `the starter project. The music and the canvas keep running.`,
+    warning: 'There is no undo for this. Export first if you might want it back.',
+    confirmLabel: 'Reset to starter',
+    message: 'Project reset to the starter',
+  });
 });
 
 document.getElementById('import-file').addEventListener('change', async (event) => {
@@ -1106,6 +1142,11 @@ window.addEventListener('keydown', (event) => {
   if (accel && event.altKey && event.code === 'Slash') {
     event.preventDefault();
     toggleKeys();
+    return;
+  }
+  if (accel && event.altKey && event.code === 'KeyN') {
+    event.preventDefault();
+    startNewPerformance();
     return;
   }
 

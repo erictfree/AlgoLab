@@ -26,11 +26,35 @@ describe('application controller boundary', () => {
         { id: 'rings', strategy: 'rings' },
         { id: 'rings#2', strategy: 'rings' },
       ],
+      sourceOrder: [],
     });
     expect(snapshot.strategies[0]).toMatchObject({ name: 'rings', version: 1, copies: 2 });
     expect(snapshot.strategies[0]).not.toHaveProperty('definition');
     expect(snapshot).not.toHaveProperty('registry');
     expect(Object.isFrozen(snapshot)).toBe(true);
+    h.controller.dispose();
+  });
+
+  it('reports scene source edits before they are evaluated into the runtime', () => {
+    const h = setup();
+    let source = `// %% patch plasma
+const plasma = { draw() {} };
+// %% patch rings
+const rings = { draw() {} };
+// %% scene scene
+const scene = [
+  plasma,
+];
+go(scene);`;
+    h.controller.setSourceProvider(() => source);
+    h.evaluator.evaluate(source);
+    h.frame(2);
+
+    source = source.replace('  plasma,', '  rings, // waiting for evaluation\n  plasma,');
+    h.controller.sourceChanged();
+
+    expect(h.registry.activeOrder()).toEqual(['plasma']);
+    expect(h.controller.snapshot().scene.sourceOrder).toEqual(['rings', 'plasma']);
     h.controller.dispose();
   });
 

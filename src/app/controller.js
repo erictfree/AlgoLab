@@ -218,6 +218,27 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
     });
   }
 
+  /** Read the ordinary identifier entries from the active scene's source array.
+   * This is deliberately a source view, not runtime truth: it lets the UI represent
+   * the live-coding interval after an edit and before Cmd/Ctrl+Enter. */
+  function sceneSourceOrder(source = sourceProvider(), sceneName = registry.activeSceneName()) {
+    if (!sceneName || typeof source !== 'string') return [];
+    const escaped = sceneName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const cell = findCells(source).find((candidate) => candidate.label === `scene ${sceneName}`);
+    const searchable = cell?.text ?? source;
+    const declaration = new RegExp(
+      `\\b(?:const|let|var)\\s+${escaped}\\s*=\\s*\\[([\\s\\S]*?)\\]`,
+    ).exec(searchable);
+    if (!declaration) return [];
+    const entries = declaration[1]
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    return entries
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => /^[A-Za-z_$][\w$]*$/.test(entry));
+  }
+
   function safeStateStatus() {
     if (!safeSnapshot) {
       return { exists: false, createdAt: null, sceneName: null, dirty: false, skipped: [] };
@@ -321,6 +342,7 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
     const scene = {
       name: registry.activeSceneName(),
       order: registry.activeInstances().map(({ id, strategy }) => ({ id, strategy })),
+      sourceOrder: sceneSourceOrder(),
     };
     const history = registry
       .listStrategies()
