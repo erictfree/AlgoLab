@@ -53,7 +53,8 @@ on its first rendered frame rolls back to the last version that worked.
 - Ordinary JavaScript objects, functions, classes, closures, factories, and arrow
   functions as live visual material, including anonymous functions directly in scenes
 - Scene arrays with multiple independent copies of one patch
-- A patch library with visual, diagnostic, utility, and shader examples
+- A patch library with visual, diagnostic, utility, and shader examples, including
+  eight small remix layers designed to combine cleanly
 - A fluent `ShaderChain` for post-processing previously drawn output
 - Folded cells, syntax highlighting, smart indentation, comments, and live evaluation
 - Named performances, safe-state recovery, version history, project import/export,

@@ -44,6 +44,13 @@ describe('ShaderChain', () => {
     expect(compiled.uniforms).toHaveLength(6);
   });
 
+  it('keeps kaleidoscope samples centered in the source image', () => {
+    const compiled = compileShaderOperations(new ShaderChain().kaleid(6).operations);
+    expect(compiled.fragmentSource).toContain(
+      'uv = vec2(0.5) + kaleidRadius * vec2(cos(kaleidAngle), sin(kaleidAngle));',
+    );
+  });
+
   it('resolves literal and higher-order parameters from the current draw context', () => {
     const context = { time: 4, audio: { bass: 0.5 } };
     const literal = { type: 'float', value: 1.25, operator: 'scale', argument: 'amount' };

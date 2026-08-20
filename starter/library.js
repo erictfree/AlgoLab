@@ -6,6 +6,8 @@
 // audio features. A small scene utility sets a solid background. ShaderFlow teaches
 // the built-in fluent GPU pipeline, and Cellular & Blobular demonstrates feedback.
 // Breathing Ellipse is the deliberately tiny first example: one object and one shape.
+// The small remix set adds three transparent drawing layers and five ShaderChain
+// treatments that are intentionally short enough to understand during a performance.
 // Configuration remains ordinary JavaScript, with one param() example for a control
 // that can be performed live from the Parameters panel.
 
@@ -243,6 +245,129 @@ class GameOfLife {
 }
 
 const gameOfLife = new GameOfLife();`,
+  },
+
+  {
+    name: 'roseWindow',
+    category: 'visual',
+    blurb: 'Layered polar roses that open with bass. Small configurable object patch.',
+    source: `// %% patch roseWindow
+// roseWindow — three polar curves, drawn as one transparent scene layer.
+// Try petals: 5, 7, 9 or 12. Fractional values make the curve wander.
+// Pair it with solidBackground, then pixelDrift.
+const roseWindow = {
+  petals: 7,
+  radius: 0.32,
+  hue: 325,
+  spin: 0.08,
+
+  draw({ audio, time }) {
+    const size = min(width, height) * (this.radius + audio.bass * 0.09);
+    const phase = time * (0.35 + audio.mid * 0.8);
+
+    translate(width / 2, height / 2);
+    rotate(time * this.spin);
+    colorMode(HSB, 360, 100, 100, 1);
+    blendMode(ADD);
+    noFill();
+
+    for (let layer = 0; layer < 3; layer++) {
+      stroke((this.hue + layer * 34 + time * 8) % 360, 72, 100, 0.58);
+      strokeWeight(1.15 + audio.treble * 2.5);
+      beginShape();
+      for (let step = 0; step <= 240; step++) {
+        const angle = map(step, 0, 240, 0, TWO_PI);
+        const radius = size * cos(this.petals * angle + phase + layer * 0.24);
+        vertex(cos(angle) * radius, sin(angle) * radius);
+      }
+      endShape(CLOSE);
+    }
+  },
+};`,
+  },
+
+  {
+    name: 'waveTerrain',
+    category: 'visual',
+    blurb: 'The live waveform repeated as a glowing perspective landscape. Arrow-function patch.',
+    source: `// %% patch waveTerrain
+// waveTerrain — one waveform copied into receding rows.
+// Change rows and points first: they trade detail for speed.
+// Pair it with solidBackground, then prismMirror.
+const waveTerrain = ({ audio, time }) => {
+  const wave = audio.waveform;
+  if (wave.length < 2) return;
+
+  const rows = 14;
+  const points = 96;
+  const lift = height * (0.06 + audio.level * 0.14);
+
+  colorMode(HSB, 360, 100, 100, 1);
+  blendMode(ADD);
+  noFill();
+
+  for (let row = rows - 1; row >= 0; row--) {
+    const depth = row / (rows - 1);
+    const y = lerp(height * 0.28, height * 0.92, depth);
+    stroke((205 + depth * 115 + time * 5) % 360, 70, 100, 0.26 + depth * 0.42);
+    strokeWeight(0.7 + depth * 1.4);
+    beginShape();
+    for (let point = 0; point <= points; point++) {
+      const across = point / points;
+      const sample = floor(across * (wave.length - 1));
+      const envelope = sin(PI * across);
+      const ripple =
+        sin(across * TWO_PI * 3 + time * 2.2 + row * 0.45) *
+        (4 + audio.mid * 18);
+      const waveY = wave[sample] * lift * envelope * (1 - depth * 0.5);
+      vertex(across * width, y - waveY + ripple);
+    }
+    endShape();
+  }
+};`,
+  },
+
+  {
+    name: 'moireField',
+    category: 'visual',
+    blurb: 'Two transparent line fields make an audio-driven moiré interference pattern.',
+    source: `// %% patch moireField
+// moireField — two ordinary line grids; their overlap makes the complexity.
+// Pair it with solidBackground, then neonInk.
+const moireField = {
+  lines: 44,
+  spacing: 22,
+  hue: 185,
+  speed: 0.11,
+
+  field(angle, spacing, colour, alpha) {
+    const extent = Math.hypot(width, height);
+    push();
+    translate(width / 2, height / 2);
+    rotate(angle);
+    stroke(colour, 68, 100, alpha);
+    for (let lineIndex = -this.lines; lineIndex <= this.lines; lineIndex++) {
+      const x = lineIndex * spacing;
+      line(x, -extent, x, extent);
+    }
+    pop();
+  },
+
+  draw({ audio, time }) {
+    const spacing = max(8, this.spacing - audio.bass * 9);
+    const crossing = 0.18 + audio.mid * 0.34;
+    colorMode(HSB, 360, 100, 100, 1);
+    blendMode(ADD);
+    strokeWeight(0.85 + audio.treble * 1.3);
+    this.field(time * this.speed, spacing, this.hue, 0.34);
+    this.field(
+      -time * this.speed + crossing,
+      spacing,
+      (this.hue + 105) % 360,
+      0.3
+    );
+  },
+};`,
   },
 
   {
@@ -604,6 +729,79 @@ const shaderFlow = new ShaderChain()
   .hue(({ time, audio }) => sin(time * 0.17) * 0.025 + audio.treble * 0.12)
   .saturate(1.22)
   .contrast(1.08);`,
+  },
+
+  {
+    name: 'prismMirror',
+    category: 'shader',
+    blurb: 'A tiny kaleidoscope recipe with bass zoom and slowly rotating colour.',
+    source: `// %% patch prismMirror
+// prismMirror transforms every patch before it in the scene array.
+// Each arrow is re-evaluated on every frame.
+const prismMirror = new ShaderChain()
+  .kaleid(({ audio }) => 5 + floor(audio.mid * 4))
+  .rotate(({ time, audio }) => time * 0.035 + audio.treble * 0.1)
+  .scale(({ audio }) => 1.04 + audio.bass * 0.2)
+  .hue(({ time }) => sin(time * 0.16) * 0.08)
+  .saturate(1.35)
+  .contrast(1.1);`,
+  },
+
+  {
+    name: 'slowRotate',
+    category: 'shader',
+    blurb: 'Rotates everything before it around the center. One-operation ShaderChain patch.',
+    source: `// %% patch slowRotate
+// slowRotate — the smallest useful transform shader.
+// Change 0.06 to reverse or accelerate the continuous turn.
+const slowRotate = new ShaderChain()
+  .rotate(({ time, audio }) =>
+    time * 0.06 + audio.mid * 0.08
+  );`,
+  },
+
+  {
+    name: 'bassZoom',
+    category: 'shader',
+    blurb: 'Scales preceding layers from the center in response to bass.',
+    source: `// %% patch bassZoom
+// bassZoom — one audio value controls one spatial operation.
+// Raising 0.24 makes the bass punches travel farther.
+const bassZoom = new ShaderChain()
+  .scale(({ audio }) =>
+    1.0 + audio.bass * 0.24
+  );`,
+  },
+
+  {
+    name: 'pixelDrift',
+    category: 'shader',
+    blurb: 'Audio-sized pixels drift through offset repeats and a compact colour palette.',
+    source: `// %% patch pixelDrift
+// pixelDrift is a post-processing patch: put it after the image it should affect.
+const pixelDrift = new ShaderChain()
+  .pixelate(
+    ({ audio }) => 120 - audio.bass * 80,
+    ({ audio }) => 80 - audio.mid * 50
+  )
+  .repeatX(2, ({ audio }) => audio.treble * 0.18)
+  .scrollX(({ time, audio }) => time * 0.015 + audio.treble * 0.05)
+  .posterize(({ audio }) => 5 + floor(audio.mid * 5), 0.72)
+  .contrast(1.15);`,
+  },
+
+  {
+    name: 'neonInk',
+    category: 'shader',
+    blurb: 'Turns preceding layers into a beat-sensitive two-tone neon silhouette.',
+    source: `// %% patch neonInk
+// neonInk reduces a complex image to a sharply coloured silhouette.
+const neonInk = new ShaderChain()
+  .thresh(({ audio }) => 0.34 - audio.bass * 0.12, 0.08)
+  .color(0.18, 0.95, 0.7, 1)
+  .hue(({ time, audio }) => time * 0.015 + audio.treble * 0.12)
+  .saturate(1.5)
+  .contrast(1.18);`,
   },
 
   {
@@ -1018,6 +1216,17 @@ export const RAVE_PATCH_NAMES = [
   'glitchSlices',
   'beatBurst',
   'strobe',
+];
+
+export const MODULAR_PATCH_NAMES = [
+  'roseWindow',
+  'waveTerrain',
+  'moireField',
+  'prismMirror',
+  'slowRotate',
+  'bassZoom',
+  'pixelDrift',
+  'neonInk',
 ];
 
 export const DIAGNOSTIC_PATCH_NAMES = [

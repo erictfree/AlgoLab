@@ -393,6 +393,22 @@ last in a scene a true post-processing pass. Create resources lazily in `draw()`
 audio-mapped `intensity` and `warp` functions sit together above the shader strings;
 editing those four values is the intended first experiment.
 
+For smaller experiments, the Library includes `slowRotate`, `bassZoom`, `prismMirror`,
+`pixelDrift`, and `neonInk`. Each is only a `ShaderChain`: place a drawing patch such
+as `roseWindow`, `waveTerrain`, or `moireField` before it and the chain transforms that
+accumulated image. Because each recipe is an ordinary patch, several can be reordered
+or stacked:
+
+```js
+const scene = [
+  solidBackground,
+  waveTerrain,
+  roseWindow,
+  slowRotate,
+  bassZoom,
+];
+```
+
 ## Audio
 
 `audio` is computed once and shared by every strategy during a draw:

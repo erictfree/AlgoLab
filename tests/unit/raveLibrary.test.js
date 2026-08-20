@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DIAGNOSTIC_PATCH_NAMES,
   LIBRARY,
+  MODULAR_PATCH_NAMES,
   RAVE_PATCH_NAMES,
   libraryDemoSource,
   upgradeOpaqueDiagnostics,
@@ -121,6 +122,44 @@ describe('the rave teaching library', () => {
     expect(h.evaluator.evaluate(entry.source).ok).toBe(true);
     h.host.commitPendingChanges();
     expect(h.registry.hasStrategy('breathingEllipse')).toBe(true);
+  });
+
+  it('ships eight small transparent remix layers that evaluate independently', () => {
+    expect(MODULAR_PATCH_NAMES).toEqual([
+      'roseWindow',
+      'waveTerrain',
+      'moireField',
+      'prismMirror',
+      'slowRotate',
+      'bassZoom',
+      'pixelDrift',
+      'neonInk',
+    ]);
+
+    const entries = new Map(LIBRARY.map((entry) => [entry.name, entry]));
+    const drawings = MODULAR_PATCH_NAMES.slice(0, 3).map((name) => entries.get(name));
+    const shaders = MODULAR_PATCH_NAMES.slice(3).map((name) => entries.get(name));
+
+    expect(drawings.map(({ category }) => category)).toEqual(['visual', 'visual', 'visual']);
+    expect(shaders.every(({ category }) => category === 'shader')).toBe(true);
+    expect(drawings.every(({ source }) => !/\bbackground\s*\(/.test(source))).toBe(true);
+    expect(shaders.every(({ source }) => source.includes('new ShaderChain()'))).toBe(true);
+    expect(entries.get('roseWindow').source).toContain('const roseWindow = {');
+    expect(entries.get('waveTerrain').source).toContain('const waveTerrain = ({ audio, time }) =>');
+    expect(entries.get('moireField').source).toContain('field(angle, spacing, colour, alpha)');
+    expect(entries.get('slowRotate').source).toContain('.rotate(({ time, audio }) =>');
+    expect(entries.get('bassZoom').source).toContain('.scale(({ audio }) =>');
+
+    const h = createTestHost();
+    for (const name of MODULAR_PATCH_NAMES) {
+      const entry = entries.get(name);
+      expect(entry.source).toContain(`// %% patch ${name}`);
+      expect(entry.source.split('\n').length).toBeLessThanOrEqual(50);
+      expect(h.evaluator.evaluate(entry.source).ok).toBe(true);
+      h.host.commitPendingChanges();
+      expect(h.registry.hasStrategy(name)).toBe(true);
+      expect(h.registry.activeInstancesOf(name)).toHaveLength(0);
+    }
   });
 
   it("installs Conway's Game of Life as a stateful class patch with live methods", () => {

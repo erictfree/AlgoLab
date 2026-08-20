@@ -35,7 +35,9 @@ AlgoLab has no runtime network or directory-listing dependency.
 The Patch Library is one persistent catalog grouped by explicit metadata into Utilities,
 Visual patches, Shaders, and User patches. Starter cells are derived directly from
 `STARTER_SOURCE`, additional bundled entries are marked `system`, and generated
-community entries carry their student author and declared category. Its four product states are deliberately
+community entries carry their student author and declared category. The bundled catalog
+also includes small transparent drawing layers and short `ShaderChain` recipes so a
+scene can be taught as a composition of independent parts. Its four product states are deliberately
 separate: **Available** is in the catalog, **Installed** has source in the project,
 **Active** has an instance in the current scene, and **Running** survived evaluation and
 rendered. Installing changes only the source and Installed status; it neither removes

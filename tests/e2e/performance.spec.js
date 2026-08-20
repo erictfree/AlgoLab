@@ -418,8 +418,8 @@ go(laserScene);`);
     await boot(page);
 
     const library = page.locator('#strategy-library');
-    await expect(library.locator('[data-library]')).toHaveCount(19);
-    await expect(page.getByRole('button', { name: /^All 19$/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(library.locator('[data-library]')).toHaveCount(27);
+    await expect(page.getByRole('button', { name: /^All 27$/ })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('[data-library="laserFan"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-library="plasma"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-available="laserFan"]')).toContainText('laserFan');
@@ -592,6 +592,39 @@ go(show);`;
       }))
       .toEqual({ running: true, error: null });
     await expect(page.locator('[data-library="shaderFlow"]')).toContainText('Running');
+  });
+
+  test('layers a small drawing patch through modular transform shaders', async ({ page }) => {
+    await boot(page);
+    await page.getByRole('button', { name: /^Install waveTerrain system patch source —/ }).click();
+    await page.getByRole('button', { name: /^Install slowRotate system patch source —/ }).click();
+    await page.getByRole('button', { name: /^Install bassZoom system patch source —/ }).click();
+    await page.getByRole('button', { name: /^Install prismMirror system patch source —/ }).click();
+
+    await replaceInEditorAndEvaluate(
+      page,
+      'const scene = [\n  plasma,\n];',
+      'const scene = [\n  waveTerrain,\n  slowRotate,\n  bassZoom,\n  prismMirror,\n  plasma,\n];',
+    );
+
+    await expect
+      .poll(() => page.evaluate(() => {
+        const snapshot = window.AlgoLab.controller.snapshot();
+        return ['waveTerrain', 'slowRotate', 'bassZoom', 'prismMirror'].map((name) => {
+          const strategy = snapshot.strategies.find((entry) => entry.name === name);
+          return { name, running: strategy?.running, error: strategy?.lastError?.message ?? null };
+        });
+      }))
+      .toEqual([
+        { name: 'waveTerrain', running: true, error: null },
+        { name: 'slowRotate', running: true, error: null },
+        { name: 'bassZoom', running: true, error: null },
+        { name: 'prismMirror', running: true, error: null },
+      ]);
+    await expect(page.locator('[data-library="waveTerrain"]')).toContainText('Running');
+    await expect(page.locator('[data-library="slowRotate"]')).toContainText('Running');
+    await expect(page.locator('[data-library="bassZoom"]')).toContainText('Running');
+    await expect(page.locator('[data-library="prismMirror"]')).toContainText('Running');
   });
 
   test('installs and advances the Game of Life class patch', async ({ page }) => {

@@ -121,7 +121,7 @@ const SPECS = Object.freeze({
       float kaleidSector = 6.28318530718 / kaleidSides;
       float kaleidAngle = mod(atan(kaleidPoint.y, kaleidPoint.x), kaleidSector);
       kaleidAngle = abs(kaleidAngle - kaleidSector * 0.5);
-      uv = kaleidRadius * vec2(cos(kaleidAngle), sin(kaleidAngle));
+      uv = vec2(0.5) + kaleidRadius * vec2(cos(kaleidAngle), sin(kaleidAngle));
     `,
   },
   scroll: {
