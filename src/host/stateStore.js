@@ -5,8 +5,9 @@
 // replaced. The trail array is not. It is found again by identity.
 //
 // Identity is the instance id, because a scene may hold the same strategy more than once.
-// The first instance uses the binding name, so the ordinary case — one
-// copy of `pixelRain` — is exactly the "state belongs to the name" model, unchanged.
+// The first named instance uses its binding name; an anonymous entry uses a scene slot
+// such as `scene[1]`. Thus ordinary named code still follows the "state belongs to the
+// name" model while inline code follows "state belongs to this array position."
 // Extra copies are `pixelRain#2`, `pixelRain#3`, and each gets its own state, because
 // two rain fields sharing one drop array would be one field drawn twice.
 //

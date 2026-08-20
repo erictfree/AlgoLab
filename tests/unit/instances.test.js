@@ -307,12 +307,137 @@ describe('replacing a duplicated strategy', () => {
   });
 });
 
-describe('naming', () => {
-  it('requires every scene strategy to have a JavaScript binding for identity', () => {
+describe('scene-local identities', () => {
+  it('runs an anonymous arrow directly from a scene array', () => {
     const h = createTestHost();
-    const result = h.evaluator.evaluate('const badScene = [{ draw() {} }];');
+    const result = h.evaluator.evaluate(`
+      const show = [
+        ({ state, time, audio }) => {
+          state.calls = (state.calls || 0) + 1;
+          state.last = time + audio.level;
+        },
+      ];
+      go(show);
+    `);
+    h.frame(4, { beat: false, level: 0.25 });
+
+    expect(result.ok).toBe(true);
+    expect(h.registry.activeOrder()).toEqual(['show[0]']);
+    expect(h.registry.getStrategy('show[0]').definition).toBeTypeOf('function');
+    expect(h.stateStore.get('show[0]')).toMatchObject({ calls: 3 });
+  });
+
+  it('runs an anonymous object with normal this and lifecycle methods', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      const show = [{
+        amount: 2,
+        enter({ state }) { state.entered = (state.entered || 0) + 1; },
+        draw({ state }) {
+          this.total = (this.total || 0) + this.amount;
+          state.total = this.total;
+        },
+      }];
+      go(show);
+    `);
+    h.frame(4);
+
+    const implementation = h.registry.getStrategy('show[0]').definition;
+    expect(h.registry.activeOrder()).toEqual(['show[0]']);
+    expect(h.stateStore.get('show[0]').entered).toBe(1);
+    expect(h.stateStore.get('show[0]').total).toBe(implementation.total);
+    expect(implementation.total).toBeGreaterThan(0);
+  });
+
+  it('accepts a higher-order function result directly in the array', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      function multiplyBy(amount) {
+        return ({ state }) => {
+          state.total = (state.total || 0) + amount;
+        };
+      }
+      const show = [multiplyBy(4)];
+      go(show);
+    `);
+    h.frame(4);
+
+    expect(h.registry.hasStrategy('multiplyBy')).toBe(false);
+    expect(h.registry.activeOrder()).toEqual(['show[0]']);
+    expect(h.stateStore.get('show[0]').total).toBe(12);
+  });
+
+  it('preserves slot state when an inline implementation is re-evaluated', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      const show = [({ state }) => { state.calls = (state.calls || 0) + 1; }];
+      go(show);
+    `);
+    h.frame(5);
+    const state = h.stateStore.get('show[0]');
+    const before = state.calls;
+
+    h.evaluator.evaluate(`
+      const show = [({ state }) => {
+        state.calls = (state.calls || 0) + 10;
+        state.version = 2;
+      }];
+    `);
+    h.frame(3);
+
+    expect(h.registry.getStrategy('show[0]').version).toBe(2);
+    expect(h.stateStore.get('show[0]')).toBe(state);
+    expect(state.calls).toBeGreaterThan(before + 10);
+    expect(state.version).toBe(2);
+  });
+
+  it('uses the array position as identity when an inline entry moves', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      const named = () => {};
+      const show = [({ state }) => { state.position = 0; }];
+      go(show);
+    `);
+    h.frame(3);
+
+    h.evaluator.evaluate(`
+      const show = [named, ({ state }) => { state.position = 1; }];
+    `);
+    h.frame(3);
+
+    expect(h.registry.activeOrder()).toEqual(['named', 'show[1]']);
+    expect(h.stateStore.get('show[1]').position).toBe(1);
+    expect(h.stateStore.get('show[1]')).not.toBe(h.stateStore.get('show[0]'));
+  });
+
+  it('stores the containing scene cell as inline history source', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`// %% patch named
+const named = () => {};
+
+// %% scene show
+const show = [
+  named,
+  ({ state }) => { state.inline = true; },
+];
+go(show);`, { label: 'buffer' });
+    h.frame(3);
+
+    const source = h.registry.getStrategy('show[1]').source;
+    expect(source).toContain('// %% scene show');
+    expect(source).toContain('state.inline = true');
+    expect(source).not.toContain('// %% patch named');
+  });
+
+  it('names an invalid inline entry in its error message', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate(`
+      const badScene = [{ helper: true }];
+      go(badScene);
+    `);
+
     expect(result.ok).toBe(false);
-    expect(result.error.message).toContain('non-empty name');
-    expect(h.registry.strategyNames()).toEqual([]);
+    expect(result.error.message).toContain('badScene[0]');
+    expect(result.error.message).toContain('draw()');
   });
 });

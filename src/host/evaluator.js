@@ -163,7 +163,7 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
         isStrategyArray(value) ||
         (Array.isArray(value) && (isGoTarget || isExistingScene))
       ) {
-        transaction.defineScene(declaration.name, value, localNameOf);
+        transaction.defineScene(declaration.name, value, localNameOf, declaration.source);
       }
     }
 
@@ -301,7 +301,10 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
       source: entry.source,
       stateSnapshot: stateStore.snapshotStrategy(name),
     });
-    transaction.bindingUpdates.set(name, entry.definition);
+    // Scene-local identities such as `scene[1]` are registry identities, not hidden
+    // JavaScript variables. Their stored source is the scene cell, which the editor
+    // restores; only an actual captured binding should be changed here.
+    if (bindings.has(name)) transaction.bindingUpdates.set(name, entry.definition);
     queue.push({ transaction, label: `${name} v${version}` });
     return { ok: true, phase: 'queued', staged: [name] };
   }
@@ -350,6 +353,7 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
     snapshotBindings,
     restoreBindings,
     revert,
+    hasBinding: (name) => bindings.has(name),
     pendingCount: () => queue.length,
     binding: (name) => bindings.get(name),
   };

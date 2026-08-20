@@ -33,6 +33,219 @@ const breathingEllipse = {
   },
 
   {
+    name: 'gameOfLife',
+    category: 'visual',
+    blurb: "Conway's Game of Life with fixed-step simulation, live OOP methods and beat-seeded cells.",
+    source: `// %% patch gameOfLife
+// Conway's Game of Life — a stateful class patch.
+// Put it near the start of a scene; later patches draw over its fading grid.
+// Evaluate these ordinary method calls live:
+//   gameOfLife.toggle();      // pause or resume
+//   gameOfLife.singleStep();  // advance once while paused
+//   gameOfLife.reseed();      // make a new random population
+//   gameOfLife.clearGrid();   // remove every living cell
+class GameOfLife {
+  constructor({
+    cellSize = 14,
+    generationsPerSecond = 10,
+    startingDensity = 0.24,
+    hue = 165,
+    wrapEdges = true,
+    birthsOnBeat = 6,
+  } = {}) {
+    this.cellSize = cellSize;
+    this.generationsPerSecond = generationsPerSecond;
+    this.startingDensity = startingDensity;
+    this.hue = hue;
+    this.wrapEdges = wrapEdges;
+    this.birthsOnBeat = birthsOnBeat;
+
+    this.running = true;
+    this.backgroundFade = 0.34;
+    this.audioSpeed = 1.25;
+    this.showStats = true;
+
+    this.seedVersion = 0;
+    this.clearVersion = 0;
+    this.stepVersion = 0;
+  }
+
+  state() {
+    return {
+      columns: 0,
+      rows: 0,
+      cells: [],
+      next: [],
+      elapsed: 0,
+      generation: 0,
+      seedVersion: -1,
+      clearVersion: this.clearVersion,
+      stepVersion: this.stepVersion,
+    };
+  }
+
+  toggle() {
+    this.running = !this.running;
+    return this.running;
+  }
+
+  reseed() {
+    this.seedVersion += 1;
+  }
+
+  clearGrid() {
+    this.clearVersion += 1;
+  }
+
+  singleStep() {
+    this.stepVersion += 1;
+  }
+
+  resizeAndSeed(state) {
+    state.columns = Math.max(8, Math.floor(width / this.cellSize));
+    state.rows = Math.max(8, Math.floor(height / this.cellSize));
+    const count = state.columns * state.rows;
+    state.cells = Array.from(
+      { length: count },
+      () => Math.random() < this.startingDensity ? 1 : 0,
+    );
+    state.next = new Array(count).fill(0);
+    state.elapsed = 0;
+    state.generation = 0;
+    state.seedVersion = this.seedVersion;
+  }
+
+  cellIndex(x, y, state) {
+    if (this.wrapEdges) {
+      x = (x + state.columns) % state.columns;
+      y = (y + state.rows) % state.rows;
+    } else if (x < 0 || x >= state.columns || y < 0 || y >= state.rows) {
+      return -1;
+    }
+    return y * state.columns + x;
+  }
+
+  livingNeighbours(x, y, state) {
+    let total = 0;
+    for (let offsetY = -1; offsetY <= 1; offsetY++) {
+      for (let offsetX = -1; offsetX <= 1; offsetX++) {
+        if (offsetX === 0 && offsetY === 0) continue;
+        const index = this.cellIndex(x + offsetX, y + offsetY, state);
+        if (index >= 0) total += state.cells[index];
+      }
+    }
+    return total;
+  }
+
+  advance(state) {
+    for (let y = 0; y < state.rows; y++) {
+      for (let x = 0; x < state.columns; x++) {
+        const index = y * state.columns + x;
+        const neighbours = this.livingNeighbours(x, y, state);
+        const alive = state.cells[index] === 1;
+
+        // Conway's complete rule: birth with 3; survive with 2 or 3.
+        state.next[index] = neighbours === 3 || (alive && neighbours === 2) ? 1 : 0;
+      }
+    }
+    [state.cells, state.next] = [state.next, state.cells];
+    state.generation += 1;
+  }
+
+  seedFromBeat(state) {
+    for (let i = 0; i < this.birthsOnBeat; i++) {
+      const x = Math.floor(Math.random() * state.columns);
+      const y = Math.floor(Math.random() * state.rows);
+      state.cells[y * state.columns + x] = 1;
+    }
+  }
+
+  update({ audio, state, dt }) {
+    const columns = Math.max(8, Math.floor(width / this.cellSize));
+    const rows = Math.max(8, Math.floor(height / this.cellSize));
+    if (
+      columns !== state.columns ||
+      rows !== state.rows ||
+      state.seedVersion !== this.seedVersion
+    ) {
+      this.resizeAndSeed(state);
+    }
+
+    if (state.clearVersion !== this.clearVersion) {
+      state.cells.fill(0);
+      state.clearVersion = this.clearVersion;
+      state.generation = 0;
+    }
+
+    if (audio.beat && this.birthsOnBeat > 0) this.seedFromBeat(state);
+
+    while (state.stepVersion < this.stepVersion) {
+      this.advance(state);
+      state.stepVersion += 1;
+    }
+
+    if (!this.running) return;
+    const mid = audio.mid ?? 0;
+    const rate = Math.max(0.1, this.generationsPerSecond * (1 + mid * this.audioSpeed));
+    const interval = 1 / rate;
+    state.elapsed += dt;
+
+    // Cap catch-up work so returning from a paused browser tab stays smooth.
+    let steps = 0;
+    while (state.elapsed >= interval && steps < 4) {
+      this.advance(state);
+      state.elapsed -= interval;
+      steps += 1;
+    }
+  }
+
+  draw(context) {
+    this.update(context);
+    const { audio, state } = context;
+    const bass = audio.bass ?? 0;
+    const treble = audio.treble ?? 0;
+    const gridWidth = state.columns * this.cellSize;
+    const gridHeight = state.rows * this.cellSize;
+    const left = (width - gridWidth) / 2;
+    const top = (height - gridHeight) / 2;
+
+    colorMode(HSB, 360, 100, 100, 1);
+    noStroke();
+    fill(230, 42, 3, this.backgroundFade);
+    rect(0, 0, width, height);
+
+    for (let y = 0; y < state.rows; y++) {
+      for (let x = 0; x < state.columns; x++) {
+        if (state.cells[y * state.columns + x] === 0) continue;
+        const colour = (this.hue + x * 1.6 + y * 0.8 + state.generation * 0.35) % 360;
+        fill(colour, 62 + treble * 30, 78 + bass * 22, 0.9);
+        rect(
+          left + x * this.cellSize + 1,
+          top + y * this.cellSize + 1,
+          Math.max(1, this.cellSize - 2),
+          Math.max(1, this.cellSize - 2),
+          Math.min(3, this.cellSize * 0.18),
+        );
+      }
+    }
+
+    if (this.showStats) {
+      fill(this.hue, 30, 100, 0.82);
+      textSize(12);
+      textAlign(LEFT, TOP);
+      text(
+        'generation ' + state.generation + ' · ' + (this.running ? 'running' : 'paused'),
+        12,
+        12,
+      );
+    }
+  }
+}
+
+const gameOfLife = new GameOfLife();`,
+  },
+
+  {
     name: 'strobe',
     category: 'visual',
     blurb: 'A restrained white beat flash. Plain first-class function patch.',

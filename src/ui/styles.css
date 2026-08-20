@@ -144,11 +144,12 @@ input:focus-visible {
 }
 
 #folded-code {
-  /* One coordinate system for both summary rows and expanded editors. The browser's
-   * native disclosure marker occupies the final 9px before the code column. */
+  /* One coordinate system for both summary rows and expanded editors. The disclosure
+   * column grows with the performer's code-size setting instead of staying at the
+   * browser's tiny native-marker size. */
   --folded-gutter-width: 58px;
-  --folded-code-column: 83px;
-  --folded-marker-width: 12px;
+  --folded-marker-width: max(25px, calc(var(--code-font-size) * 0.85));
+  --folded-code-column: calc(var(--folded-gutter-width) + var(--folded-marker-width));
   position: absolute;
   inset: 0;
   z-index: 3;
@@ -185,17 +186,40 @@ input:focus-visible {
 .folded-block > summary {
   position: relative;
   min-height: calc(var(--code-line-height) + 6px);
-  padding: 3px 10px 3px calc(var(--folded-code-column) - var(--folded-marker-width));
+  padding: 3px 10px 3px var(--folded-code-column);
   cursor: pointer;
+  list-style: none;
   color: rgba(205, 205, 214, 0.86);
   font-family: var(--mono);
   font-size: var(--code-font-size);
   line-height: var(--code-line-height);
   white-space: pre;
 }
-.folded-block > summary::marker {
+.folded-block > summary::-webkit-details-marker {
+  display: none;
+}
+.folded-block > summary::before {
+  content: '▸';
+  position: absolute;
+  top: 50%;
+  left: var(--folded-gutter-width);
+  display: grid;
+  place-items: center;
+  width: var(--folded-marker-width);
+  height: max(28px, var(--code-line-height));
   color: rgba(205, 205, 214, 0.8);
-  font-size: 11px;
+  border-radius: 3px;
+  font-size: max(16px, calc(var(--code-font-size) * 0.72));
+  line-height: 1;
+  transform: translateY(-50%);
+}
+.folded-block[open] > summary::before {
+  content: '▾';
+}
+.folded-block > summary:hover::before,
+.folded-block > summary:focus-visible::before {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
 }
 .folded-block > summary:hover,
 .folded-block > summary:focus-visible,
@@ -510,6 +534,12 @@ input:focus-visible {
 }
 
 .right-drawer {
+  /* Drawer-local contrast tokens. The global dim colour is deliberately subtle over
+   * the dark stage, but disappears when a white patch is visible through this panel. */
+  --text: #f6f5fa;
+  --dim: #c7c7d2;
+  --line: rgba(218, 218, 230, 0.24);
+  --panel-2: #15151b;
   position: absolute;
   /* Keep the performance controls as a fixed landmark. Drawers begin underneath
    * their 24px row plus its top and bottom breathing room. */
@@ -522,6 +552,7 @@ input:focus-visible {
   flex-direction: column;
   min-height: 0;
   border-left: 1px solid var(--line);
+  color: var(--text);
   /* Transparent enough to actually see through, including over dark visuals — which
    * is the hard case, since near-black panel over near-black canvas reads as solid
    * however low the alpha goes.
@@ -531,8 +562,17 @@ input:focus-visible {
    * start seeing fog. Legibility comes from the text shadow instead, which costs
    * nothing in visibility. */
   background: rgba(17, 17, 20, var(--tools-alpha));
-  backdrop-filter: blur(7px) saturate(0.85);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+  /* Brightness adapts with panel opacity: a very transparent drawer darkens the
+   * canvas behind it more, while an opaque drawer needs almost no backdrop help. */
+  -webkit-backdrop-filter:
+    blur(7px)
+    saturate(0.8)
+    brightness(calc(0.42 + var(--tools-alpha) * 0.47));
+  backdrop-filter:
+    blur(7px)
+    saturate(0.8)
+    brightness(calc(0.42 + var(--tools-alpha) * 0.47));
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.98), 0 0 2px rgba(0, 0, 0, 0.88);
   transition: transform 160ms ease;
 }
 .right-drawer.is-hidden {
@@ -950,7 +990,7 @@ input[type='number'] {
 }
 .summary-count {
   float: right;
-  color: #626270;
+  color: var(--dim);
   font-size: 10px;
   letter-spacing: 0;
   text-transform: none;
@@ -1163,7 +1203,7 @@ input[type='number'] {
 }
 .strategy-api-label {
   margin-bottom: 2px;
-  color: #565663;
+  color: var(--dim);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -1203,7 +1243,7 @@ input[type='number'] {
   flex: 1;
 }
 .library-group-heading > span:last-child {
-  color: #565663;
+  color: var(--dim);
   font-weight: 400;
 }
 .library-group[open] .library-group-heading {

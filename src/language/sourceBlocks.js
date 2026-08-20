@@ -170,10 +170,10 @@ export function renameLegacyStarterScene(source) {
  * @param {string} source
  * @param {string} sceneName
  * @param {string} memberName
- * @param {{before?: string | null}} options
+ * @param {{before?: string | null, at?: number | null}} options
  * @returns {string | null} updated source, or null when the declaration is absent
  */
-export function insertSceneMember(source, sceneName, memberName, { before = null } = {}) {
+export function insertSceneMember(source, sceneName, memberName, { before = null, at = null } = {}) {
   if (![sceneName, memberName, before].filter(Boolean).every(isIdentifier)) return null;
 
   const escapedScene = escapeRegExp(sceneName);
@@ -200,6 +200,26 @@ export function insertSceneMember(source, sceneName, memberName, { before = null
     const indent = anchor?.[1]
       ?? contentLine?.match(/^[ \t]*/)?.[0]
       ?? `${trailing?.[2] ?? ''}  `;
+
+    // A blank line inside the array is an explicit layer-order choice. It wins over
+    // the convenience anchor (normally "before plasma") and becomes the new member
+    // line without rebuilding or reformatting the surrounding scene.
+    if (Number.isInteger(at) && at > open && at < close) {
+      const lineStart = source.lastIndexOf('\n', at - 1) + 1;
+      const nextNewline = source.indexOf('\n', at);
+      const lineEnd = nextNewline === -1 ? source.length : nextNewline;
+      if (
+        lineStart > open &&
+        lineEnd <= close &&
+        source.slice(lineStart, lineEnd).trim() === ''
+      ) {
+        const blankIndent = source.slice(lineStart, lineEnd).replace(/\r$/, '');
+        const memberIndent = blankIndent || indent;
+        return source.slice(0, lineStart) +
+          `${memberIndent}${memberName},` +
+          source.slice(lineEnd);
+      }
+    }
 
     let insertAt;
     let insertion;

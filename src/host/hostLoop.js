@@ -152,7 +152,26 @@ export function createHostLoop({
       if (result.configurationSnapshot?.activeSceneName !== null) {
         registry.restoreConfiguration(result.configurationSnapshot);
       }
-      evaluator.restoreBinding(name, result.record.definition);
+
+      // Anonymous scene entries have registry identities like `scene[1]`, but no
+      // hidden JavaScript variable. Rebuild the visible scene-array binding from the
+      // restored registry configuration so a later `go(scene)` cannot accidentally
+      // resurrect the failed function object. Named strategies restore normally.
+      const inline = /^(.*)\[(\d+)\]$/.exec(name);
+      if (inline && evaluator.hasBinding(inline[1])) {
+        const previousScene = result.configurationSnapshot?.scenes
+          ?.find((scene) => scene.name === inline[1]);
+        if (previousScene) {
+          evaluator.restoreBinding(
+            inline[1],
+            previousScene.entries.map(
+              (strategyName) => registry.getStrategy(strategyName)?.definition,
+            ),
+          );
+        }
+      } else if (evaluator.hasBinding(name)) {
+        evaluator.restoreBinding(name, result.record.definition);
+      }
       disposeDefinition(result.failedDefinition, name);
       diagnostics?.error(
         `${name} v${result.failedVersion} threw on its first frame — rolled back to v${result.restoredVersion}`,

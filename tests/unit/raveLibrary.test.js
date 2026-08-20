@@ -123,6 +123,29 @@ describe('the rave teaching library', () => {
     expect(h.registry.hasStrategy('breathingEllipse')).toBe(true);
   });
 
+  it("installs Conway's Game of Life as a stateful class patch with live methods", () => {
+    const entry = LIBRARY.find(({ name }) => name === 'gameOfLife');
+    expect(entry).toMatchObject({
+      category: 'visual',
+      blurb: expect.stringContaining("Conway's Game of Life"),
+    });
+    expect(entry.source).toContain('class GameOfLife');
+    expect(entry.source).toContain('livingNeighbours(x, y, state)');
+    expect(entry.source).toContain('neighbours === 3 || (alive && neighbours === 2)');
+    expect(entry.source).toContain('gameOfLife.toggle()');
+    expect(entry.source).toContain('gameOfLife.singleStep()');
+
+    const h = createTestHost();
+    expect(h.evaluator.evaluate(entry.source).ok).toBe(true);
+    h.host.commitPendingChanges();
+
+    const implementation = h.registry.getStrategy('gameOfLife').definition;
+    expect(implementation.constructor.name).toBe('GameOfLife');
+    expect(implementation.running).toBe(true);
+    expect(h.evaluator.evaluate('gameOfLife.toggle();').ok).toBe(true);
+    expect(implementation.running).toBe(false);
+  });
+
   it('gives an arrow-function patch a declared live parameter', () => {
     const source = LIBRARY.find((entry) => entry.name === 'checkerZoom').source;
     expect(source).toContain('param("checkerSpeed", 0.08');

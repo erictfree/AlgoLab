@@ -5,11 +5,12 @@
 //
 //   const waveScope = ({ audio }) => { ... };
 //   const laserFan = { draw({ audio }) { ... } };
-//   const scene = [waveScope, laserFan, plasma];
+//   const scene = [waveScope, ({ time }) => circle(time, 40, 20), laserFan, plasma];
 //
 // The evaluator captures those bindings. An object with draw() is immediately a
 // strategy; a function becomes one when it is placed in a scene. A top-level array of
-// strategies is a scene. Composition changes only by editing that array.
+// strategies is a scene. Anonymous entries receive scene-local identities such as
+// `scene[1]`. Composition changes only by editing that array.
 
 import { ShaderChain } from '../shaders/shaderChain.js';
 
@@ -30,6 +31,11 @@ function assertName(kind, name) {
     throw new TypeError(`${kind} "${name}" may not contain "#"`);
   }
   return name;
+}
+
+/** Stable identity for an anonymous value occupying one scene-array slot. */
+export function inlineStrategyName(sceneName, index) {
+  return `${sceneName}[${index}]`;
 }
 
 /** Validate and return the exact function or object supplied by the student. */
@@ -58,8 +64,9 @@ export function validateStrategy(value, suggestedName) {
 /**
  * Create one atomic staging transaction.
  *
- * `nameOf` resolves an already-captured binding (`laserFan` -> "laserFan"). Identity always
- * comes from that JavaScript binding; objects do not carry a second name property.
+ * `nameOf` resolves an already-captured binding (`laserFan` -> "laserFan"). Values
+ * without a binding receive a scene-local identity when `defineScene()` visits them.
+ * Objects do not carry a second name property.
  */
 export function createTransaction(source = '', { nameOf = () => null } = {}) {
   /** @type {Map<string, {definition: Function | object, source: string}>} */
@@ -80,25 +87,31 @@ export function createTransaction(source = '', { nameOf = () => null } = {}) {
     return name;
   }
 
-  function referenceStrategy(value, suggestedName) {
+  function referenceStrategy(value, suggestedName, strategySource = source) {
     const { name, implementation } = resolve(value, suggestedName);
-    referencedStrategies.set(name, { definition: implementation, source });
+    referencedStrategies.set(name, { definition: implementation, source: strategySource });
     return name;
   }
 
-  function normalizeSceneEntry(entry, localNameOf = nameOf) {
-    const name = referenceStrategy(entry, localNameOf(entry));
+  function normalizeSceneEntry(sceneName, index, entry, localNameOf = nameOf, sceneSource = source) {
+    const boundName = localNameOf(entry);
+    const name = referenceStrategy(
+      entry,
+      boundName ?? inlineStrategyName(sceneName, index),
+      boundName ? source : sceneSource,
+    );
     return { strategy: name };
   }
 
   /** Called by the evaluator when it captures `const scene = [laserFan, plasma]`. */
-  function defineScene(name, entries, localNameOf = nameOf) {
+  function defineScene(name, entries, localNameOf = nameOf, sceneSource = source) {
     assertName('Scene', name);
     if (!Array.isArray(entries)) throw new TypeError(`Scene "${name}" must be an array`);
     operations.push({
       type: 'scene',
       name,
-      entries: entries.map((entry) => normalizeSceneEntry(entry, localNameOf)),
+      entries: entries.map((entry, index) =>
+        normalizeSceneEntry(name, index, entry, localNameOf, sceneSource)),
     });
     return name;
   }

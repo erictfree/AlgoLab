@@ -313,6 +313,64 @@ go(laserScene);`);
       .toBe(true);
   });
 
+  test('Install source honors a blank cursor line between top-level cells', async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => {
+      const editor = document.getElementById('code');
+      const sceneMarker = '// %% scene scene';
+      const anchor = '// %% patch insertionAnchor\nconst insertionAnchor = { draw() {} };';
+      editor.value = editor.value.replace(sceneMarker, `${anchor}\n\n${sceneMarker}`);
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      const anchorAt = editor.value.indexOf('// %% patch insertionAnchor');
+      const blankAt = editor.value.lastIndexOf('\n', anchorAt - 1);
+      editor.focus();
+      editor.setSelectionRange(blankAt, blankAt);
+      editor.dispatchEvent(new Event('select', { bubbles: true }));
+    });
+
+    await page.getByRole('button', { name: /^Install waveScope system patch source —/ }).click();
+
+    const order = await page.locator('#code').evaluate((editor) => ({
+      plasma: editor.value.indexOf('// %% patch plasma'),
+      inserted: editor.value.indexOf('// %% patch waveScope'),
+      anchor: editor.value.indexOf('// %% patch insertionAnchor'),
+      scene: editor.value.indexOf('// %% scene scene'),
+    }));
+    expect(order.plasma).toBeLessThan(order.inserted);
+    expect(order.inserted).toBeLessThan(order.anchor);
+    expect(order.anchor).toBeLessThan(order.scene);
+  });
+
+  test('Add to scene honors a blank cursor line in a folded scene array', async ({ page }) => {
+    await boot(page, { tools: true, folded: true });
+    await page.getByRole('button', { name: /^Install checkerZoom system patch source —/ }).click();
+
+    const scene = page.locator('.folded-block', { hasText: 'scene scene' });
+    await scene.locator('summary').click();
+    const editor = scene.getByRole('textbox', { name: 'Edit scene scene' });
+    const source = (await editor.inputValue()).replace('  plasma,\n];', '  plasma,\n\n];');
+    await editor.fill(source);
+    await editor.evaluate((element) => {
+      const blank = element.value.indexOf('\n\n') + 1;
+      element.setSelectionRange(blank, blank);
+      element.dispatchEvent(new Event('select', { bubbles: true }));
+    });
+
+    const add = page
+      .getByRole('button', { name: 'Add installed patch checkerZoom to the active scene source' });
+    await add.scrollIntoViewIfNeeded();
+    const addBox = await add.boundingBox();
+    expect(addBox).not.toBeNull();
+    await page.mouse.move(addBox.x + addBox.width / 2, addBox.y + addBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.up();
+
+    await expect(page.locator('#code')).toHaveValue(
+      /const scene = \[\n  plasma,\n  checkerZoom,\n\];/,
+    );
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+  });
+
   test('Add to scene opens only the scene cell without unfolding the project', async ({ page }) => {
     await boot(page, { tools: true, folded: true });
     await page.getByRole('button', { name: /^Install checkerZoom system patch source —/ }).click();
@@ -360,8 +418,8 @@ go(laserScene);`);
     await boot(page);
 
     const library = page.locator('#strategy-library');
-    await expect(library.locator('[data-library]')).toHaveCount(18);
-    await expect(page.getByRole('button', { name: /^All 18$/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(library.locator('[data-library]')).toHaveCount(19);
+    await expect(page.getByRole('button', { name: /^All 19$/ })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('[data-library="laserFan"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-library="plasma"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-available="laserFan"]')).toContainText('laserFan');
@@ -534,6 +592,72 @@ go(show);`;
       }))
       .toEqual({ running: true, error: null });
     await expect(page.locator('[data-library="shaderFlow"]')).toContainText('Running');
+  });
+
+  test('installs and advances the Game of Life class patch', async ({ page }) => {
+    await boot(page);
+    await page.getByRole('button', { name: /^Install gameOfLife system patch source —/ }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('gameOfLife')))
+      .toBe(true);
+
+    await page
+      .getByRole('button', { name: 'Add installed patch gameOfLife to the active scene source' })
+      .click();
+    await page.locator('#code').press('Control+Enter');
+
+    await expect
+      .poll(() => page.evaluate(() => {
+        const state = window.AlgoLab.stateStore.get('gameOfLife');
+        return {
+          running: window.AlgoLab.controller.snapshot().strategies
+            .find(({ name }) => name === 'gameOfLife')?.running ?? false,
+          generation: state?.generation ?? 0,
+          cells: state?.cells?.length ?? 0,
+          living: state?.cells?.reduce((total, cell) => total + cell, 0) ?? 0,
+        };
+      }))
+      .toMatchObject({ running: true });
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.stateStore.get('gameOfLife')?.generation ?? 0))
+      .toBeGreaterThan(0);
+    const population = await page.evaluate(() => {
+      const cells = window.AlgoLab.stateStore.get('gameOfLife')?.cells ?? [];
+      return { cells: cells.length, living: cells.reduce((total, cell) => total + cell, 0) };
+    });
+    expect(population.cells).toBeGreaterThan(0);
+    expect(population.living).toBeGreaterThan(0);
+    await expect(page.locator('[data-library="gameOfLife"]')).toContainText('Running');
+  });
+
+  test('runs an anonymous arrow directly from a live scene array', async ({ page }) => {
+    await boot(page, { tools: false });
+    await appendCellAndEvaluate(page, `// %% scene inlineShow
+const inlineShow = [
+  ({ time, audio, state }) => {
+    state.frames = (state.frames || 0) + 1;
+    noStroke();
+    fill(255, 80, 220);
+    circle(
+      width / 2 + cos(time) * 120,
+      height / 2,
+      30 + audio.bass * 80
+    );
+  },
+];
+go(inlineShow);`);
+
+    await expect
+      .poll(() => page.evaluate(() => ({
+        order: window.AlgoLab.registry.activeOrder(),
+        frames: window.AlgoLab.stateStore.get('inlineShow[0]')?.frames ?? 0,
+        running: window.AlgoLab.controller.snapshot().strategies
+          .find(({ name }) => name === 'inlineShow[0]')?.running ?? false,
+      })))
+      .toMatchObject({ order: ['inlineShow[0]'], running: true });
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.stateStore.get('inlineShow[0]')?.frames ?? 0))
+      .toBeGreaterThan(2);
   });
 
   test('installed strategies expose a read-only reference and jump to their source', async ({ page }) => {
@@ -792,7 +916,31 @@ test.describe('the minimal display', () => {
     expect(foldedSurfaces.codeLine).toBeLessThan(0.4);
 
     const plasma = page.locator('.folded-block', { hasText: 'patch plasma' });
-    await plasma.locator('summary').click();
+    const summary = plasma.locator('summary');
+    const disclosure = await summary.evaluate((element) => {
+      const marker = getComputedStyle(element, '::before');
+      const codeSize = Number.parseFloat(getComputedStyle(element).fontSize);
+      return {
+        content: marker.content,
+        fontSize: Number.parseFloat(marker.fontSize),
+        height: Number.parseFloat(marker.height),
+        left: Number.parseFloat(marker.left),
+        width: Number.parseFloat(marker.width),
+        codeSize,
+      };
+    });
+    expect(disclosure.content).toContain('▸');
+    expect(disclosure.fontSize).toBeGreaterThanOrEqual(disclosure.codeSize * 0.7);
+    expect(disclosure.height).toBeGreaterThanOrEqual(28);
+    expect(disclosure.width).toBeGreaterThanOrEqual(25);
+
+    // Click the visible disclosure control itself, not the much larger summary row.
+    await summary.click({
+      position: {
+        x: disclosure.left + disclosure.width / 2,
+        y: disclosure.height / 2 + 3,
+      },
+    });
     await expect(plasma.locator('.folded-source')).toContainText('class Plasma');
     await expect(plasma.locator('.folded-line.folded-open')).toHaveText('1');
 
@@ -1214,6 +1362,22 @@ test.describe('the minimal display', () => {
     expect(await code.inputValue()).toBe('  // alpha();\n  // beta();\n');
     await code.press('ControlOrMeta+/');
     expect(await code.inputValue()).toBe(original);
+
+    // Mixed selections deliberately add one reversible outer layer. A patch that
+    // was already disabled stays disabled after commenting and restoring its group.
+    const mixed = '  solidBackground,\n  // checkerZoom,\n  laserFan,\n';
+    await page.evaluate((source) => {
+      const editor = document.getElementById('code');
+      editor.value = source;
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.setSelectionRange(0, source.length - 1);
+    }, mixed);
+    await code.press('ControlOrMeta+/');
+    expect(await code.inputValue()).toBe(
+      '  // solidBackground,\n  // // checkerZoom,\n  // laserFan,\n',
+    );
+    await code.press('ControlOrMeta+/');
+    expect(await code.inputValue()).toBe(mixed);
   });
 
   test('"e" hides the code, and the sketch does not notice', async ({ page }) => {
@@ -1263,11 +1427,22 @@ circle(20, 20, 10);
     await plasma.locator('summary').click();
     const editor = plasma.getByRole('textbox', { name: 'Edit patch plasma' });
     const original = await editor.inputValue();
-    await editor.fill(original.replace('  speed = 0.35;', 'speed = 0.35;'));
+    await editor.fill(
+      original
+        .replace('  speed = 0.35;', 'speed = 0.35;')
+        .replace(
+          '      float red = texture2D(uScene, clamp(sampleUv + split, 0.002, 0.998)).r;',
+          `float red = texture2D(
+uScene,
+clamp(sampleUv + split, 0.002, 0.998)
+).r;`,
+        ),
+    );
 
     await editor.press('Control+Alt+t');
 
     await expect(editor).toHaveValue(/\n  speed = 0\.35;/);
+    await expect(editor).toHaveValue(/\n      float red = texture2D\(\n        uScene,\n        clamp\(sampleUv \+ split, 0\.002, 0\.998\)\n      \)\.r;/);
     await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
   });
 
@@ -1334,11 +1509,23 @@ circle(20, 20, 10);
 
     // Slightly transparent, and blurred so it stays readable over moving visuals.
     const style = await page.evaluate(() => {
-      const cs = getComputedStyle(document.getElementById('side'));
-      return { background: cs.backgroundColor, backdrop: cs.backdropFilter };
+      const side = document.getElementById('side');
+      const cs = getComputedStyle(side);
+      const available = getComputedStyle(side.querySelector('.strategy.is-available .name'));
+      return {
+        background: cs.backgroundColor,
+        backdrop: cs.backdropFilter,
+        text: cs.color,
+        mutedText: available.color,
+        textShadow: cs.textShadow,
+      };
     });
     expect(style.background).toMatch(/rgba?\(.*0\.55\)/);
     expect(style.backdrop).toContain('blur');
+    expect(style.backdrop).toContain('brightness');
+    expect(style.text).toBe('rgb(246, 245, 250)');
+    expect(style.mutedText).toBe('rgb(199, 199, 210)');
+    expect(style.textShadow).toContain('2px');
 
     // The slider actually changes it, live.
     await selectTool(page, 'Project');

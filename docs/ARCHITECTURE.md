@@ -72,9 +72,11 @@ directly. Consequently:
 The evaluator scans complete top-level statements—or explicit `// %%` cells—compiles
 them as JavaScript, and captures declared bindings. It classifies values by behavior:
 
-- an object with `draw()` is a strategy, named by its binding;
-- a function becomes a strategy when a scene uses it, and remains one on
-  later replacements of that binding;
+- an object with `draw()` is a strategy, named by its binding when it has one;
+- a function becomes a strategy when a scene uses it, and a bound function remains one
+  on later replacements of that binding;
+- an anonymous function or object directly in a scene receives a scene-slot identity
+  such as `scene[1]`;
 - an array entirely composed of strategy values is a scene, named by its binding;
 - unused functions, classes, arrays, and other values remain ordinary reusable bindings;
 - `go`, `reset`, and `param` are the only injected live commands.
@@ -110,10 +112,12 @@ A replacement queued during draw N is installed at the end of N, first runs in N
 and is confirmed at the end of N+1. A shared implementation is confirmed only after
 every active copy survives; independent state can take different code paths.
 
-Rollback restores four aligned identities: the registry implementation, the captured
-JavaScript binding, the version/source record, and all clone-compatible instance state.
-That binding restoration matters: after a failed `laserFan` edit, a later scene edit
-containing `laserFan` must refer to the restored object, not the failed candidate.
+Rollback restores four aligned identities: the registry implementation, the associated
+JavaScript binding or scene-array slot, the version/source record, and all
+clone-compatible instance state. That restoration matters: after a failed `laserFan`
+edit, a later scene edit containing `laserFan` must refer to the restored object, not
+the failed candidate. A failed inline replacement similarly restores the value used by
+its containing scene binding.
 Scene configuration is part of the same transaction. If a newly selected scene fails
 its first render, the previously running scene and its order remain live.
 
@@ -125,8 +129,10 @@ other external resources without putting them in the cloneable state store.
 
 ## Identity and copies
 
-The binding name is the stable strategy identity. The first scene copy uses that bare
-name as its instance id; later copies use `name#2`, `name#3`, and so on.
+A named strategy's binding is its stable identity. An anonymous strategy uses its
+zero-based scene-array position, such as `scene[1]`; moving it intentionally creates a
+new identity and fresh state. The first scene copy uses the base identity as its
+instance id; later copies use `name#2`, `name#3`, and so on.
 
 | Shared by copies | Per copy |
 | --- | --- |
@@ -138,8 +144,9 @@ explicit request for fresh state.
 
 Configuration belongs to the strategy value: closure variables for functions,
 properties for objects, and constructor arguments for classes. Distinct configured
-strategies receive distinct bindings and can be created with factories or object spread.
-The runtime has no second per-scene configuration language.
+strategies can receive distinct bindings or occupy distinct anonymous scene slots, and
+can be created with factories or object spread. The runtime has no second per-scene
+configuration language.
 
 Scene membership and order have one write path: evaluating a named array. The scene
 strip renders the resulting instance ids but does not mutate them. Installing a library

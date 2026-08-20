@@ -146,6 +146,24 @@ const newPatch = { draw() {} };
     expect(moveSceneCellsLast(source)).toBe(source);
   });
 
+  it('uses a blank cursor line as the exact scene-layer insertion point', () => {
+    const scene = `// %% scene show
+const show = [
+  plasma,
+
+];
+go(show);`;
+    const blank = scene.indexOf('\n\n') + 1;
+
+    expect(insertSceneMember(scene, 'show', 'rings', { before: 'plasma', at: blank }))
+      .toBe(`// %% scene show
+const show = [
+  plasma,
+  rings,
+];
+go(show);`);
+  });
+
   it('renames only the marked legacy starter scene', () => {
     const legacy = `// %% patch plasma
 const plasma = { draw() {} };

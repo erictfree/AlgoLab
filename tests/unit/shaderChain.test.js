@@ -91,4 +91,26 @@ const flow = new ShaderChain()
     expect(h.evaluator.binding('flow').operations.map(({ name }) => name))
       .toEqual(['rotate', 'scale', 'hue']);
   });
+
+  it('can be constructed anonymously in a scene slot', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate(`
+      const show = [
+        new ShaderChain()
+          .rotate(({ time, audio }) => time * 0.1 + audio.bass * 0.2)
+          .contrast(1.1),
+      ];
+      go(show);
+    `);
+
+    // Apply the transaction, but do not draw: the unit host deliberately has no p5
+    // WebGL renderer. The browser acceptance test owns the real draw path.
+    h.frame(1);
+
+    expect(result.ok).toBe(true);
+    expect(h.registry.activeOrder()).toEqual(['show[0]']);
+    expect(h.registry.getStrategy('show[0]').definition).toBeInstanceOf(ShaderChain);
+    expect(h.registry.getStrategy('show[0]').definition.operations.map(({ name }) => name))
+      .toEqual(['rotate', 'contrast']);
+  });
 });

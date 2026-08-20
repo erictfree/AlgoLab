@@ -227,6 +227,32 @@ describe('first-class function strategies', () => {
     expect(h.registry.getStrategy('wash').version).toBe(2);
     expect(h.stateStore.get('wash').version).toBe(2);
   });
+
+  it('rolls back a failed anonymous scene-slot replacement', () => {
+    const h = createTestHost();
+    h.evaluator.evaluate(`
+      const show = [({ state }) => { state.good = (state.good || 0) + 1; }];
+      go(show);
+    `);
+    h.frame(5);
+    const good = h.registry.getStrategy('show[0]').definition;
+    const before = h.stateStore.get('show[0]').good;
+
+    h.evaluator.evaluate(`
+      const show = [({ state }) => {
+        state.good = -999;
+        missingInlineFunction();
+      }];
+    `);
+    h.frame(2);
+
+    expect(h.registry.getStrategy('show[0]').definition).toBe(good);
+    expect(h.registry.getStrategy('show[0]').version).toBe(1);
+    expect(h.stateStore.get('show[0]').good).toBe(before);
+    expect(h.evaluator.hasBinding('show[0]')).toBe(false);
+    expect(h.evaluator.binding('show')[0]).toBe(good);
+    expect(h.evaluator.evaluate('const ordinaryValue = 3;').ok).toBe(true);
+  });
 });
 
 describe('atomic class and factory cells', () => {

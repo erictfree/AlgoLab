@@ -51,7 +51,7 @@ on its first rendered frame rolls back to the last version that worked.
 - Audio files, microphone, or line input with normalized bass, mid, treble, level,
   waveform, and beat/onset data
 - Ordinary JavaScript objects, functions, classes, closures, factories, and arrow
-  functions as live visual material
+  functions as live visual material, including anonymous functions directly in scenes
 - Scene arrays with multiple independent copies of one patch
 - A patch library with visual, diagnostic, utility, and shader examples
 - A fluent `ShaderChain` for post-processing previously drawn output
@@ -326,7 +326,7 @@ control.
 | --- | --- |
 | `Cmd/Ctrl+Enter` | Evaluate the current cell or statement |
 | `Cmd/Ctrl+Shift+Enter` | Evaluate the complete editor |
-| `Cmd/Ctrl+/` | Comment or uncomment selected lines |
+| `Cmd/Ctrl+/` | Toggle a reversible comment layer on selected lines |
 | `Cmd/Ctrl+Option/Alt+T` | Tidy indentation in the current code cell |
 | `Cmd/Ctrl+Alt+N` | Start a new Plasma performance after confirmation |
 | `Esc` | Release editor focus so performance keys work |

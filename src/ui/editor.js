@@ -20,6 +20,11 @@ function isPatchBlock(block, name) {
   return label === `strategy ${name}` || label === `patch ${name}`;
 }
 
+/** `scene[2]` is the scene-local identity of an anonymous array entry. */
+function inlineSceneName(name) {
+  return /^(.*)\[(\d+)\]$/.exec(name)?.[1] ?? null;
+}
+
 /**
  * Wire a textarea up as the live-coding surface.
  * @param {HTMLTextAreaElement} textarea
@@ -39,6 +44,16 @@ export function createEditor(textarea, handlers) {
   let folded = false;
   const openFolds = new Set();
   let foldControlSignature = '';
+  // Library buttons take focus before their click handlers run. Preserve the last
+  // collapsed editor caret as a source offset so a blank line can remain an explicit
+  // insertion point in either the complete or structured presentation.
+  let lastSourceCaret = null;
+
+  function rememberTextareaCaret() {
+    lastSourceCaret = textarea.selectionStart === textarea.selectionEnd
+      ? textarea.selectionStart
+      : null;
+  }
   /**
    * What each line currently in the mirror is painted as, parallel to its child nodes.
    *
@@ -394,6 +409,17 @@ export function createEditor(textarea, handlers) {
       bodyEditor.wrap = 'off';
       bodyEditor.setAttribute('aria-label', `Edit ${preview.description}`);
 
+      const rememberBodyCaret = () => {
+        const current = blockForFoldKey(textarea.value, foldKey);
+        if (!current || bodyEditor.selectionStart !== bodyEditor.selectionEnd) {
+          lastSourceCaret = null;
+          return;
+        }
+        const markerEnd = current.text.indexOf('\n');
+        const bodyStart = markerEnd === -1 ? current.text.length : markerEnd + 1;
+        lastSourceCaret = current.start + bodyStart + bodyEditor.selectionStart;
+      };
+
       const syncBodyScroll = () => {
         if (bodyMirror.scrollLeft !== bodyEditor.scrollLeft) {
           bodyMirror.scrollLeft = bodyEditor.scrollLeft;
@@ -448,7 +474,12 @@ export function createEditor(textarea, handlers) {
         syncMirror();
         handlers.onChange?.(textarea.value);
         paintBody();
+        rememberBodyCaret();
       });
+
+      for (const eventName of ['focus', 'click', 'keyup', 'mouseup', 'select']) {
+        bodyEditor.addEventListener(eventName, rememberBodyCaret);
+      }
 
       bodyEditor.addEventListener('keydown', (event) => {
         const accel = event.metaKey || event.ctrlKey;
@@ -514,6 +545,7 @@ export function createEditor(textarea, handlers) {
       // When focus leaves all folded cell editors, repaint from the authoritative
       // source so declaration previews and later line numbers reflect the edit.
       bodyEditor.addEventListener('blur', () => {
+        rememberBodyCaret();
         setTimeout(() => {
           if (!folded || foldedView.querySelector('.folded-source-editor:focus')) return;
           foldedSource = null;
@@ -608,6 +640,7 @@ export function createEditor(textarea, handlers) {
           details.scrollIntoView({ block: 'center', inline: 'nearest' });
           inlineEditor.focus({ preventScroll: true });
           inlineEditor.setSelectionRange(relativeStart, relativeEnd);
+          lastSourceCaret = start === end ? start : null;
           return;
         }
       }
@@ -616,6 +649,7 @@ export function createEditor(textarea, handlers) {
     setFolded(false);
     textarea.focus({ preventScroll: true });
     textarea.setSelectionRange(start, end);
+    lastSourceCaret = start === end ? start : null;
     const line = textarea.value.slice(0, start).split('\n').length - 1;
     const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 22;
     textarea.scrollTop = Math.max(0, line * lineHeight - textarea.clientHeight * 0.25);
@@ -666,7 +700,8 @@ export function createEditor(textarea, handlers) {
   /** A patch can compile successfully and still throw when the next frame calls it. */
   function flashCodeError(name) {
     if (folded && foldedView) {
-      const description = `patch ${name}`;
+      const sceneName = inlineSceneName(name);
+      const description = sceneName ? `scene ${sceneName}` : `patch ${name}`;
       const block = [...foldedView.querySelectorAll('.folded-block')].find(
         (candidate) => candidate.dataset.blockDescription === description,
       );
@@ -927,7 +962,13 @@ export function createEditor(textarea, handlers) {
     handlers.onChange?.(textarea.value);
   }
 
-  textarea.addEventListener('input', changed);
+  textarea.addEventListener('input', () => {
+    rememberTextareaCaret();
+    changed();
+  });
+  for (const eventName of ['focus', 'click', 'keyup', 'mouseup', 'select', 'blur']) {
+    textarea.addEventListener(eventName, rememberTextareaCaret);
+  }
   textarea.addEventListener('scroll', syncScroll);
   window.addEventListener('resize', syncMirror);
 
@@ -966,11 +1007,39 @@ export function createEditor(textarea, handlers) {
     return next;
   }
 
-  /** Install a patch before scene cells so a full reload preserves JS declaration order. */
+  /** Insert at a remembered blank line immediately between explicit top-level cells. */
+  function insertPatchAtBlankLine(source, patchSource, at) {
+    if (!Number.isInteger(at) || at < 0 || at > source.length) return null;
+    const lineStart = source.lastIndexOf('\n', at - 1) + 1;
+    const nextNewline = source.indexOf('\n', at);
+    const lineEnd = nextNewline === -1 ? source.length : nextNewline;
+    if (source.slice(lineStart, lineEnd).trim() !== '') return null;
+
+    const afterLine = nextNewline === -1 ? lineEnd : lineEnd + 1;
+    const remainder = source.slice(afterLine);
+    const nextContent = remainder.search(/\S/);
+    if (nextContent === -1 || !/^\/\/\s*%%\s+/.test(remainder.slice(nextContent))) return null;
+
+    const eol = source.includes('\r\n') ? '\r\n' : '\n';
+    const patch = patchSource.trim();
+    const prefix = source.slice(0, lineStart);
+    const leading = prefix.trim() === '' ? '' : eol;
+    const insertion = `${leading}${patch}${eol}${eol}`;
+    return {
+      source: prefix + insertion + source.slice(afterLine),
+      caret: prefix.length + leading.length + patch.length + eol.length,
+    };
+  }
+
+  /** Install at an explicit blank cell boundary, otherwise safely before scene cells. */
   function insertPatchSource(source) {
-    const appended = `${textarea.value.trimEnd()}\n\n${source.trim()}\n`;
+    const directed = insertPatchAtBlankLine(textarea.value, source, lastSourceCaret);
+    const appended = directed?.source ?? `${textarea.value.trimEnd()}\n\n${source.trim()}\n`;
     const next = moveSceneCellsLast(appended);
     write(next, true);
+    const caret = directed && next === directed.source ? directed.caret : 0;
+    textarea.setSelectionRange(caret, caret);
+    lastSourceCaret = caret;
     changed();
     return next;
   }
@@ -1008,7 +1077,15 @@ export function createEditor(textarea, handlers) {
       const source = `// %% scene ${sceneName}\n${declaration}\ngo(${sceneName});`;
       appendSource(source);
     } else {
-      const updated = insertSceneMember(target.text, sceneName, strategyName, { before });
+      const caret = Number.isInteger(lastSourceCaret) &&
+        lastSourceCaret >= target.start &&
+        lastSourceCaret < target.end
+        ? lastSourceCaret - target.start
+        : null;
+      const updated = insertSceneMember(target.text, sceneName, strategyName, {
+        before,
+        at: caret,
+      });
       if (updated === null) return { ok: false, reason: 'scene-declaration-not-found' };
       write(
         textarea.value.slice(0, target.start) + updated + textarea.value.slice(target.end),
@@ -1021,8 +1098,13 @@ export function createEditor(textarea, handlers) {
       (block) => describeBlock(block.text) === `scene ${sceneName}`,
     );
     if (updatedTarget) {
-      const local = updatedTarget.text.indexOf(`const ${sceneName}`);
-      revealRange(updatedTarget.start + Math.max(0, local));
+      const escaped = strategyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const inserted = new RegExp(`^[ \\t]*(${escaped})\\b`, 'm').exec(updatedTarget.text);
+      const local = inserted
+        ? inserted.index + inserted[0].lastIndexOf(strategyName)
+        : updatedTarget.text.indexOf(`const ${sceneName}`);
+      const start = updatedTarget.start + Math.max(0, local);
+      revealRange(start, start + (inserted ? strategyName.length : 0));
     }
     return { ok: true, sceneName, order: nextOrder, source: updatedTarget?.text ?? declaration };
   }
@@ -1059,6 +1141,9 @@ export function createEditor(textarea, handlers) {
     },
     /** Focus the binding that defines a strategy without changing source. */
     revealStrategy(name) {
+      const sceneName = inlineSceneName(name);
+      if (sceneName) return this.revealScene(sceneName);
+
       const target = findBlocks(textarea.value).find((block) => isPatchBlock(block, name));
       if (!target) return false;
 
@@ -1085,7 +1170,11 @@ export function createEditor(textarea, handlers) {
     /** Put a stored version back in the editor when the performer reverts (§10.4). */
     replaceBlockFor(name, source) {
       const blocks = findBlocks(textarea.value);
-      const target = blocks.find((block) => isPatchBlock(block, name));
+      const sceneName = inlineSceneName(name);
+      const target = blocks.find((block) =>
+        sceneName
+          ? describeBlock(block.text) === `scene ${sceneName}`
+          : isPatchBlock(block, name));
       // Through `write` so a revert is itself undoable — putting an old version back
       // is exactly the kind of move a performer takes back a second later.
       write(

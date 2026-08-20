@@ -143,12 +143,16 @@ const kaleido = makeKaleido(12, 285);
 ```
 
 Objects and classes store the same configuration as properties or constructor values.
-To make two differently configured object strategies, give each result its own binding:
+Give a configured result its own binding when you want to address it elsewhere:
 
 ```js
 const pinkLasers = { ...laserFan, hue: 330, direction: -1 };
 const cyanLasers = { ...laserFan, hue: 180, beams: 7 };
 ```
+
+When the configured value belongs only to one scene, a factory result or arrow function
+can instead be written directly in that scene array. AlgoLab gives it a scene-local
+identity automatically.
 
 The same pattern works when what differs is how each object interprets the shared
 draw inputs:
@@ -234,9 +238,43 @@ Earlier entries draw underneath later entries. Re-evaluating the array changes t
 composition without replacing its members or their persistent state. `go()` accepts
 the array itself, not its name as a string.
 
-The binding names—`laserFan`, `plasma`, and `scene`—are the stable identities used for
-replacement, diagnostics, history, and the performer UI. Every strategy therefore
-needs its own JavaScript binding; anonymous inline strategies in a scene are rejected.
+Named entries use their JavaScript binding names—`laserFan` and `plasma`—as stable
+identities for replacement, diagnostics, history, and the performer UI. Anonymous
+functions, objects, class instances, and factory results can also be placed directly
+in the array:
+
+```js
+const scene = [
+  laserFan,
+
+  ({ time, audio }) => {
+    const size = 30 + audio.bass * 100;
+    circle(
+      width / 2 + cos(time) * 180,
+      height / 2 + sin(time) * 180,
+      size
+    );
+  },
+
+  new ShaderChain()
+    .rotate(({ time }) => time * 0.1),
+
+  plasma,
+];
+
+go(scene);
+```
+
+When this cell is evaluated, JavaScript creates each inline value once. On every draw,
+AlgoLab calls an inline function as `functionStrategy(context)` or an inline object as
+`objectStrategy.draw(context)`. Function return values are ignored; p5 drawing calls
+are their visual output.
+
+Anonymous entries use their zero-based array position as identity. The function above
+appears as `scene[1]` and the shader as `scene[2]`. Re-evaluating an implementation in
+the same slot retains that slot's persistent `state`. Moving it to another slot gives
+it a new identity and therefore fresh state. Bind a strategy to a name when its identity
+should survive scene reordering or when other live code needs to call its methods.
 
 The same strategy can appear more than once:
 
@@ -297,8 +335,10 @@ Without a marker, each complete top-level statement remains its own block.
 
 The editor preserves indentation on Enter, indents inside matching `{}`, `[]`, and
 `()`, and outdents closing delimiters typed on a blank line. Tab and Shift+Tab adjust
-the current selection. `Cmd/Ctrl+/` comments or uncomments the current line or all
-selected lines. Folding is reversible in both presentations: the structured editor can
+the current selection. `Cmd/Ctrl+/` toggles a reversible comment layer on the current
+line or all selected lines. In a mixed selection an already commented line therefore
+becomes `// // line`; removing the outer layer restores its earlier disabled state.
+Folding is reversible in both presentations: the structured editor can
 expand every object/function/class and still collapse any one again, while the complete
 editor keeps a disclosure control beside every top-level declaration.
 `Cmd/Ctrl+Option/Alt+T` tidies indentation in the current cell without evaluating it. Plain
