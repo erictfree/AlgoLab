@@ -173,8 +173,8 @@ input:focus-visible {
   pointer-events: none;
 }
 #folded-blocks {
-  width: min(1040px, calc(100vw - 24px));
-  overflow: hidden;
+  width: 100%;
+  overflow: visible;
   background: transparent;
   border-top: 0;
 }
@@ -299,9 +299,15 @@ input:focus-visible {
   z-index: 1;
   resize: none;
   outline: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
   caret-color: #fff;
   color: transparent;
   -webkit-text-fill-color: transparent;
+}
+.folded-source-editor::-webkit-scrollbar {
+  display: none;
 }
 .folded-source-editor:focus-visible {
   /* The global textarea focus ring reads as a bright blue panel outline here.

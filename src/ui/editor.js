@@ -394,6 +394,14 @@ export function createEditor(textarea, handlers) {
       bodyEditor.wrap = 'off';
       bodyEditor.setAttribute('aria-label', `Edit ${preview.description}`);
 
+      const syncBodyScroll = () => {
+        if (bodyMirror.scrollLeft !== bodyEditor.scrollLeft) {
+          bodyMirror.scrollLeft = bodyEditor.scrollLeft;
+        }
+        if (bodyMirror.scrollTop !== bodyEditor.scrollTop) bodyMirror.scrollTop = bodyEditor.scrollTop;
+        if (bodyNumbers.scrollTop !== bodyEditor.scrollTop) bodyNumbers.scrollTop = bodyEditor.scrollTop;
+      };
+
       const paintBody = () => {
         const tokenLines = tokenizeLines(bodyEditor.value);
         const sourceLines = bodyEditor.value.split('\n');
@@ -421,7 +429,10 @@ export function createEditor(textarea, handlers) {
         bodyMirror.style.height = height;
         bodyNumbers.style.height = height;
         bodyEditor.style.height = height;
+        syncBodyScroll();
       };
+
+      bodyEditor.addEventListener('scroll', syncBodyScroll);
 
       bodyEditor.addEventListener('input', () => {
         const current = blockForFoldKey(textarea.value, foldKey);

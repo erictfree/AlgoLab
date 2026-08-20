@@ -1007,6 +1007,38 @@ test.describe('the minimal display', () => {
     await expect(page.locator('#code-size')).toHaveValue('22');
   });
 
+  test('large folded code uses the viewport and keeps syntax aligned while scrolling', async ({ page }) => {
+    await boot(page, { folded: true });
+    await selectTool(page, 'Project');
+    await page.locator('#code-size').fill('24');
+    const plasma = page.locator('.folded-block', { hasText: 'patch plasma' });
+    await plasma.locator('summary').click();
+    const editor = plasma.getByRole('textbox', { name: 'Edit patch plasma' });
+
+    const bounds = await page.evaluate(() => ({
+      viewport: window.innerWidth,
+      folded: document.getElementById('folded-blocks').getBoundingClientRect().width,
+      editorRight: document.querySelector('.folded-block[open] .folded-source-editor')
+        .getBoundingClientRect().right,
+    }));
+    expect(bounds.folded).toBeGreaterThan(bounds.viewport - 40);
+    expect(bounds.editorRight).toBeLessThanOrEqual(bounds.viewport);
+
+    const scroll = await editor.evaluate((node) => {
+      node.scrollLeft = Math.min(240, node.scrollWidth - node.clientWidth);
+      node.dispatchEvent(new Event('scroll'));
+      const mirror = node.parentElement.querySelector('.folded-source-mirror');
+      return {
+        available: node.scrollWidth > node.clientWidth,
+        editor: node.scrollLeft,
+        mirror: mirror.scrollLeft,
+      };
+    });
+    expect(scroll.available).toBe(true);
+    expect(scroll.editor).toBeGreaterThan(0);
+    expect(scroll.mirror).toBe(scroll.editor);
+  });
+
   test('the mirror follows the editor scroll, however it moved', async ({ page }) => {
     await boot(page, { tools: false });
     const scrollTops = () =>
