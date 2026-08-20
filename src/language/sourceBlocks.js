@@ -160,6 +160,164 @@ export function renameLegacyStarterScene(source) {
 }
 
 /**
+ * Add one identifier to a named scene array without regenerating the declaration.
+ *
+ * Source is the composition model, so comments are meaningful live-coding edits.
+ * Rebuilding an array from the running registry would turn an unevaluated
+ * `// plasma,` back into active code and discard the performer's formatting. This
+ * helper changes only the array body and leaves every existing line intact.
+ *
+ * @param {string} source
+ * @param {string} sceneName
+ * @param {string} memberName
+ * @param {{before?: string | null}} options
+ * @returns {string | null} updated source, or null when the declaration is absent
+ */
+export function insertSceneMember(source, sceneName, memberName, { before = null } = {}) {
+  if (![sceneName, memberName, before].filter(Boolean).every(isIdentifier)) return null;
+
+  const escapedScene = escapeRegExp(sceneName);
+  const declaration = new RegExp(
+    `\\b(?:const|let|var)\\s+${escapedScene}\\s*=\\s*\\[`,
+  ).exec(source);
+  if (!declaration) return null;
+
+  const open = declaration.index + declaration[0].lastIndexOf('[');
+  const close = matchingSquareBracket(source, open);
+  if (close === -1) return null;
+
+  const body = source.slice(open + 1, close);
+  const masked = maskCommentsAndStrings(body);
+  const eol = body.includes('\r\n') ? '\r\n' : '\n';
+
+  if (body.includes('\n')) {
+    const escapedBefore = before ? escapeRegExp(before) : null;
+    const anchor = escapedBefore
+      ? new RegExp(`^([ \\t]*)${escapedBefore}\\b`, 'm').exec(masked)
+      : null;
+    const contentLine = body.split(/\r?\n/).find((line) => line.trim() !== '');
+    const trailing = /(\r?\n)([ \t]*)$/.exec(body);
+    const indent = anchor?.[1]
+      ?? contentLine?.match(/^[ \t]*/)?.[0]
+      ?? `${trailing?.[2] ?? ''}  `;
+
+    let insertAt;
+    let insertion;
+    if (anchor) {
+      insertAt = anchor.index;
+      insertion = `${indent}${memberName},${eol}`;
+    } else if (trailing) {
+      insertAt = trailing.index;
+      insertion = `${eol}${indent}${memberName},`;
+    } else {
+      insertAt = body.length;
+      insertion = `${body.endsWith(eol) ? '' : eol}${indent}${memberName},`;
+    }
+
+    const updatedBody = body.slice(0, insertAt) + insertion + body.slice(insertAt);
+    return source.slice(0, open + 1) + updatedBody + source.slice(close);
+  }
+
+  // Compact arrays stay compact. The mask has the same length as the source, so an
+  // active `before` identifier can be located without matching one inside a comment.
+  const escapedBefore = before ? escapeRegExp(before) : null;
+  const anchor = escapedBefore ? new RegExp(`\\b${escapedBefore}\\b`).exec(masked) : null;
+  let updatedBody;
+  if (anchor) {
+    updatedBody = body.slice(0, anchor.index) + `${memberName}, ` + body.slice(anchor.index);
+  } else {
+    const contentEnd = body.search(/\s*$/);
+    const prefix = body.slice(0, contentEnd);
+    const suffix = body.slice(contentEnd);
+    const activePrefix = masked.slice(0, contentEnd).trim();
+    const separator = activePrefix
+      ? (activePrefix.endsWith(',') ? ' ' : ', ')
+      : (prefix.trim() ? ' ' : '');
+    updatedBody = `${prefix}${separator}${memberName}${suffix}`;
+  }
+  return source.slice(0, open + 1) + updatedBody + source.slice(close);
+}
+
+function isIdentifier(value) {
+  return typeof value === 'string' && /^[A-Za-z_$][\w$]*$/.test(value);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Find the closing bracket while ignoring brackets inside comments and strings. */
+function matchingSquareBracket(source, open) {
+  let depth = 0;
+  let i = open;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === '/' && source[i + 1] === '/') {
+      const end = source.indexOf('\n', i + 2);
+      i = end === -1 ? source.length : end + 1;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      const end = source.indexOf('*/', i + 2);
+      i = end === -1 ? source.length : end + 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      i = skipString(source, i, ch);
+      continue;
+    }
+    if (ch === '`') {
+      i = skipTemplate(source, i);
+      continue;
+    }
+    if (ch === '[') depth++;
+    if (ch === ']' && --depth === 0) return i;
+    i++;
+  }
+  return -1;
+}
+
+/** Replace comments and strings with spaces while retaining offsets and newlines. */
+function maskCommentsAndStrings(source) {
+  const chars = [...source];
+  const blank = (start, end) => {
+    for (let i = start; i < end; i++) if (chars[i] !== '\n' && chars[i] !== '\r') chars[i] = ' ';
+  };
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === '/' && source[i + 1] === '/') {
+      const end = source.indexOf('\n', i + 2);
+      const after = end === -1 ? source.length : end;
+      blank(i, after);
+      i = after;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      const end = source.indexOf('*/', i + 2);
+      const after = end === -1 ? source.length : end + 2;
+      blank(i, after);
+      i = after;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const after = skipString(source, i, ch);
+      blank(i, after);
+      i = after;
+      continue;
+    }
+    if (ch === '`') {
+      const after = skipTemplate(source, i);
+      blank(i, after);
+      i = after;
+      continue;
+    }
+    i++;
+  }
+  return chars.join('');
+}
+
+/**
  * Put explicit scene cells after every patch cell.
  *
  * Library patches can be installed after a project already has a scene. Ordinary

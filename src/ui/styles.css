@@ -25,6 +25,9 @@
   --code-keyword: #a783ff;
   --code-call: #24f5d0;
   --code-host: #ffe94a;
+  --code-font-size: 15px;
+  --code-line-height: 22px;
+  --code-gutter-font-size: 12px;
   /* Hydra-like backing: just enough black behind each code line to hold the type
    * together over a bright frame, without becoming an editor panel. */
   --code-line-bg: rgba(0, 0, 0, calc(0.12 + var(--tools-alpha) * 0.26));
@@ -181,11 +184,13 @@ input:focus-visible {
 }
 .folded-block > summary {
   position: relative;
-  min-height: 28px;
+  min-height: calc(var(--code-line-height) + 6px);
   padding: 3px 10px 3px calc(var(--folded-code-column) - var(--folded-marker-width));
   cursor: pointer;
   color: rgba(205, 205, 214, 0.86);
-  font: 15px/22px var(--mono);
+  font-family: var(--mono);
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
   white-space: pre;
 }
 .folded-block > summary::marker {
@@ -203,7 +208,9 @@ input:focus-visible {
 }
 .folded-line {
   color: rgba(150, 150, 160, 0.56);
-  font: 12px/22px var(--mono);
+  font-family: var(--mono);
+  font-size: var(--code-gutter-font-size);
+  line-height: var(--code-line-height);
   user-select: none;
 }
 .folded-block > summary > .folded-line {
@@ -259,7 +266,9 @@ input:focus-visible {
   overflow: hidden;
   color: var(--code-text);
   background: transparent;
-  font: 15px/22px var(--mono);
+  font-family: var(--mono);
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
   text-align: left;
   white-space: pre;
   tab-size: 2;
@@ -271,7 +280,7 @@ input:focus-visible {
   position: relative;
   display: block;
   width: fit-content;
-  min-height: 22px;
+  min-height: var(--code-line-height);
   background: var(--code-line-bg);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.88);
 }
@@ -317,7 +326,9 @@ input:focus-visible {
   color: rgba(150, 150, 160, 0.56);
   border-right: 1px solid rgba(122, 122, 134, 0.28);
   background: transparent;
-  font: 12px/22px var(--mono);
+  font-family: var(--mono);
+  font-size: var(--code-gutter-font-size);
+  line-height: var(--code-line-height);
   text-align: right;
   user-select: none;
   pointer-events: none;
@@ -345,7 +356,9 @@ input:focus-visible {
    * lines out internally and the mirror lays them out as blocks; a fractional advance
    * gives the two a chance to round differently, and that error accumulates down the
    * buffer — right at the top, a line out by the bottom. Keep this a whole number. */
-  font: 15px/22px var(--mono);
+  font-family: var(--mono);
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
   letter-spacing: normal;
   tab-size: 2;
   white-space: pre;
@@ -368,7 +381,9 @@ input:focus-visible {
   overflow: hidden;
   color: rgba(170, 145, 199, 0.62);
   background: transparent;
-  font: 12px/22px var(--mono);
+  font-family: var(--mono);
+  font-size: var(--code-gutter-font-size);
+  line-height: var(--code-line-height);
   text-align: right;
   user-select: none;
   pointer-events: none;
@@ -389,12 +404,14 @@ input:focus-visible {
   top: calc(var(--fold-line-top) - var(--fold-scroll-y));
   left: 0;
   width: 12px;
-  height: 22px;
+  height: var(--code-line-height);
   padding: 0;
   border: 0;
   color: rgba(205, 205, 214, 0.72);
   background: transparent;
-  font: 10px/22px var(--mono);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: var(--code-line-height);
   text-align: center;
   pointer-events: auto;
 }
@@ -421,7 +438,7 @@ input:focus-visible {
 #code-mirror > span {
   display: block;
   width: fit-content;
-  min-height: 22px; /* one line; must equal the line-height above exactly */
+  min-height: var(--code-line-height); /* must equal the editor line-height exactly */
   background: var(--code-line-bg);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.88);
 }

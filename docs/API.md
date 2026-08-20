@@ -301,6 +301,11 @@ the current selection. `Cmd/Ctrl+/` comments or uncomments the current line or a
 selected lines. Folding is reversible in both presentations: the structured editor can
 expand every object/function/class and still collapse any one again, while the complete
 editor keeps a disclosure control beside every top-level declaration.
+`Cmd/Ctrl+Option/Alt+T` tidies indentation in the current cell without evaluating it. Plain
+`Cmd/Ctrl+T` remains the browser's new-tab command.
+The Project panel's **code size** control changes the complete editor, folded cells,
+line numbers, and projected code together. The browser remembers it locally, and a
+named performance captures it as part of its view settings.
 `Cmd/Ctrl+Alt+[` folds all and `Cmd/Ctrl+Alt+]` unfolds all; both work while the editor
 has focus. `Cmd/Ctrl+Alt+/` opens that key-command sheet without leaving the editor.
 

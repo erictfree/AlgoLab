@@ -10,6 +10,7 @@ import {
   findBlocks,
   blockAt,
   describeBlock,
+  insertSceneMember,
   moveSceneCellsLast,
   renameLegacyStarterScene,
 } from '../../src/language/sourceBlocks.js';
@@ -167,6 +168,43 @@ go(tunnel);
     expect(renameLegacyStarterScene('const tunnel = [plasma];\ngo(tunnel);')).toBe(
       'const tunnel = [plasma];\ngo(tunnel);',
     );
+  });
+});
+
+describe('insertSceneMember', () => {
+  it('preserves a commented-out patch and adds a separate active line', () => {
+    const source = `// %% scene scene
+const scene = [
+  // plasma,
+];
+go(scene);`;
+
+    expect(insertSceneMember(source, 'scene', 'rings', { before: 'plasma' })).toBe(`// %% scene scene
+const scene = [
+  // plasma,
+  rings,
+];
+go(scene);`);
+  });
+
+  it('inserts before an active post-processing patch without rewriting comments', () => {
+    const source = `const scene = [
+  wash, // keep this note
+  plasma,
+];`;
+
+    expect(insertSceneMember(source, 'scene', 'rings', { before: 'plasma' })).toBe(`const scene = [
+  wash, // keep this note
+  rings,
+  plasma,
+];`);
+  });
+
+  it('keeps compact scene arrays compact', () => {
+    expect(insertSceneMember('const scene = [plasma];', 'scene', 'rings', { before: 'plasma' }))
+      .toBe('const scene = [rings, plasma];');
+    expect(insertSceneMember('const scene = [wash];', 'scene', 'rings', { before: 'plasma' }))
+      .toBe('const scene = [wash, rings];');
   });
 });
 

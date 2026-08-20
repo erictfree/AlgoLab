@@ -142,6 +142,7 @@
             <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Enter</kbd></dt><dd>evaluate the cell or statement under the cursor</dd>
             <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd></dt><dd>evaluate the whole buffer</dd>
             <dt><kbd>Cmd/Ctrl</kbd>+<kbd>/</kbd></dt><dd>comment or uncomment the selected lines</dd>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Option/Alt</kbd>+<kbd>T</kbd></dt><dd>tidy indentation in the current code cell</dd>
             <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Z</kbd></dt><dd>undo · <kbd>Shift</kbd> to redo</dd>
             <dt><kbd>Enter</kbd></dt><dd>new line with smart indentation</dd>
             <dt><kbd>Tab</kbd></dt><dd>indent · <kbd>Shift</kbd> to outdent</dd>
@@ -408,6 +409,19 @@
                   step="0.05"
                   value="0.55"
                   aria-label="Tools panel opacity"
+                />
+              </label>
+              <label class="row param" id="code-size-wrap" title="Editor, folded-cell and projected-code font size">
+                <span class="name">code size</span>
+                <span class="version" id="code-size-value">15px</span>
+                <input
+                  id="code-size"
+                  type="range"
+                  min="12"
+                  max="24"
+                  step="1"
+                  value="15"
+                  aria-label="Code font size"
                 />
               </label>
             </div>

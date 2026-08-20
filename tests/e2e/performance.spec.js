@@ -137,6 +137,8 @@ test.describe('P-01..P-03 projection view', () => {
     context,
   }) => {
     await boot(page);
+    await selectTool(page, 'Project');
+    await page.locator('#code-size').fill('20');
     const [projector] = await Promise.all([
       context.waitForEvent('page'),
       page.getByRole('button', { name: 'Open the audience projection window' }).click(),
@@ -153,6 +155,8 @@ test.describe('P-01..P-03 projection view', () => {
     });
     await page.locator('#code').press('Control+Enter');
     await expect(projector.locator('#overlay')).toContainText('circle(200, 200, 90)');
+    await expect.poll(() => projector.locator('pre').evaluate((node) => getComputedStyle(node).fontSize))
+      .toBe('20px');
 
     // Make a second accepted version so the revert below has a real earlier version.
     await replaceInEditorAndEvaluate(
@@ -332,6 +336,24 @@ go(laserScene);`);
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('checkerZoom').length))
       .toBe(1);
+  });
+
+  test('Add to scene preserves a commented-out plasma line', async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => {
+      const editor = document.getElementById('code');
+      editor.value = editor.value.replace('  plasma,', '  // plasma,');
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await page.getByRole('button', { name: /^Install checkerZoom system patch source —/ }).click();
+    await page
+      .getByRole('button', { name: 'Add installed patch checkerZoom to the active scene source' })
+      .click();
+
+    await expect(page.locator('#code')).toHaveValue(/const scene = \[\n  \/\/ plasma,\n  checkerZoom,\n\];/);
+    await expect(page.locator('#code')).not.toHaveValue(/\n  plasma,\n/);
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
   });
 
   test('shows the full lifecycle from available through running', async ({ page }) => {
@@ -965,6 +987,26 @@ test.describe('the minimal display', () => {
     expect(metrics.blankHeight).toBeGreaterThan(0);
   });
 
+  test('code size changes every editor presentation and persists locally', async ({ page }) => {
+    await boot(page);
+    await selectTool(page, 'Project');
+    await page.locator('#code-size').fill('22');
+
+    await expect(page.locator('#code-size-value')).toHaveText('22px');
+    await expect.poll(() => page.evaluate(() => ({
+      editor: getComputedStyle(document.getElementById('code')).fontSize,
+      line: getComputedStyle(document.getElementById('code')).lineHeight,
+      folded: getComputedStyle(document.querySelector('.folded-block > summary')).fontSize,
+      number: getComputedStyle(document.getElementById('line-numbers')).fontSize,
+    }))).toEqual({ editor: '22px', line: '32px', folded: '22px', number: '18px' });
+
+    await page.reload();
+    await expect
+      .poll(() => page.evaluate(() => getComputedStyle(document.getElementById('code')).fontSize))
+      .toBe('22px');
+    await expect(page.locator('#code-size')).toHaveValue('22');
+  });
+
   test('the mirror follows the editor scroll, however it moved', async ({ page }) => {
     await boot(page, { tools: false });
     const scrollTops = () =>
@@ -1153,6 +1195,77 @@ test.describe('the minimal display', () => {
     await expect(page.locator('#code-layer')).not.toHaveClass(/is-hidden/);
 
     expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+  });
+
+  test('Cmd/Ctrl+Alt+T tidies the current code cell without evaluating it', async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => {
+      const editor = document.getElementById('code');
+      editor.value = `const untidy = {
+draw() {
+if (true) {
+circle(20, 20, 10);
+}
+},
+};`;
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.focus();
+      editor.selectionStart = editor.selectionEnd = editor.value.indexOf('circle');
+    });
+
+    await page.locator('#code').press('Control+Alt+t');
+
+    await expect(page.locator('#code')).toHaveValue(`const untidy = {
+  draw() {
+    if (true) {
+      circle(20, 20, 10);
+    }
+  },
+};`);
+    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('untidy'))).toBe(false);
+  });
+
+  test('Cmd/Ctrl+Alt+T also tidies an open folded cell', async ({ page }) => {
+    await boot(page, { folded: true });
+    const plasma = page.locator('.folded-block', { hasText: 'patch plasma' });
+    await plasma.locator('summary').click();
+    const editor = plasma.getByRole('textbox', { name: 'Edit patch plasma' });
+    const original = await editor.inputValue();
+    await editor.fill(original.replace('  speed = 0.35;', 'speed = 0.35;'));
+
+    await editor.press('Control+Alt+t');
+
+    await expect(editor).toHaveValue(/\n  speed = 0\.35;/);
+    await expect(page.locator('#code-layer')).toHaveClass(/is-folded/);
+  });
+
+  test('Cmd+Option+T recognizes the physical T key when macOS produces a symbol', async ({ page }) => {
+    await boot(page);
+    await page.evaluate(() => {
+      const editor = document.getElementById('code');
+      editor.value = `const macPatch = {
+draw() {
+circle(20, 20, 10);
+}
+};`;
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.focus();
+      editor.selectionStart = editor.selectionEnd = editor.value.indexOf('circle');
+      editor.dispatchEvent(new KeyboardEvent('keydown', {
+        key: '†',
+        code: 'KeyT',
+        metaKey: true,
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
+
+    await expect(page.locator('#code')).toHaveValue(`const macPatch = {
+  draw() {
+    circle(20, 20, 10);
+  }
+};`);
   });
 
   test('"?" prints the key commands', async ({ page }) => {
@@ -1359,6 +1472,7 @@ test.describe('named Performance recall', () => {
       input.checked = false;
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    await page.locator('#code-size').fill('18');
     await page.locator('#performance-name').fill('Opening look');
     await page.getByRole('button', { name: 'Save current' }).click();
     await expect(page.locator('.performance-row')).toContainText('Opening look');
@@ -1385,12 +1499,17 @@ test.describe('named Performance recall', () => {
       input.checked = true;
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    await page.locator('#code-size').fill('12');
 
     await page.locator('.performance-row').getByRole('button', { name: 'Recall' }).click();
     await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('scene');
     await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
     expect(await page.locator('#smoothing').inputValue()).toBe('0.35');
     expect(await page.locator('#auto-gain').isChecked()).toBe(false);
+    expect(await page.locator('#code-size').inputValue()).toBe('18');
+    await expect
+      .poll(() => page.evaluate(() => getComputedStyle(document.getElementById('code')).fontSize))
+      .toBe('18px');
     expect(await page.locator('#code').inputValue()).toContain('ALGOLAB — starter scene');
 
     // Named performances are browser-local recall points, independent of the current

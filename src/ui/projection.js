@@ -19,7 +19,7 @@
 const LAYOUTS = ['canvas', 'code', 'trace'];
 
 const POPUP_STYLES = `
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --code-font-size: 15px; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
                font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #e8e8ee; }
@@ -28,7 +28,7 @@ const POPUP_STYLES = `
   #overlay { position: absolute; inset: auto 0 0 0; padding: 20px 26px;
              background: linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0)); }
   #overlay[hidden] { display: none; }
-  pre { margin: 0; white-space: pre-wrap; font-size: 15px; line-height: 1.45;
+  pre { margin: 0; white-space: pre-wrap; font-size: var(--code-font-size); line-height: 1.45;
         text-shadow: 0 1px 3px rgba(0,0,0,0.9); max-height: 40vh; overflow: hidden; }
   .trace-row { display: flex; gap: 12px; align-items: baseline; padding: 1px 0; }
   .trace-index { color: #7c7c8a; min-width: 1.4em; }
@@ -46,6 +46,7 @@ export function createProjection({ controller, onBlocked, onOpened }) {
   let overlay = null;
   let layout = 'canvas';
   let activeCode = '';
+  let codeFontSize = 15;
   let unsubscribe = null;
 
   const isOpen = () => win !== null && !win.closed;
@@ -65,6 +66,7 @@ export function createProjection({ controller, onBlocked, onOpened }) {
 
     win.document.title = 'AlgoLab — projection';
     win.document.head.innerHTML = `<style>${POPUP_STYLES}</style>`;
+    win.document.documentElement.style.setProperty('--code-font-size', `${codeFontSize}px`);
     win.document.body.innerHTML = `
       <div id="wrap">
         <canvas id="projection-canvas"></canvas>
@@ -147,6 +149,13 @@ export function createProjection({ controller, onBlocked, onOpened }) {
     if (layout === 'code') renderOverlay();
   }
 
+  function setCodeFontSize(next) {
+    const value = Math.min(24, Math.max(12, Math.round(Number(next) || 15)));
+    codeFontSize = value;
+    if (isOpen()) win.document.documentElement.style.setProperty('--code-font-size', `${value}px`);
+    return value;
+  }
+
   function renderOverlay() {
     if (!isOpen() || !overlay) return;
 
@@ -216,5 +225,15 @@ export function createProjection({ controller, onBlocked, onOpened }) {
     return [...found];
   }
 
-  return { open, close, isOpen, render, setLayout, setActiveCode, layout: () => layout, LAYOUTS };
+  return {
+    open,
+    close,
+    isOpen,
+    render,
+    setLayout,
+    setActiveCode,
+    setCodeFontSize,
+    layout: () => layout,
+    LAYOUTS,
+  };
 }

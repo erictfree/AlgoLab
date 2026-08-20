@@ -6,9 +6,11 @@ import {
   findBlocks,
   blockAt,
   describeBlock,
+  insertSceneMember,
   moveSceneCellsLast,
 } from '../language/sourceBlocks.js';
 import { tokenizeLines } from './highlight.js';
+import { tidySource } from './tidy.js';
 
 const INDENT = '  ';
 const PAIRS = { '{': '}', '[': ']', '(': ')' };
@@ -46,6 +48,10 @@ export function createEditor(textarea, handlers) {
    */
   let mirroredLines = [];
   const signature = (tokens) => tokens.map((t) => `${t.kind}\u0000${t.text}`).join('\u0001');
+  const codeLineHeight = () => {
+    const value = Number.parseFloat(getComputedStyle(textarea).lineHeight);
+    return Number.isFinite(value) ? value : 22;
+  };
 
   /** One line of the mirror: the box, and the coloured spans inside it. */
   function buildLine(tokens) {
@@ -196,7 +202,7 @@ export function createEditor(textarea, handlers) {
   function syncFoldControls(source) {
     if (!foldControls) return;
     const entries = foldEntries(source);
-    const signature = entries.map(({ foldKey, preview }) => `${foldKey}@${preview.line}`).join('|');
+    const signature = `${codeLineHeight()}|${entries.map(({ foldKey, preview }) => `${foldKey}@${preview.line}`).join('|')}`;
     if (signature === foldControlSignature) return;
     foldControlSignature = signature;
 
@@ -205,7 +211,7 @@ export function createEditor(textarea, handlers) {
       button.type = 'button';
       button.className = 'raw-fold-control';
       button.textContent = '▾';
-      button.style.setProperty('--fold-line-top', `${10 + (entry.preview.line - 1) * 22}px`);
+      button.style.setProperty('--fold-line-top', `${10 + (entry.preview.line - 1) * codeLineHeight()}px`);
       button.setAttribute('aria-label', `Fold ${entry.preview.description}`);
       button.title = `Fold ${entry.preview.description}`;
       button.addEventListener('click', () => {
@@ -301,6 +307,34 @@ export function createEditor(textarea, handlers) {
     replaceFoldedRange(target, from, to, transformed, from, from + transformed.length);
   }
 
+  function remapOffset(before, after, offset) {
+    const line = before.slice(0, offset).split('\n').length - 1;
+    const beforeStart = before.lastIndexOf('\n', Math.max(0, offset - 1)) + 1;
+    const beforeLine = before.slice(beforeStart, before.indexOf('\n', beforeStart) === -1
+      ? before.length
+      : before.indexOf('\n', beforeStart));
+    const contentColumn = Math.max(
+      0,
+      offset - beforeStart - (beforeLine.match(/^[\t ]*/)?.[0].length ?? 0),
+    );
+    const afterLines = after.split('\n');
+    const targetLine = Math.min(line, afterLines.length - 1);
+    const afterStart = afterLines.slice(0, targetLine).reduce((sum, value) => sum + value.length + 1, 0);
+    const afterLine = afterLines[targetLine] ?? '';
+    const afterIndent = afterLine.match(/^[\t ]*/)?.[0].length ?? 0;
+    return afterStart + Math.min(afterLine.length, afterIndent + contentColumn);
+  }
+
+  function tidyIn(target) {
+    const before = target.value;
+    const after = tidySource(before);
+    if (after === before) return false;
+    const start = remapOffset(before, after, target.selectionStart);
+    const end = remapOffset(before, after, target.selectionEnd);
+    replaceFoldedRange(target, 0, before.length, after, start, end);
+    return true;
+  }
+
   /** A source-safe VS Code-like editor; the complete textarea remains the source of truth. */
   function renderFolded(source) {
     if (!foldedView || source === foldedSource) return;
@@ -382,7 +416,7 @@ export function createEditor(textarea, handlers) {
           ? textarea.value.slice(0, current.start).split('\n').length + 1
           : firstLine + 1;
         bodyNumbers.textContent = Array.from({ length: count }, (_, index) => startLine + index).join('\n');
-        const height = `${count * 22}px`;
+        const height = `${count * codeLineHeight()}px`;
         expanded.style.height = height;
         bodyMirror.style.height = height;
         bodyNumbers.style.height = height;
@@ -431,6 +465,11 @@ export function createEditor(textarea, handlers) {
         if ((event.key === '/' || event.code === 'Slash') && accel) {
           event.preventDefault();
           toggleCommentsIn(bodyEditor);
+          return;
+        }
+        if (accel && event.altKey && (event.code === 'KeyT' || event.key.toLowerCase() === 't')) {
+          event.preventDefault();
+          tidyIn(bodyEditor);
           return;
         }
         if (event.key === 'Escape') {
@@ -733,6 +772,25 @@ export function createEditor(textarea, handlers) {
     }
   }
 
+  /** Tidy the cell or top-level statement under the cursor without evaluating it. */
+  function tidyCursorBlock() {
+    const target = blockAt(textarea.value, textarea.selectionStart) ?? {
+      start: 0,
+      end: textarea.value.length,
+      text: textarea.value,
+    };
+    const after = tidySource(target.text);
+    if (after === target.text) return false;
+    const localStart = textarea.selectionStart - target.start;
+    const localEnd = textarea.selectionEnd - target.start;
+    const nextStart = target.start + remapOffset(target.text, after, localStart);
+    const nextEnd = target.start + remapOffset(target.text, after, localEnd);
+    textarea.setSelectionRange(target.start, target.end);
+    write(after);
+    textarea.setSelectionRange(nextStart, nextEnd);
+    return true;
+  }
+
   textarea.addEventListener('keydown', (event) => {
     const accel = event.metaKey || event.ctrlKey;
 
@@ -762,6 +820,12 @@ export function createEditor(textarea, handlers) {
     if ((event.key === '/' || event.code === 'Slash') && accel) {
       event.preventDefault();
       toggleLineComments();
+      return;
+    }
+
+    if (accel && event.altKey && (event.code === 'KeyT' || event.key.toLowerCase() === 't')) {
+      event.preventDefault();
+      tidyCursorBlock();
       return;
     }
 
@@ -933,12 +997,8 @@ export function createEditor(textarea, handlers) {
       const source = `// %% scene ${sceneName}\n${declaration}\ngo(${sceneName});`;
       appendSource(source);
     } else {
-      const escaped = sceneName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const pattern = new RegExp(
-        `\\b(?:const|let|var)\\s+${escaped}\\s*=\\s*\\[[\\s\\S]*?\\]\\s*;?`,
-      );
-      if (!pattern.test(target.text)) return { ok: false, reason: 'scene-declaration-not-found' };
-      const updated = target.text.replace(pattern, declaration);
+      const updated = insertSceneMember(target.text, sceneName, strategyName, { before });
+      if (updated === null) return { ok: false, reason: 'scene-declaration-not-found' };
       write(
         textarea.value.slice(0, target.start) + updated + textarea.value.slice(target.end),
         true,
@@ -972,6 +1032,12 @@ export function createEditor(textarea, handlers) {
     isFolded: () => folded,
     evaluateCursorBlock,
     evaluateBuffer,
+    tidyCursorBlock,
+    refreshLayout() {
+      foldControlSignature = '';
+      foldedSource = null;
+      syncMirror();
+    },
     flashCodeError,
     appendSource,
     insertPatchSource,

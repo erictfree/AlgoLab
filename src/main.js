@@ -534,6 +534,39 @@ opacityInput.addEventListener('input', () => setToolsOpacity(opacityInput.value)
   opacityInput.value = setToolsOpacity(saved ?? opacityInput.value);
 }
 
+const CODE_FONT_SIZE_KEY = 'algolab.codeFontSize';
+const codeSizeInput = document.getElementById('code-size');
+
+function setCodeFontSize(size) {
+  const value = Math.min(24, Math.max(12, Math.round(Number(size) || 15)));
+  const lineHeight = Math.round(value * (22 / 15));
+  const root = document.documentElement.style;
+  root.setProperty('--code-font-size', `${value}px`);
+  root.setProperty('--code-line-height', `${lineHeight}px`);
+  root.setProperty('--code-gutter-font-size', `${Math.max(10, Math.round(value * 0.8))}px`);
+  codeSizeInput.value = String(value);
+  document.getElementById('code-size-value').textContent = `${value}px`;
+  projection.setCodeFontSize(value);
+  editor.refreshLayout();
+  try {
+    localStorage.setItem(CODE_FONT_SIZE_KEY, String(value));
+  } catch {
+    /* private-mode storage is optional */
+  }
+  return value;
+}
+
+codeSizeInput.addEventListener('input', () => setCodeFontSize(codeSizeInput.value));
+{
+  let saved = null;
+  try {
+    saved = localStorage.getItem(CODE_FONT_SIZE_KEY);
+  } catch {
+    /* ignore */
+  }
+  setCodeFontSize(saved ?? codeSizeInput.value);
+}
+
 function toggleTools(force) {
   const hidden = force ?? !side.classList.contains('is-hidden');
   side.classList.toggle('is-hidden', hidden);
@@ -630,6 +663,7 @@ function performanceSnapshot(name) {
       projectionLayout: layoutSelect.value,
       fpsThreshold: Number(fpsThresholdInput.value),
       toolsOpacity: Number(opacityInput.value),
+      codeFontSize: Number(codeSizeInput.value),
     },
   };
 }
@@ -715,6 +749,7 @@ function applyPerformanceSettings(performance) {
     opacityInput.value = view.toolsOpacity;
     setToolsOpacity(view.toolsOpacity);
   }
+  if (Number.isFinite(view.codeFontSize)) setCodeFontSize(view.codeFontSize);
 }
 
 function restoreBeforePerformance(checkpoint, performance, detail) {

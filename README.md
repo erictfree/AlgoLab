@@ -58,6 +58,7 @@ on its first rendered frame rolls back to the last version that worked.
 - Folded cells, syntax highlighting, smart indentation, comments, and live evaluation
 - Named performances, safe-state recovery, version history, project import/export,
   fullscreen, and a separate audience projection window
+- Adjustable code size shared by the editor, folded cells, and projected code
 - Local persistence: source and named performances remain in that browser after a
   refresh
 
@@ -326,6 +327,7 @@ control.
 | `Cmd/Ctrl+Enter` | Evaluate the current cell or statement |
 | `Cmd/Ctrl+Shift+Enter` | Evaluate the complete editor |
 | `Cmd/Ctrl+/` | Comment or uncomment selected lines |
+| `Cmd/Ctrl+Option/Alt+T` | Tidy indentation in the current code cell |
 | `Cmd/Ctrl+Alt+N` | Start a new Plasma performance after confirmation |
 | `Esc` | Release editor focus so performance keys work |
 | `Space` | Play or pause audio |
