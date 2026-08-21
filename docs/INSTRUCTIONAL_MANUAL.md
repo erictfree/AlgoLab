@@ -6,6 +6,10 @@ AlgoLab is a browser-based visual instrument for live coding with JavaScript and
 p5.js. It keeps the canvas, audio analysis, clock, patch state, and last successful
 performance alive while code changes.
 
+AlgoLab was created by Eric Freeman at the
+[Department of Arts and Entertainment Technologies](https://aet.utexas.edu/) at The
+University of Texas at Austin.
+
 This manual is written for AET 350C students who already recognize variables,
 functions, arrays, loops, and basic p5.js drawing. It develops those foundations into
 first-class functions, object-oriented design, higher-order functions, persistent
@@ -122,8 +126,9 @@ npm run dev
 Open `http://localhost:5173`. Do not open `index.html` directly from the filesystem;
 browser modules require the local HTTP server.
 
-Choose an audio file, microphone input, or silence. Silence is a valid input state:
-patches continue receiving an audio object whose values are zero.
+Choose an `.mp3`, `.wav`, `.ogg`, `.m4a`, or `.aac` audio file, microphone input, or
+silence. Silence is a valid input state: patches continue receiving an audio object
+whose values are zero.
 
 ## Current product surfaces
 

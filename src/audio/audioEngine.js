@@ -105,7 +105,7 @@ export function createAudioEngine({ diagnostics } = {}) {
           // A-07: a failed input is a diagnostic, not a stopped draw loop.
           diagnostics?.error(
             sourceError,
-            'Try a .mp3, .wav, .ogg, or .m4a file. The sketch keeps running on silence.',
+            'Try a .mp3, .wav, .ogg, .m4a, or .aac file. The sketch keeps running on silence.',
           );
           report();
           reject(error);

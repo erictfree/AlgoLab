@@ -4,10 +4,11 @@ AlgoLab is a browser-based instrument and teaching environment for **live-coding
 audio-reactive visuals with JavaScript and p5.js**. Music continues playing and the
 canvas continues drawing while you edit the code that creates the image.
 
-It was created for **AET 350C — Advanced Creative Coding** at **The University of
-Texas at Austin**, but it can also be used as a standalone introduction to creative
-coding, object-oriented programming, higher-order functions, audio analysis, and
-shaders.
+It was created by **Eric Freeman** at the
+[Department of Arts and Entertainment Technologies](https://aet.utexas.edu/) for
+**AET 350C — Advanced Creative Coding** at **The University of Texas at Austin**, but
+it can also be used as a standalone introduction to creative coding, object-oriented
+programming, higher-order functions, audio analysis, and shaders.
 
 ## What you do in AlgoLab
 
@@ -156,14 +157,13 @@ modules correctly.
 
 Choose one of the three starting modes:
 
-- **choose audio file** keeps the selected audio file in the browser and begins audio
-  analysis;
+- **choose audio file** accepts `.mp3`, `.wav`, `.ogg`, `.m4a`, or `.aac` and begins
+  audio analysis;
 - **use microphone** asks for browser permission and can also use a connected line
   input selected in the Audio panel;
 - **enter with silence** starts the visuals without an audio source.
 
-Browser autoplay rules require this first click. AlgoLab does not upload the selected
-audio file.
+Browser autoplay rules require this first click.
 
 ### 7. Try one live edit
 
@@ -401,7 +401,7 @@ button says **Added — activate scene**, evaluate the opened scene cell with
 - Use the first-run screen or audio-file button so the browser receives a user gesture.
 - If the transport says **Play**, click it. When it says **Pause**, audio is currently
   playing.
-- Try another `.mp3`, `.wav`, `.m4a`, or `.ogg` file.
+- Try another `.mp3`, `.wav`, `.ogg`, `.m4a`, or `.aac` file.
 - For a microphone, allow browser permission and check the input device in the Audio
   panel.
 - Use **enter with silence** to separate an audio problem from a visual-code problem.

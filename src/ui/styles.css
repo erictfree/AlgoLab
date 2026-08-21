@@ -183,12 +183,17 @@ input:focus-visible {
   position: relative;
   display: flex;
   align-items: center;
-  min-height: 12px;
+  height: 0;
+  min-height: 0;
   padding: 0;
+  overflow: visible;
 }
 button.folded-new-patch-button {
   position: absolute;
-  top: 50%;
+  /* The control belongs to the boundary before the following cell, but sits beside
+   * that cell's existing summary line until it is opened. It therefore costs no
+   * vertical space in the folded outline. */
+  top: calc((var(--code-line-height) + 6px) / 2);
   left: calc((var(--folded-gutter-width) - 26px) / 2);
   z-index: 1;
   width: 26px;
@@ -206,6 +211,7 @@ button.folded-new-patch-button {
   transition: opacity 100ms ease, color 100ms ease, background 100ms ease;
 }
 .folded-new-patch:hover button.folded-new-patch-button,
+.folded-new-patch:has(+ .folded-block > summary:hover) button.folded-new-patch-button,
 button.folded-new-patch-button:hover,
 button.folded-new-patch-button:focus-visible {
   color: var(--accent);
@@ -238,6 +244,7 @@ button.folded-new-patch-button:focus-visible::after {
   transform: translateY(-50%) translateX(0);
 }
 .folded-new-patch.is-editing {
+  height: auto;
   min-height: max(32px, calc(var(--code-line-height) + 8px));
   padding-left: var(--folded-code-column);
 }

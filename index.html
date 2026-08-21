@@ -54,7 +54,7 @@
 
             <div class="welcome-body">
               <p id="welcome-description" class="welcome-intro">
-                AlgoLab is a browser-based visual instrument from the
+                AlgoLab is a browser-based visual instrument created by Eric Freeman at the
                 <a href="https://aet.utexas.edu/" target="_blank" rel="noopener noreferrer">Department of Arts and Entertainment Technologies</a>
                 at The University of Texas at Austin.
                 Build visuals with JavaScript patches, arrange them into a scene,
@@ -84,7 +84,7 @@
                 <button id="file-label" class="start-primary" type="button">
                   choose audio file
                 </button>
-                <input id="audio-file" type="file" accept="audio/*" />
+                <input id="audio-file" type="file" accept=".mp3,.wav,.ogg,.m4a,.aac" />
                 <button id="start-mic" type="button">use microphone</button>
                 <button id="start-audio" type="button">enter with silence</button>
               </div>
@@ -94,7 +94,7 @@
                   <progress id="start-load-progress" max="1"></progress>
                 </div>
                 <p id="start-note">
-                  Audio files stay in this browser. Sound cannot begin until you choose an option.
+                  Choose an audio file (.mp3, .wav, .ogg, .m4a, or .aac), microphone, or silence to begin.
                 </p>
               </div>
             </footer>
@@ -451,7 +451,7 @@
           <button id="loop-performance-toggle" type="button" class="transport-control" title="Loop the audio file (l)" aria-label="Loop audio" aria-pressed="false">↻ loop</button>
         </div>
         <button id="load-audio" type="button" class="glyph" title="Load an audio file (a)" aria-label="Load an audio file">♪</button>
-        <input id="audio-file-2" type="file" accept="audio/*" hidden />
+        <input id="audio-file-2" type="file" accept=".mp3,.wav,.ogg,.m4a,.aac" hidden />
         <button id="use-mic" type="button" class="glyph" title="Switch to microphone or line input (m)" aria-label="Switch to microphone or line input">◉</button>
         <button id="projection-open" type="button" class="glyph" title="Open the audience projection window (p)" aria-label="Open the audience projection window">▣</button>
         <button id="fullscreen-toggle" type="button" class="glyph" title="Fullscreen the stage (f)" aria-label="Fullscreen the stage">⤢</button>

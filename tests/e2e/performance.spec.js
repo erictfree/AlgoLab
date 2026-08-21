@@ -895,12 +895,24 @@ test.describe('the minimal display', () => {
       }),
     ).toHaveAttribute('href', 'https://aet.utexas.edu/');
     await expect(welcome).toContainText('browser-based visual instrument');
+    await expect(welcome).toContainText('created by Eric Freeman');
     await expect(welcome).toContainText('PATCH');
     await expect(welcome).toContainText('SCENE');
     await expect(welcome).toContainText('LIVE');
     await expect(welcome).not.toContainText('last successful scene keeps running');
     await expect(welcome.getByRole('button', { name: 'choose audio file' })).toBeVisible();
     await expect(welcome.getByRole('button', { name: 'use microphone' })).toBeVisible();
+    await expect(welcome).toContainText(
+      'Choose an audio file (.mp3, .wav, .ogg, .m4a, or .aac), microphone, or silence to begin.',
+    );
+    await expect(page.locator('#audio-file')).toHaveAttribute(
+      'accept',
+      '.mp3,.wav,.ogg,.m4a,.aac',
+    );
+    await expect(page.locator('#audio-file-2')).toHaveAttribute(
+      'accept',
+      '.mp3,.wav,.ogg,.m4a,.aac',
+    );
 
     await welcome.getByRole('button', { name: 'enter with silence' }).click();
     await expect(welcome).toBeHidden();
@@ -1453,10 +1465,28 @@ test.describe('the minimal display', () => {
       name: 'New patch between patch plasma and scene scene',
     });
     await expect(add).toBeVisible();
+
+    const plasma = page.locator('.folded-block[data-block-description="patch plasma"]');
+    const scene = page.locator('.folded-block[data-block-description="scene scene"]');
+    const [plasmaBefore, sceneBefore, addBefore] = await Promise.all([
+      plasma.boundingBox(),
+      scene.boundingBox(),
+      add.boundingBox(),
+    ]);
+    expect(plasmaBefore).not.toBeNull();
+    expect(sceneBefore).not.toBeNull();
+    expect(addBefore).not.toBeNull();
+    expect(sceneBefore.y - (plasmaBefore.y + plasmaBefore.height)).toBeLessThanOrEqual(1);
+    expect(addBefore.y + addBefore.height / 2).toBeCloseTo(
+      sceneBefore.y + Math.min(sceneBefore.height, 28) / 2,
+      0,
+    );
+
     await add.click();
 
     const name = page.getByRole('textbox', { name: 'New patch name' });
     await expect(name).toBeFocused();
+    await expect.poll(async () => (await scene.boundingBox()).y).toBeGreaterThan(sceneBefore.y);
     await name.fill('class');
     await name.press('Enter');
     await expect(page.getByRole('alert')).toHaveText('class is reserved. Choose another name.');
