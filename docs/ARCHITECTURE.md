@@ -1,4 +1,4 @@
-# AlgoLab architecture
+# p5js live architecture
 
 The host owns p5 `setup()` and `draw()`. Live code supplies functions and objects for
 the host to call. Replacing a patch does not recreate the canvas, clock, audio graph,
@@ -178,7 +178,7 @@ The included server supports small peer meshes. It does not carry video. See
 ## Trust and performance
 
 `new Function` is not a sandbox. Evaluated code can access browser globals, exhaust
-resources, or freeze the tab. AlgoLab is for trusted source.
+resources, or freeze the tab. p5js live is for trusted source.
 
 The draw path reuses its input object, FPS ring, and analyzer snapshot. Diagnostics
 and history are bounded. Panels update on model changes or a slow timer rather than

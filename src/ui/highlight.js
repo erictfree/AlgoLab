@@ -18,7 +18,7 @@ const KEYWORDS = new Set([
 ]);
 
 /**
- * AlgoLab's own vocabulary. Coloured apart from every other call because these
+ * p5js live's own vocabulary. Coloured apart from every other call because these
  * are the small command vocabulary around otherwise ordinary JavaScript objects.
  */
 const HOST_API = new Set(['activate', 'reset', 'param', 'StreamRoom']);

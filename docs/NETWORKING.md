@@ -4,12 +4,12 @@ Status: **beta**. The small-room workflow is implemented, but browser and networ
 conditions still need wider testing. Production use requires configured STUN/TURN
 services.
 
-AlgoLab shares canvas video, not source code or local audio. Each performer keeps an
+p5js live shares canvas video, not source code or local audio. Each performer keeps an
 independent editor, scene, audio input, and patch state.
 
 ## Quick test on one computer
 
-Start AlgoLab:
+Start p5js live:
 
 ```sh
 npm run dev
@@ -52,7 +52,7 @@ const scene = [
 activate(scene);
 ```
 
-With no `source` option, the publisher captures the final AlgoLab canvas. It starts
+With no `source` option, the publisher captures the final p5js live canvas. It starts
 only while `publishMain` is active. The Network panel lists it as
 `Eric/main-output`.
 
@@ -65,7 +65,7 @@ only while `publishMain` is active. The Network panel lists it as
 3. Select **Join for discovery**.
 4. Select **Add receiver** beside the remote stream.
 
-AlgoLab inserts a configured receiver patch, adds it to the scene, and activates the
+p5js live inserts a configured receiver patch, adds it to the scene, and activates the
 updated scene. A repeated click reuses the existing receiver source.
 
 Joining for discovery does not publish your canvas.
@@ -117,7 +117,7 @@ const output = room.publish({
 ```
 
 `source` is optional. It may return the main p5 renderer, an `HTMLCanvasElement`, or
-another surface with `captureStream()`. AlgoLab cannot isolate pixels from an
+another surface with `captureStream()`. p5js live cannot isolate pixels from an
 arbitrary global-mode patch unless that patch owns a render surface.
 
 Publisher status is `idle`, `connecting`, `publishing`, or `error`.
@@ -185,11 +185,11 @@ Local tabs or machines that can form a direct route need no extra configuration.
 production or campus deployment should provide STUN and TURN servers:
 
 ```sh
-ALGOLAB_ICE_SERVERS='[
+P5JS_LIVE_ICE_SERVERS='[
   {"urls":"stun:stun.example.edu:3478"},
   {
     "urls":"turn:turn.example.edu:3478",
-    "username":"algolab",
+    "username":"p5js-live",
     "credential":"replace-me"
   }
 ]' npm run dev
@@ -202,7 +202,7 @@ secrets; do not commit durable credentials.
 An optional shared room credential is available for private tests:
 
 ```sh
-ALGOLAB_NETWORK_TOKEN='rehearsal-invite' npm run dev
+P5JS_LIVE_NETWORK_TOKEN='rehearsal-invite' npm run dev
 ```
 
 Pass the same value as `token` to `StreamRoom`. This is not user authentication. The
@@ -215,7 +215,7 @@ HTTPS. Same-origin WebSocket connections are allowed by default. To separate the
 editor and signaling origins, list the allowed editor origins:
 
 ```sh
-ALGOLAB_ALLOWED_ORIGINS='https://one.example,https://two.example' npm run dev
+P5JS_LIVE_ALLOWED_ORIGINS='https://one.example,https://two.example' npm run dev
 ```
 
 ## Privacy and browser restrictions

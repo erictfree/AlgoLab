@@ -1,4 +1,4 @@
-// AlgoLab — wiring.
+// p5js live — wiring.
 //
 // This is the only file that touches p5's globals directly, and the only file that
 // assigns window.setup and window.draw. The host owns those functions, and evaluated
@@ -63,6 +63,7 @@ const stateStore = createStateStore({ diagnostics });
 const evaluator = createEvaluator({ registry, stateStore, diagnostics });
 const audio = createAudioEngine({ diagnostics });
 const network = getDefaultNetworkManager();
+const WELCOME_INTRO_URL = new URL('../assets/sounds/intro.mp3', import.meta.url).href;
 
 // Read-only keyboard state, handed to strategies as one of the draw inputs.
 const controls = { keys: new Set(), shift: false, alt: false };
@@ -288,6 +289,7 @@ window.setup = function setup() {
   background(8, 8, 12);
 
   audio.init();
+  void prepareWelcomeIntro();
 
   const saved = projectStore.load();
   const source = saved?.source ?? STARTER_SOURCE;
@@ -398,6 +400,54 @@ const WELCOME_LOAD_DELAY_MS = 250;
 const WELCOME_NOTE = welcomeNote.textContent.trim();
 let welcomeLoadTimer = null;
 let welcomeLoadVisible = false;
+let welcomeIntroReady = null;
+let welcomeChoiceMade = false;
+
+function prepareWelcomeIntro() {
+  if (welcomeIntroReady) return welcomeIntroReady;
+  welcomeIntroReady = audio
+    .loadUrl(WELCOME_INTRO_URL, { label: 'intro loop', loop: true })
+    .then(async () => {
+      if (welcomeChoiceMade || overlay.hidden) return false;
+      try {
+        await audio.start();
+        return true;
+      } catch {
+        // Fresh browser sessions usually block audible autoplay. The trusted first
+        // pointer/key interaction below unlocks the already-decoded loop instead.
+        return false;
+      }
+    })
+    .catch((error) => {
+      if (error?.name !== 'AbortError') {
+        diagnostics.warn(
+          'Intro loop unavailable',
+          'Choose an audio file, microphone, or silence to continue.',
+        );
+      }
+      return false;
+    });
+  return welcomeIntroReady;
+}
+
+function resumeWelcomeIntro() {
+  if (welcomeChoiceMade || overlay.hidden) return;
+  // Invoke unlock immediately, while this handler still owns a trusted interaction.
+  // Once the context is running, a pending local decode may finish asynchronously.
+  void audio
+    .unlock()
+    .then(() => welcomeIntroReady ?? prepareWelcomeIntro())
+    .then(() => {
+      if (!welcomeChoiceMade && !overlay.hidden) return audio.start();
+      return false;
+    })
+    .catch(() => {});
+}
+
+overlay.addEventListener('pointerdown', resumeWelcomeIntro, { capture: true });
+overlay.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') resumeWelcomeIntro();
+}, { capture: true });
 
 function cancelWelcomeLoadTimer() {
   if (welcomeLoadTimer !== null) clearTimeout(welcomeLoadTimer);
@@ -444,7 +494,7 @@ function renderAudioLoadStatus(status) {
   cancelWelcomeLoadTimer();
   if (status.error && !overlay.hidden) {
     resetWelcomeLoadStatus();
-    welcomeNote.textContent = `${status.error}. Choose another audio file or enter with silence.`;
+    welcomeNote.textContent = `${status.error}. Choose another audio file or start silent.`;
     welcomeNote.classList.add('is-error');
   } else if (!welcomeLoadVisible) {
     welcomeLoadState.hidden = true;
@@ -452,6 +502,7 @@ function renderAudioLoadStatus(status) {
 }
 
 async function startAudio() {
+  welcomeChoiceMade = true;
   try {
     const state = await audio.start();
     overlay.hidden = true;
@@ -478,10 +529,32 @@ async function chooseFile(input) {
     return;
   }
   try {
+    welcomeChoiceMade = true;
     await audio.loadFile(file, { onProgress: renderAudioLoadStatus });
     await startAudio();
-  } catch {
-    /* loadFile already reported the decode failure */
+  } catch (error) {
+    if (error?.name === 'AbortError') return;
+    // loadFile already reported the decode failure. Restore the preview while the
+    // performer remains in the picker and decides what to try next.
+    welcomeChoiceMade = false;
+    welcomeIntroReady = null;
+    void prepareWelcomeIntro();
+  }
+}
+
+async function enterWithSilence() {
+  welcomeChoiceMade = true;
+  try {
+    const state = await audio.unlock();
+    audio.useSilence();
+    overlay.hidden = true;
+    resetWelcomeLoadStatus();
+    diagnostics.success(`Audio context ${state}`, 'Running on silence.');
+  } catch (error) {
+    audio.useSilence();
+    overlay.hidden = true;
+    resetWelcomeLoadStatus();
+    diagnostics.error('Could not start audio', `${error.message} — running on silence.`);
   }
 }
 
@@ -492,7 +565,7 @@ welcomeFileButton.addEventListener('click', () => welcomeFileInput.click());
 document.getElementById('load-audio').addEventListener('click', () => {
   document.getElementById('audio-file-2').click();
 });
-document.getElementById('start-audio').addEventListener('click', startAudio);
+document.getElementById('start-audio').addEventListener('click', enterWithSilence);
 requestAnimationFrame(() => welcomeFileButton.focus({ preventScroll: true }));
 async function toggleAudio() {
   try {
@@ -526,8 +599,16 @@ document.getElementById('loop-performance-toggle').addEventListener('click', tog
 const deviceSelect = document.getElementById('input-device');
 
 async function startMicrophone(deviceId) {
+  const fromWelcome = !overlay.hidden;
+  if (fromWelcome) welcomeChoiceMade = true;
   const ok = await audio.useMicrophone(deviceId);
-  if (!ok) return false;
+  if (!ok) {
+    if (fromWelcome) {
+      welcomeChoiceMade = false;
+      resumeWelcomeIntro();
+    }
+    return false;
+  }
   overlay.hidden = true;
   resetWelcomeLoadStatus();
   // Device labels are empty until permission has been granted once, so the picker is
@@ -597,8 +678,9 @@ document.addEventListener('fullscreenchange', () => {
 const side = document.getElementById('side');
 const referenceSide = document.getElementById('reference-side');
 
-const OPACITY_KEY = 'algolab.toolsAlpha';
+const OPACITY_KEY = 'p5js-live.toolsAlpha';
 const LEGACY_OPACITY_KEYS = [
+  'algolab.toolsAlpha',
   'livecode-lab.toolsAlpha',
   'patchlab.toolsAlpha',
   'patchbay.toolsAlpha',
@@ -640,7 +722,14 @@ opacityInput.addEventListener('input', () => setToolsOpacity(opacityInput.value)
   opacityInput.value = setToolsOpacity(saved ?? opacityInput.value);
 }
 
-const CODE_FONT_SIZE_KEY = 'algolab.codeFontSize';
+const CODE_FONT_SIZE_KEY = 'p5js-live.codeFontSize';
+const LEGACY_CODE_FONT_SIZE_KEYS = [
+  'algolab.codeFontSize',
+  'livecode-lab.codeFontSize',
+  'patchlab.codeFontSize',
+  'patchbay.codeFontSize',
+  'response.codeFontSize',
+];
 const codeSizeInput = document.getElementById('code-size');
 
 function setCodeFontSize(size) {
@@ -667,6 +756,7 @@ codeSizeInput.addEventListener('input', () => setCodeFontSize(codeSizeInput.valu
   let saved = null;
   try {
     saved = localStorage.getItem(CODE_FONT_SIZE_KEY);
+    for (const legacyKey of LEGACY_CODE_FONT_SIZE_KEYS) saved ??= localStorage.getItem(legacyKey);
   } catch {
     /* ignore */
   }
@@ -1191,7 +1281,7 @@ document.getElementById('import-file').addEventListener('change', async (event) 
       `and runs this code immediately.`,
     preview: importedSource.slice(0, 1200),
     warning:
-      'AlgoLab runs imported code with the same privileges as your own. It is not a ' +
+      'p5js live runs imported code with the same privileges as your own. It is not a ' +
       'sandbox — imported code can freeze this tab. Only import projects from someone you trust.',
     confirmLabel: 'Import and run',
   });
@@ -1250,7 +1340,6 @@ const COMMANDS = {
   ' ': () => toggleAudio(),
   0: () => panic(), // one action back to a scene the performer trusts
   s: () => setSafeScene(),
-  '\\': () => toggleTools(), // the settings drawer
   r: () => toggleReference(), // project patches and their public interfaces
   e: () => toggleCode(), // the code itself — see the composition with nothing on it
   f: () => toggleFullscreen(),
@@ -1291,6 +1380,11 @@ window.addEventListener('keydown', (event) => {
     startNewPerformance();
     return;
   }
+  if (accel && !event.altKey && event.code === 'Backslash') {
+    event.preventDefault();
+    toggleTools();
+    return;
+  }
 
   const tag = document.activeElement?.tagName;
   const inField = tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT';
@@ -1315,7 +1409,7 @@ window.addEventListener('beforeunload', () => {
 
 // Exposed for automated browser tests and for patch authors who want to inspect the
 // running system from the browser console.
-window.AlgoLab = {
+window.p5jsLive = {
   controller,
   registry,
   stateStore,
@@ -1329,9 +1423,3 @@ window.AlgoLab = {
   performanceStore,
   network,
 };
-// Keep already-open console snippets and compatibility harnesses alive through the
-// product renames. New material uses window.AlgoLab.
-window.LivecodeLab = window.AlgoLab;
-window.Patchlab = window.AlgoLab;
-window.Patchbay = window.AlgoLab;
-window.Response = window.AlgoLab;

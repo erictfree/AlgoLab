@@ -63,8 +63,8 @@ test(`soak — ${MINUTES} minutes of continuous render, analysis, and evaluation
 
   await page.locator('#audio-file').setInputFiles(TONE);
   await expect(page.locator('#start-overlay')).toBeHidden({ timeout: 15_000 });
-  await page.evaluate(() => window.AlgoLab.audio.setLoop(true));
-  await expect.poll(() => page.evaluate(() => window.AlgoLab.audio.status().playing)).toBe(true);
+  await page.evaluate(() => window.p5jsLive.audio.setLoop(true));
+  await expect.poll(() => page.evaluate(() => window.p5jsLive.audio.status().playing)).toBe(true);
 
   // Identity probes: if any of these change, something was rebuilt underneath the
   // running sketch, which would violate audio and host continuity.
@@ -75,7 +75,7 @@ test(`soak — ${MINUTES} minutes of continuous render, analysis, and evaluation
 
   const sample = () =>
     page.evaluate(() => {
-      const R = window.AlgoLab;
+      const R = window.p5jsLive;
       return {
         frameCount: window.frameCount,
         fps: R.host.fps(),
@@ -111,7 +111,7 @@ test(`soak — ${MINUTES} minutes of continuous render, analysis, and evaluation
     for (let i = 0; i < 40; i++) {
       const edit = EDITS[evaluations % EDITS.length];
       await page.evaluate(
-        (source) => window.AlgoLab.evaluator.evaluate(source, { label: 'soak' }),
+        (source) => window.p5jsLive.evaluator.evaluate(source, { label: 'soak' }),
         edit(evaluations),
       );
       evaluations++;

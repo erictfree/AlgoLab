@@ -1,6 +1,6 @@
 // Host loop — the part that stays alive.
 //
-// AlgoLab, not evaluated patch code, owns setup() and draw(). This module is the
+// p5js live, not evaluated patch code, owns setup() and draw(). This module is the
 // body of that draw(); live code contributes named behaviors that this loop calls.
 //
 // It also owns the frame-boundary steps of the evaluation transaction: a candidate strategy

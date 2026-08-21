@@ -75,11 +75,11 @@ async function setBufferAndCursor(page, buffer, cursorNeedle) {
 }
 
 const latestMessage = (page) =>
-  page.evaluate(() => window.AlgoLab.diagnostics.latest()?.message ?? '');
+  page.evaluate(() => window.p5jsLive.diagnostics.latest()?.message ?? '');
 
 const snapshot = (page) =>
   page.evaluate(() => {
-    const app = window.AlgoLab;
+    const app = window.p5jsLive;
     return {
       frameCount: window.frameCount,
       hostTime: app.host.time(),
@@ -106,19 +106,19 @@ test('visual logic is replaceable while everything else stays alive', async ({ p
   await page.locator('#audio-file').setInputFiles(TONE);
   await expect(page.locator('#start-overlay')).toBeHidden({ timeout: 15_000 });
   await page.locator('#tools-toggle').click();
-  await page.evaluate(() => window.AlgoLab.editor.setFolded(false));
+  await page.evaluate(() => window.p5jsLive.editor.setFolded(false));
 
   const starter = await page.locator('#code').inputValue();
   await setBufferAndCursor(page, `${starter.trimEnd()}\n${FIXTURE_SOURCE}`, 'const liveSet =');
   await page.locator('#code').press('Control+Shift+Enter');
   await expect
-    .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
     .toEqual(['baseFade', 'laserFan', 'trailDots', 'plasma']);
   await page.evaluate(() => {
     document.querySelector('#stage canvas').dataset.probe = 'original';
-    window.AlgoLab.audio.setLoop(true);
+    window.p5jsLive.audio.setLoop(true);
   });
-  await expect.poll(() => page.evaluate(() => window.AlgoLab.audio.status().playing)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.p5jsLive.audio.status().playing)).toBe(true);
 
   await page.waitForTimeout(2_000);
   const before = await snapshot(page);
@@ -174,7 +174,7 @@ test('visual logic is replaceable while everything else stays alive', async ({ p
   await setBufferAndCursor(page, reordered, 'const liveSet =');
   await page.locator('#code').press('Control+Enter');
   await expect
-    .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
     .toEqual(['baseFade', 'trailDots', 'laserFan', 'plasma']);
 
   await page.getByRole('tab', { name: /^Messages/ }).click();
@@ -182,7 +182,7 @@ test('visual logic is replaceable while everything else stays alive', async ({ p
   await page.getByRole('button', { name: 'Make laserFan v1 active again' }).click();
   await expect.poll(() => latestMessage(page)).toBe('laserFan v3 active');
   await expect
-    .poll(() => page.evaluate(() => window.AlgoLab.registry.getStrategy('laserFan').source))
+    .poll(() => page.evaluate(() => window.p5jsLive.registry.getStrategy('laserFan').source))
     .toContain('hue: 165');
 
   const final = await snapshot(page);
@@ -198,7 +198,7 @@ test('source, installed patches, and scene order survive a refresh', async ({ pa
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+  await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
     .toEqual(['asciiNoise', 'plasma']);
 
   await page.evaluate(() => {
@@ -211,14 +211,14 @@ test('source, installed patches, and scene order survive a refresh', async ({ pa
         'const scene = [\n  asciiNoise,\n  marker,\n  plasma,\n];',
       );
     editor.dispatchEvent(new Event('input', { bubbles: true }));
-    window.AlgoLab.evaluator.evaluate(editor.value, { label: 'buffer' });
+    window.p5jsLive.evaluator.evaluate(editor.value, { label: 'buffer' });
   });
-  await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('marker'))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.hasStrategy('marker'))).toBe(true);
   await page.waitForTimeout(900);
 
   await page.reload();
-  await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('marker'))).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.hasStrategy('marker'))).toBe(true);
   await expect
-    .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
     .toEqual(['asciiNoise', 'marker', 'plasma']);
 });

@@ -1,7 +1,7 @@
 // A composable, single-input post-processing patch.
 //
 // The public method vocabulary follows the familiar coordinate and colour operator
-// groups used by Hydra, while the implementation is native to AlgoLab's p5 scene
+// groups used by Hydra, while the implementation is native to p5js live's p5 scene
 // model. A chain is an ordinary object with draw() and dispose(), so it participates
 // in evaluation, rollback, scene ordering, and resource cleanup like every other patch.
 

@@ -15,7 +15,8 @@
 // project keys contained the retired built-in patches, so reading them would immediately
 // repopulate a library the product has deliberately removed. Exported v6 projects are
 // still readable and can be imported explicitly.
-const KEY = 'algolab.project.v5';
+const KEY = 'p5js-live.project.v5';
+const PREVIOUS_KEY = 'algolab.project.v5';
 const OBSOLETE_KEYS = [
   'algolab.project.v1',
   'algolab.project.v2',
@@ -28,9 +29,10 @@ const LEGACY_KEYS = [
   'patchbay.project.v1',
   'response.project.v1',
 ];
-const PROJECT_FORMAT = 'algolab-project';
+const PROJECT_FORMAT = 'p5js-live-project';
 const READABLE_FORMATS = new Set([
   PROJECT_FORMAT,
+  'algolab-project',
   'livecode-lab-project',
   'patchlab-project',
   'patchbay-project',
@@ -78,8 +80,13 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
 
   function load() {
     let raw;
+    let sourceKey = KEY;
     try {
       raw = storage?.getItem(KEY);
+      if (!raw) {
+        raw = storage?.getItem(PREVIOUS_KEY);
+        sourceKey = PREVIOUS_KEY;
+      }
     } catch (error) {
       diagnostics?.warn('Could not read saved project', error.message);
       return null;
@@ -91,6 +98,10 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
       if (!READABLE_SCHEMAS.has(data?.schema) || typeof data.source !== 'string') {
         diagnostics?.warn('Saved project is from an older format — starting fresh');
         return null;
+      }
+      if (sourceKey !== KEY) {
+        storage?.setItem(KEY, raw);
+        storage?.removeItem(sourceKey);
       }
       return data;
     } catch (error) {
@@ -117,6 +128,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
   function clear() {
     try {
       storage?.removeItem(KEY);
+      storage?.removeItem(PREVIOUS_KEY);
       for (const obsoleteKey of OBSOLETE_KEYS) storage?.removeItem(obsoleteKey);
       for (const legacyKey of LEGACY_KEYS) storage?.removeItem(legacyKey);
     } catch {
@@ -155,7 +167,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `algolab-project-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `p5js-live-project-${new Date().toISOString().slice(0, 10)}.json`;
     // Chromium ignores a synthetic click on an anchor that is not in the document, so
     // attach it for the duration of the click.
     link.style.display = 'none';
@@ -183,7 +195,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
       return { ok: false, error: `Not a valid project file — ${error.message}` };
     }
     if (!READABLE_FORMATS.has(data?.format)) {
-      return { ok: false, error: 'Not an AlgoLab project file' };
+      return { ok: false, error: 'Not a p5js live project file' };
     }
     if (!READABLE_SCHEMAS.has(data.schema)) {
       return {

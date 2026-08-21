@@ -1,6 +1,6 @@
-# Using AlgoLab
+# Using p5js live
 
-AlgoLab keeps one p5 host running while you replace patches and scenes. Code is
+p5js live keeps one p5 host running while you replace patches and scenes. Code is
 ordinary JavaScript. For exact fields and lifecycle behavior, see the
 [API reference](API.md).
 
@@ -50,7 +50,7 @@ const rings = {
 rings.grow(2);
 ```
 
-AlgoLab supplies the live context to `draw()`. You supply arguments to methods such
+p5js live supplies the live context to `draw()`. You supply arguments to methods such
 as `grow()`.
 
 ### Class instance
@@ -83,7 +83,7 @@ and a class for constructors, private fields, inheritance, or several instances.
 
 ## Use the live context
 
-AlgoLab passes one object to each patch. Destructure only what you need.
+p5js live passes one object to each patch. Destructure only what you need.
 
 | Field | Value |
 | --- | --- |
@@ -143,7 +143,7 @@ Available → Installed → Active → Running
 - A successful draw makes it **Running**.
 
 To create a patch, hover in the far-left gutter beside a folded cell and select `+`.
-Enter a JavaScript identifier. AlgoLab inserts and opens an object-patch cell. Write
+Enter a JavaScript identifier. p5js live inserts and opens an object-patch cell. Write
 inside `draw()`, evaluate the patch, add its name to the scene, and evaluate the scene.
 
 ## Keep state
@@ -237,7 +237,7 @@ The shortest path is in the **Network** panel:
 2. Find the remote stream.
 3. Select **Add receiver**.
 
-AlgoLab creates a receiver patch, adds it to the scene, and activates the update.
+p5js live creates a receiver patch, adds it to the scene, and activates the update.
 
 For editable source, install `networkReceiver` from **Library → Utilities** and set
 the room, your performer name, and the remote stream exactly as listed:
@@ -268,7 +268,7 @@ textures, and deployment.
 - Named performances remain in the current browser.
 - Export projects that must move or be backed up.
 
-AlgoLab evaluates trusted JavaScript, not sandboxed code. An infinite loop can freeze
+p5js live evaluates trusted JavaScript, not sandboxed code. An infinite loop can freeze
 the tab. See [SECURITY.md](../SECURITY.md).
 
 ## Commands
@@ -282,7 +282,7 @@ the tab. See [SECURITY.md](../SECURITY.md).
 | `Cmd/Ctrl+Alt+N` | Start a new performance from the default scene |
 | `Esc` | Release editor focus |
 | `Space` | Play or pause audio |
-| `\` | Show or hide tools |
+| `Cmd/Ctrl+\` | Show or hide tools |
 | `r` | Show or hide the patch reference |
 | `e` | Show or hide code |
 | `f` | Enter or leave fullscreen |

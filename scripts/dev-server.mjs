@@ -1,7 +1,7 @@
 // Static development server plus the small WebSocket introduction service used by
 // StreamRoom. WebRTC media still travels browser-to-browser, never through this app.
 //
-// AlgoLab is a plain HTML page — there is no bundler and no compile step. But ES
+// p5js live is a plain HTML page — there is no bundler and no compile step. But ES
 // modules will not load from a `file://` URL, so the page needs an HTTP origin.
 // This server supplies that origin and the optional signaling control plane. The
 // only runtime package is `ws`; the visual app itself remains plain browser modules.
@@ -16,14 +16,14 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PORT = Number(process.env.PORT ?? 5173);
 
 function configuredIceServers() {
-  const value = process.env.ALGOLAB_ICE_SERVERS;
+  const value = process.env.P5JS_LIVE_ICE_SERVERS;
   if (!value) return [];
   try {
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed)) throw new TypeError('expected a JSON array');
     return parsed;
   } catch (error) {
-    console.error(`Invalid ALGOLAB_ICE_SERVERS: ${error.message}`);
+    console.error(`Invalid P5JS_LIVE_ICE_SERVERS: ${error.message}`);
     process.exitCode = 1;
     return [];
   }
@@ -73,7 +73,7 @@ const server = createServer(async (req, res) => {
 attachSignalingServer(server, { iceServers: configuredIceServers() });
 
 server.listen(PORT, () => {
-  console.log(`AlgoLab — serving ${ROOT}`);
+  console.log(`p5js live — serving ${ROOT}`);
   console.log(`  http://localhost:${PORT}`);
   console.log(`  ws://localhost:${PORT}/network — room discovery + WebRTC signaling`);
 });

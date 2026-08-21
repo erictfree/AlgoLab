@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AlgoLab — p5.js live visual playground</title>
+    <title>p5js live — p5.js live visual playground</title>
 
     <!--
       p5 and p5.sound are pinned builds, vendored locally so the visual app runs
@@ -31,62 +31,40 @@
           aria-describedby="welcome-description"
         >
           <article class="welcome-card">
-            <header class="welcome-header">
-              <div class="welcome-name">
-                <h1 id="welcome-title">ALGOLAB</h1>
-                <p>AUDIO-REACTIVE VISUAL LIVE CODING IN THE BROWSER</p>
-              </div>
-              <a
-                class="welcome-department-mark"
-                href="https://aet.utexas.edu/"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Visit the Department of Arts and Entertainment Technologies website"
-              >
-                <img
-                  class="welcome-logo"
-                  src="assets/brand/aet-logo-full-color-gradient.png"
-                  alt="Department of Arts and Entertainment Technologies"
-                />
-              </a>
+            <header class="welcome-hero">
+              <h1 id="welcome-title">p5js live</h1>
+              <p>AUDIO-REACTIVE VISUAL LIVE CODING IN THE BROWSER</p>
+              <img
+                class="welcome-illustration"
+                src="assets/illustrations/mascot.png"
+                alt="Cartoon live coder wearing headphones at a laptop"
+              />
             </header>
 
             <div class="welcome-body">
               <p id="welcome-description" class="welcome-intro">
-                AlgoLab is a browser-based visual instrument for live-coding audio-reactive
-                graphics with JavaScript and p5.js. It was created by Eric Freeman at the
-                <a href="https://aet.utexas.edu/" target="_blank" rel="noopener noreferrer">Department of Arts and Entertainment Technologies</a>
-                at The University of Texas at Austin.
-                Build visuals with JavaScript patches, arrange them into a scene,
-                and change the composition while it runs.
+                p5js live is a browser-based visual instrument for live-coding audio-reactive
+                graphics with JavaScript and p5.js.
               </p>
-
-              <dl class="welcome-concepts">
-                <div>
-                  <dt>PATCH</dt>
-                  <dd>An object, function, or class instance that knows how to draw.</dd>
-                </div>
-                <div>
-                  <dt>SCENE</dt>
-                  <dd>An ordered array of patches that AlgoLab draws together.</dd>
-                </div>
-                <div>
-                  <dt>LIVE</dt>
-                  <dd>Edit a block and press <kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd>.</dd>
-                </div>
-              </dl>
-
+              <p class="welcome-credit">
+                Created by Eric Freeman at the
+                <a href="https://aet.utexas.edu/" target="_blank" rel="noopener noreferrer">Department of Arts and Entertainment Technologies</a>
+                at the University of Texas at Austin.
+              </p>
             </div>
 
             <footer class="welcome-start">
-              <p>Choose what the visuals should respond to:</p>
+              <div class="welcome-start-copy">
+                <h2>Choose a source</h2>
+                <p>Your choice replaces the intro loop.</p>
+              </div>
               <div class="start-actions">
                 <button id="file-label" class="start-primary" type="button">
-                  choose audio file
+                  Audio file
                 </button>
                 <input id="audio-file" type="file" accept=".mp3,.wav,.ogg,.m4a,.aac" />
-                <button id="start-mic" type="button">use microphone</button>
-                <button id="start-audio" type="button">enter with silence</button>
+                <button id="start-mic" class="start-secondary" type="button">Microphone</button>
+                <button id="start-audio" class="start-tertiary" type="button">Start silent</button>
               </div>
               <div class="welcome-feedback">
                 <div id="start-load-state" class="audio-load-state welcome-load-state" hidden role="status" aria-live="polite">
@@ -94,7 +72,7 @@
                   <progress id="start-load-progress" max="1"></progress>
                 </div>
                 <p id="start-note">
-                  Choose an audio file (.mp3, .wav, .ogg, .m4a, or .aac), microphone, or silence to begin.
+                  Intro loop ready · files: MP3, WAV, OGG, M4A, AAC
                 </p>
               </div>
             </footer>
@@ -154,7 +132,7 @@
             <dt><kbd>0</kbd></dt><dd>restore the complete safe state</dd>
             <dt><kbd>s</kbd></dt><dd>capture the current project as the safe state</dd>
             <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>start a new performance with the default scene</dd>
-            <dt><kbd>\</kbd></dt><dd>show / hide the tools drawer</dd>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>\</kbd></dt><dd>show / hide the tools drawer</dd>
             <dt><kbd>r</kbd></dt><dd>show / hide the installed-patch reference</dd>
             <dt><kbd>e</kbd></dt><dd>show / hide the code</dd>
             <dt><kbd>f</kbd></dt><dd>fullscreen</dd>
@@ -172,7 +150,7 @@
            Hidden by default so the stage gets the whole window. -->
       <aside id="side" class="right-drawer is-hidden">
         <div id="stagebar">
-          <span class="brand">ALGOLAB</span>
+          <span class="brand">p5js live</span>
           <label class="stagebar-control">
             <span>audience</span>
             <select id="projection-layout" title="What the audience sees" aria-label="Projection layout">
@@ -527,7 +505,7 @@ const publishMain = room.publish({
         <button id="panic" type="button" class="glyph danger" title="Restore the complete safe state (0)" aria-label="Restore safe state (0)">✖</button>
         <button id="fold-code" type="button" class="glyph" title="Fold code into cells" aria-label="Fold code into cells">▤</button>
         <button id="reference-toggle" type="button" class="glyph" title="Project patch reference (r)" aria-label="Project patch reference">{ }</button>
-        <button id="tools-toggle" type="button" class="glyph" title="Show or hide the performer tools (\)" aria-label="Show or hide the performer tools">☰</button>
+        <button id="tools-toggle" type="button" class="glyph" title="Show or hide the performer tools (Cmd/Ctrl+\)" aria-label="Show or hide the performer tools">☰</button>
         <button id="keys-open" type="button" class="glyph" title="Key commands (?)" aria-label="Key commands">?</button>
       </div>
 

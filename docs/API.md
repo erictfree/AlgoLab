@@ -1,6 +1,6 @@
-# AlgoLab API
+# p5js live API
 
-AlgoLab code is JavaScript. The host owns p5 `setup()` and `draw()`; live code
+p5js live code is JavaScript. The host owns p5 `setup()` and `draw()`; live code
 provides patches and scene arrays.
 
 ## Patch states
@@ -63,13 +63,13 @@ class NeonTunnel {
 const neonTunnel = new NeonTunnel({ rings: 20, sides: 8 });
 ```
 
-AlgoLab retains the exact value. Prototypes, private fields, getters, helper methods,
+p5js live retains the exact value. Prototypes, private fields, getters, helper methods,
 and `this` behave normally. Object methods are called as
 `patch.draw(drawInputs)`. Do not use an arrow method when it needs `this`.
 
 ## Draw inputs
 
-`draw({ audio, time })` is a normal parameter using object destructuring. AlgoLab
+`draw({ audio, time })` is a normal parameter using object destructuring. p5js live
 supplies the object on each frame.
 
 | Field | Meaning |
@@ -117,7 +117,7 @@ const kaleido = makeKaleido(12, 285);
 const pinkLasers = { ...laserFan, hue: 330, direction: -1 };
 ```
 
-AlgoLab supplies changing context values. The patch owns its configuration and
+p5js live supplies changing context values. The patch owns its configuration and
 state. Do not rewrite shared context values such as `audio` or `time`.
 
 ## Scenes
@@ -157,7 +157,7 @@ const scene = [
 ];
 ```
 
-Inline values are created when the scene cell evaluates. AlgoLab calls functions as
+Inline values are created when the scene cell evaluates. p5js live calls functions as
 `patch(context)` and objects as `patch.draw(context)`. Return values are ignored.
 
 ### Identity and copies
@@ -383,6 +383,6 @@ add a configured receiver. An editable `networkReceiver` template is under
   clone-compatible state.
 - **Restore safe state** reports any state it could not restore.
 
-AlgoLab evaluates trusted code with `new Function`. It catches exceptions but cannot
+p5js live evaluates trusted code with `new Function`. It catches exceptions but cannot
 stop an infinite loop or prevent access to browser globals. See
 [SECURITY.md](../SECURITY.md).

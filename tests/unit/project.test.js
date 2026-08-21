@@ -42,10 +42,25 @@ describe('local persistence', () => {
     store.save(SOURCE);
     const loaded = store.load();
 
-    expect(storage.getItem('algolab.project.v5')).not.toBe(null);
+    expect(storage.getItem('p5js-live.project.v5')).not.toBe(null);
     expect(loaded.source).toBe(SOURCE);
     expect(loaded.safeScene).toBe('tunnel');
     expect(loaded.params[0]).toMatchObject({ name: 'trail', value: 0.08 });
+  });
+
+  it('moves the previous product save to the p5js live storage key', () => {
+    const registry = createRegistry();
+    const storage = fakeStorage();
+    storage.setItem(
+      'algolab.project.v5',
+      JSON.stringify({ schema: 6, source: SOURCE, safeScene: 'tunnel', params: [] }),
+    );
+
+    const loaded = createProjectStore({ registry, storage }).load();
+
+    expect(loaded.source).toBe(SOURCE);
+    expect(storage.getItem('p5js-live.project.v5')).not.toBe(null);
+    expect(storage.getItem('algolab.project.v5')).toBe(null);
   });
 
   it('does not save a second copy of scene membership or order', () => {
@@ -83,7 +98,7 @@ describe('local persistence', () => {
     expect(createProjectStore({ registry, storage }).load()).toBe(null);
   });
 
-  it('does not restore the retired built-in patch set from the former AlgoLab key', () => {
+  it('does not restore the retired built-in patch set from an obsolete key', () => {
     const registry = createRegistry();
     const storage = fakeStorage();
     storage.setItem(
@@ -153,7 +168,7 @@ describe('export is human-readable', () => {
     const text = store.exportProject(SOURCE);
     const data = JSON.parse(text);
 
-    expect(data.format).toBe('algolab-project');
+    expect(data.format).toBe('p5js-live-project');
     expect(text).not.toContain('\\n');
     expect(data.source).toEqual(SOURCE.split('\n'));
     expect(data).not.toHaveProperty('scenes');
@@ -182,6 +197,7 @@ describe('import parsing is separate from running', () => {
       'patchlab-project',
       'patchbay-project',
       'response-project',
+      'algolab-project',
     ]) {
       const parsed = store.parseProject(
         JSON.stringify({ format, schema: 6, source: SOURCE.split('\n') }),
@@ -191,15 +207,15 @@ describe('import parsing is separate from running', () => {
     }
   });
 
-  it('rejects files that are not AlgoLab projects', () => {
+  it('rejects files that are not p5js live projects', () => {
     const { store } = setup();
     expect(store.parseProject('not json at all').ok).toBe(false);
-    expect(store.parseProject('{"hello":1}').error).toContain('Not an AlgoLab project');
+    expect(store.parseProject('{"hello":1}').error).toContain('Not a p5js live project');
     expect(
-      store.parseProject(JSON.stringify({ format: 'algolab-project', schema: 99 })).error,
+      store.parseProject(JSON.stringify({ format: 'p5js-live-project', schema: 99 })).error,
     ).toContain('format version 99');
     expect(
-      store.parseProject(JSON.stringify({ format: 'algolab-project', schema: 6 })).error,
+      store.parseProject(JSON.stringify({ format: 'p5js-live-project', schema: 6 })).error,
     ).toContain('no source');
   });
 
@@ -209,7 +225,7 @@ describe('import parsing is separate from running', () => {
 
     store.parseProject(
       JSON.stringify({
-        format: 'algolab-project',
+        format: 'p5js-live-project',
         schema: 6,
         source: ['const evil = { draw() {} };'],
       }),

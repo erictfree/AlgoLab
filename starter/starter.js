@@ -1,8 +1,8 @@
-// The compact AlgoLab starter project: one transparent drawing patch followed by one
+// The compact p5js live starter project: one transparent drawing patch followed by one
 // post-processing shader. Everything else begins in the Patch Library.
 
 export const STARTER_SOURCE = `// %% patch asciiNoise
-// ALGOLAB — starter scene
+// p5js live — starter scene
 //
 // A patch is an ordinary function, object, or class instance that can draw.
 // A scene is an array of patches, drawn from first to last.

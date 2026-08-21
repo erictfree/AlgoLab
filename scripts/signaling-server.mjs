@@ -18,9 +18,9 @@ function send(socket, message) {
 
 export function attachSignalingServer(server, {
   path = '/network',
-  roomToken = process.env.ALGOLAB_NETWORK_TOKEN ?? null,
+  roomToken = process.env.P5JS_LIVE_NETWORK_TOKEN ?? null,
   iceServers = [],
-  allowedOrigins = process.env.ALGOLAB_ALLOWED_ORIGINS
+  allowedOrigins = process.env.P5JS_LIVE_ALLOWED_ORIGINS
     ?.split(',')
     .map((origin) => origin.trim())
     .filter(Boolean) ?? null,

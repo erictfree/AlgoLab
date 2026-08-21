@@ -10,7 +10,7 @@ async function boot(page, { tools = true, folded = false, welcome = false } = {}
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect
-    .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder().length))
+    .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder().length))
     .toBe(2);
   if (!welcome) {
     // Most tests begin after onboarding; the dedicated welcome test exercises its
@@ -22,7 +22,7 @@ async function boot(page, { tools = true, folded = false, welcome = false } = {}
   if (!folded) {
     // Most of this older suite exercises the textarea itself. Unfold through the
     // editor API so setup does not add a toolbar click to Chrome's focus/undo history.
-    await page.evaluate(() => window.AlgoLab.editor.setFolded(false));
+    await page.evaluate(() => window.p5jsLive.editor.setFolded(false));
     await expect(page.locator('#code-layer')).not.toHaveClass(/is-folded/);
   }
   // The drawer is closed on arrival now — the display is the visuals and the code, and
@@ -98,7 +98,7 @@ test.describe('projection view', () => {
     // Put a real error in the performer's Messages panel first — the whole point of
     // Performer diagnostics must not travel to the projector.
     await page.evaluate(() =>
-      window.AlgoLab.evaluator.evaluate('const rings = { draw() { ((( broken', { label: 'strategy rings' }),
+      window.p5jsLive.evaluator.evaluate('const rings = { draw() { ((( broken', { label: 'strategy rings' }),
     );
     await expect(page.locator('#diagnostics-list')).toContainText('Syntax error');
     await expect(page.getByRole('tab', { name: /^Messages/ })).toHaveAttribute('aria-selected', 'true');
@@ -110,7 +110,7 @@ test.describe('projection view', () => {
     ]);
 
     await expect(projector.locator('#projection-canvas')).toBeVisible();
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.projection.isOpen())).toBe(true);
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.projection.isOpen())).toBe(true);
 
     const projectorText = await projector.locator('body').innerText();
     expect(projectorText).not.toContain('Syntax error');
@@ -210,7 +210,7 @@ test.describe('multiple copies of one strategy', () => {
   test('editing the scene array adds and removes independent copies', async ({ page }) => {
     await boot(page);
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
     await replaceInEditorAndEvaluate(
       page,
@@ -218,13 +218,13 @@ test.describe('multiple copies of one strategy', () => {
       'const scene = [\n  asciiNoise,\n  plasma,\n  plasma,\n  plasma,\n];',
     );
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma', 'plasma#2', 'plasma#3']);
 
     // The reference shows the count; the scene itself remains authoritative in code.
     await expect(page.locator('[data-strategy="plasma"]')).toContainText('×3');
     await expect(page.locator('#scene-panel')).toHaveCount(0);
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual([
+    expect(await page.evaluate(() => window.p5jsLive.registry.activeOrder())).toEqual([
       'asciiNoise',
       'plasma',
       'plasma#2',
@@ -233,7 +233,7 @@ test.describe('multiple copies of one strategy', () => {
 
     // Each copy keeps its own state.
     const independent = await page.evaluate(() => {
-      const s = window.AlgoLab.stateStore;
+      const s = window.p5jsLive.stateStore;
       return s.get('plasma') !== s.get('plasma#2') && s.get('plasma#2') !== s.get('plasma#3');
     });
     expect(independent).toBe(true);
@@ -246,7 +246,7 @@ test.describe('multiple copies of one strategy', () => {
       'const scene = [\n  asciiNoise,\n  plasma,\n  plasma,\n];',
     );
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma', 'plasma#2']);
   });
 
@@ -261,7 +261,7 @@ test.describe('multiple copies of one strategy', () => {
 
     // The first press installs source without changing the active scene.
     await page.getByRole('button', { name: /^Install laserFan system patch source —/ }).click();
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('laserFan'))).toBe(true);
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.hasStrategy('laserFan'))).toBe(true);
 
     // Installed is deliberately not Active or Running.
     await expect(page.locator('[data-available="laserFan"]')).toHaveCount(0);
@@ -271,7 +271,7 @@ test.describe('multiple copies of one strategy', () => {
       page.getByRole('button', { name: 'Add installed patch laserFan to the active scene source' }),
     ).toBeVisible();
     await expect(page.locator('[data-strategy="laserFan"]')).toContainText('v1');
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length)).toBe(0);
+    expect(await page.evaluate(() => window.p5jsLive.registry.activeInstancesOf('laserFan').length)).toBe(0);
 
     await replaceInEditorAndEvaluate(
       page,
@@ -279,7 +279,7 @@ test.describe('multiple copies of one strategy', () => {
       'const scene = [\n  asciiNoise,\n  laserFan,\n  laserFan,\n  plasma,\n];',
     );
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeInstancesOf('laserFan').length))
       .toBe(2);
 
     // A separately named object owns its own configuration through normal properties.
@@ -289,22 +289,22 @@ const laserScene = [laserFan, laserFan, pinkLasers, plasma];
 activate(laserScene);`);
     await expect
       .poll(() =>
-        page.evaluate(() => window.AlgoLab.registry.getStrategy('pinkLasers')?.definition.hue),
+        page.evaluate(() => window.p5jsLive.registry.getStrategy('pinkLasers')?.definition.hue),
       )
       .toBe(330);
 
     // Replacing laserFan changes its two copies; the configured object is independent.
     await page.evaluate(() =>
-      window.AlgoLab.evaluator.evaluate(
+      window.p5jsLive.evaluator.evaluate(
         'const laserFan = { draw({ state }) { state.touched = true; } };',
         { label: 'patch laserFan' },
       ),
     );
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.getStrategy('laserFan').version)).toBe(2);
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.getStrategy('laserFan').version)).toBe(2);
     await expect
       .poll(() =>
         page.evaluate(() => {
-          const s = window.AlgoLab.stateStore;
+          const s = window.p5jsLive.stateStore;
           return (
             ['laserFan', 'laserFan#2'].every((id) => s.get(id)?.touched === true) &&
             s.get('pinkLasers') !== s.get('laserFan')
@@ -369,7 +369,7 @@ activate(laserScene);`);
     await expect(page.locator('#code')).toHaveValue(
       /const scene = \[\n  asciiNoise,\n  plasma,\n  checkerZoom,\n\];/,
     );
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    expect(await page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
   });
 
@@ -390,7 +390,7 @@ activate(laserScene);`);
     await expect(page.locator('#code')).toHaveValue(
       /const scene = \[\n  asciiNoise,\n  checkerZoom,\n  plasma,\n\];/,
     );
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    expect(await page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
   });
 
@@ -410,12 +410,12 @@ activate(laserScene);`);
     await expect(scene.locator('.folded-source-editor')).toHaveValue(
       /checkerZoom,[\s\S]*plasma,/,
     );
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('checkerZoom').length))
+    expect(await page.evaluate(() => window.p5jsLive.registry.activeInstancesOf('checkerZoom').length))
       .toBe(0);
 
     await scene.locator('.folded-source-editor').press('Control+Enter');
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('checkerZoom').length))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeInstancesOf('checkerZoom').length))
       .toBe(1);
   });
 
@@ -436,7 +436,7 @@ activate(laserScene);`);
       /const scene = \[\n  asciiNoise,\n  \/\/ plasma,\n  checkerZoom,\n\];/,
     );
     await expect(page.locator('#code')).not.toHaveValue(/\n  plasma,\n/);
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    expect(await page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
   });
 
@@ -473,7 +473,7 @@ activate(laserScene);`);
     await expect(page.locator('[data-library="laserFan"]')).toContainText('Available');
     await page.getByRole('button', { name: /^Install laserFan system patch source —/ }).click();
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('laserFan')))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.hasStrategy('laserFan')))
       .toBe(true);
     await expect(page.locator('[data-available="laserFan"]')).toHaveCount(0);
     await expect(page.locator('[data-library="laserFan"]')).toBeVisible();
@@ -483,7 +483,7 @@ activate(laserScene);`);
     ).toBeVisible();
     await expect(page.locator('[data-available="waveScope"]')).toBeVisible();
     expect(
-      await page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length),
+      await page.evaluate(() => window.p5jsLive.registry.activeInstancesOf('laserFan').length),
     ).toBe(0);
     await expect(page.locator('#code')).toHaveValue(/\/\/ %% patch laserFan/);
     const sourceOrder = await page.locator('#code').evaluate((editor) => ({
@@ -506,14 +506,14 @@ activate(laserScene);`);
       page.getByRole('button', { name: 'Add installed patch laserFan to the active scene source' }),
     ).toHaveCount(0);
     expect(
-      await page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length),
+      await page.evaluate(() => window.p5jsLive.registry.activeInstancesOf('laserFan').length),
     ).toBe(0);
     await expect(page.locator('#diagnostics-list')).toContainText('not active yet');
     await page.locator('#code').press('Control+Enter');
     await expect
       .poll(() =>
         page.evaluate(() =>
-          window.AlgoLab.controller.snapshot().strategies.find((entry) => entry.name === 'laserFan')?.running,
+          window.p5jsLive.controller.snapshot().strategies.find((entry) => entry.name === 'laserFan')?.running,
         ),
       )
       .toBe(true);
@@ -544,12 +544,12 @@ activate(laserScene);`);
       document.getElementById('start-overlay').hidden = true;
     });
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeInstancesOf('laserFan').length))
       .toBe(1);
     await expect
       .poll(() =>
         page.evaluate(() =>
-          window.AlgoLab.controller.snapshot().strategies.find((entry) => entry.name === 'laserFan')?.running,
+          window.p5jsLive.controller.snapshot().strategies.find((entry) => entry.name === 'laserFan')?.running,
         ),
       )
       .toBe(true);
@@ -570,7 +570,7 @@ activate(show);`;
 
     await page.addInitScript((savedSource) => {
       localStorage.clear();
-      localStorage.setItem('algolab.project.v5', JSON.stringify({
+      localStorage.setItem('p5js-live.project.v5', JSON.stringify({
         schema: 6,
         savedAt: Date.now(),
         source: savedSource,
@@ -579,14 +579,14 @@ activate(show);`;
       }));
     }, source);
     await page.goto('/index.html');
-    await page.getByRole('button', { name: 'enter with silence' }).click();
+    await page.getByRole('button', { name: 'Start silent' }).click();
     await openTools(page);
 
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.controller.snapshot().installedPatches))
+      .poll(() => page.evaluate(() => window.p5jsLive.controller.snapshot().installedPatches))
       .toEqual(['frequencyBars', 'audioMeters', 'asciiNoise', 'plasma']);
     expect(pageErrors).toEqual([]);
     await expect(page.locator('[data-library="frequencyBars"]')).toContainText('Installed');
@@ -601,7 +601,7 @@ activate(show);`;
     await boot(page);
     await page.getByRole('button', { name: /^Install shaderFlow system patch source —/ }).click();
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('shaderFlow')))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.hasStrategy('shaderFlow')))
       .toBe(true);
 
     await replaceInEditorAndEvaluate(
@@ -612,7 +612,7 @@ activate(show);`;
 
     await expect
       .poll(() => page.evaluate(() => {
-        const strategy = window.AlgoLab.controller.snapshot().strategies
+        const strategy = window.p5jsLive.controller.snapshot().strategies
           .find(({ name }) => name === 'shaderFlow');
         return { running: strategy?.running, error: strategy?.lastError?.message ?? null };
       }))
@@ -635,7 +635,7 @@ activate(show);`;
 
     await expect
       .poll(() => page.evaluate(() => {
-        const snapshot = window.AlgoLab.controller.snapshot();
+        const snapshot = window.p5jsLive.controller.snapshot();
         return ['waveTerrain', 'slowRotate', 'bassZoom', 'prismMirror'].map((name) => {
           const strategy = snapshot.strategies.find((entry) => entry.name === name);
           return { name, running: strategy?.running, error: strategy?.lastError?.message ?? null };
@@ -657,7 +657,7 @@ activate(show);`;
     await boot(page);
     await page.getByRole('button', { name: /^Install gameOfLife system patch source —/ }).click();
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('gameOfLife')))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.hasStrategy('gameOfLife')))
       .toBe(true);
 
     await page
@@ -667,9 +667,9 @@ activate(show);`;
 
     await expect
       .poll(() => page.evaluate(() => {
-        const state = window.AlgoLab.stateStore.get('gameOfLife');
+        const state = window.p5jsLive.stateStore.get('gameOfLife');
         return {
-          running: window.AlgoLab.controller.snapshot().strategies
+          running: window.p5jsLive.controller.snapshot().strategies
             .find(({ name }) => name === 'gameOfLife')?.running ?? false,
           generation: state?.generation ?? 0,
           cells: state?.cells?.length ?? 0,
@@ -678,10 +678,10 @@ activate(show);`;
       }))
       .toMatchObject({ running: true });
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.stateStore.get('gameOfLife')?.generation ?? 0))
+      .poll(() => page.evaluate(() => window.p5jsLive.stateStore.get('gameOfLife')?.generation ?? 0))
       .toBeGreaterThan(0);
     const population = await page.evaluate(() => {
-      const cells = window.AlgoLab.stateStore.get('gameOfLife')?.cells ?? [];
+      const cells = window.p5jsLive.stateStore.get('gameOfLife')?.cells ?? [];
       return { cells: cells.length, living: cells.reduce((total, cell) => total + cell, 0) };
     });
     expect(population.cells).toBeGreaterThan(0);
@@ -694,9 +694,9 @@ activate(show);`;
 
     await expect
       .poll(() => page.evaluate(() => {
-        const strategy = window.AlgoLab.controller.snapshot().strategies
+        const strategy = window.p5jsLive.controller.snapshot().strategies
           .find(({ name }) => name === 'asciiNoise');
-        const state = window.AlgoLab.stateStore.get('asciiNoise');
+        const state = window.p5jsLive.stateStore.get('asciiNoise');
         return {
           running: strategy?.running ?? false,
           error: strategy?.lastError?.message ?? null,
@@ -705,14 +705,14 @@ activate(show);`;
       }))
       .toMatchObject({ running: true, error: null });
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.stateStore.get('asciiNoise')?.cells.length ?? 0))
+      .poll(() => page.evaluate(() => window.p5jsLive.stateStore.get('asciiNoise')?.cells.length ?? 0))
       .toBeGreaterThan(0);
     await expect(page.locator('[data-library="asciiNoise"]')).toContainText('Running');
 
-    const before = await page.evaluate(() => window.AlgoLab.evaluator.binding('asciiNoise').shuffleVersion);
-    const result = await page.evaluate(() => window.AlgoLab.evaluator.evaluate('asciiNoise.shuffle();'));
+    const before = await page.evaluate(() => window.p5jsLive.evaluator.binding('asciiNoise').shuffleVersion);
+    const result = await page.evaluate(() => window.p5jsLive.evaluator.evaluate('asciiNoise.shuffle();'));
     expect(result.ok).toBe(true);
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.evaluator.binding('asciiNoise').shuffleVersion))
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.evaluator.binding('asciiNoise').shuffleVersion))
       .toBe(before + 1);
   });
 
@@ -735,14 +735,14 @@ activate(inlineShow);`);
 
     await expect
       .poll(() => page.evaluate(() => ({
-        order: window.AlgoLab.registry.activeOrder(),
-        frames: window.AlgoLab.stateStore.get('inlineShow[0]')?.frames ?? 0,
-        running: window.AlgoLab.controller.snapshot().strategies
+        order: window.p5jsLive.registry.activeOrder(),
+        frames: window.p5jsLive.stateStore.get('inlineShow[0]')?.frames ?? 0,
+        running: window.p5jsLive.controller.snapshot().strategies
           .find(({ name }) => name === 'inlineShow[0]')?.running ?? false,
       })))
       .toMatchObject({ order: ['inlineShow[0]'], running: true });
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.stateStore.get('inlineShow[0]')?.frames ?? 0))
+      .poll(() => page.evaluate(() => window.p5jsLive.stateStore.get('inlineShow[0]')?.frames ?? 0))
       .toBeGreaterThan(2);
   });
 
@@ -788,12 +788,12 @@ test.describe('the demo scene', () => {
     await boot(page);
     // Wipe everything. The demo must not depend on the starter Plasma patch.
     await page.evaluate(() => {
-      const R = window.AlgoLab;
+      const R = window.p5jsLive;
       R.host.reset();
       R.registry.reset();
       R.stateStore.clear();
     });
-    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('plasma'))).toBe(false);
+    expect(await page.evaluate(() => window.p5jsLive.registry.hasStrategy('plasma'))).toBe(false);
     await openLibrary(page);
     await expect(page.locator('#scene-panel')).toHaveCount(0);
     await expect(page.locator('#library-panel')).toContainText(
@@ -803,15 +803,15 @@ test.describe('the demo scene', () => {
 
     await page.getByRole('button', { name: 'Insert a configured library scene into the source' }).click();
 
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe(null);
+    expect(await page.evaluate(() => window.p5jsLive.registry.activeSceneName())).toBe(null);
     await expect(page.locator('#diagnostics-list')).toContainText('not active yet');
     await page.locator('#code').press('Control+Enter');
 
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe(
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.activeSceneName())).toBe(
       'stacked',
     );
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual([
         'checkerZoom',
         'neonTunnel',
@@ -827,7 +827,7 @@ test.describe('the demo scene', () => {
     await expect
       .poll(() =>
         page.evaluate(() =>
-          window.AlgoLab.controller.snapshot().strategies
+          window.p5jsLive.controller.snapshot().strategies
             .filter((entry) => [
               'checkerZoom',
               'neonTunnel',
@@ -846,12 +846,12 @@ test.describe('the demo scene', () => {
       .toBe(true);
     expect(
       await page.evaluate(() =>
-        window.AlgoLab.registry.listParams().find((entry) => entry.name === 'checkerSpeed')?.value,
+        window.p5jsLive.registry.listParams().find((entry) => entry.name === 'checkerSpeed')?.value,
       ),
     ).toBe(0.08);
     expect(
       await page.evaluate(() =>
-        window.AlgoLab.diagnostics.list().filter((d) => d.level === 'error').length,
+        window.p5jsLive.diagnostics.list().filter((d) => d.level === 'error').length,
       ),
     ).toBe(0);
   });
@@ -862,7 +862,7 @@ test.describe('the demo scene', () => {
     await expect(page.locator('#diagnostics-list')).toContainText('not active yet');
     await page.locator('#code').press('Control+Enter');
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual([
         'checkerZoom',
         'neonTunnel',
@@ -885,7 +885,11 @@ test.describe('the minimal display', () => {
     const play = page.locator('#play-toggle');
     const loop = page.locator('#loop-performance-toggle');
     await expect(play).toBeVisible();
-    await expect(play).toBeDisabled();
+    await expect
+      .poll(() => page.evaluate(() => window.p5jsLive.audio.status().source))
+      .toBe('intro loop');
+    await expect(play).toBeEnabled();
+    await expect(play).toHaveAttribute('aria-label', /^(Play|Pause) audio$/);
     await expect(loop).toBeVisible();
     await expect(loop).toHaveAttribute('aria-pressed', 'false');
 
@@ -896,10 +900,10 @@ test.describe('the minimal display', () => {
 
     await loop.click();
     await expect(loop).toHaveAttribute('aria-pressed', 'true');
-    expect(await page.evaluate(() => window.AlgoLab.audio.status().looping)).toBe(true);
+    expect(await page.evaluate(() => window.p5jsLive.audio.status().looping)).toBe(true);
 
     await play.click();
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.audio.status().playing)).toBe(false);
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.audio.status().playing)).toBe(false);
     await expect(play).toHaveAttribute('aria-label', 'Play audio');
 
     await page.locator('#tools-toggle').click();
@@ -907,36 +911,34 @@ test.describe('the minimal display', () => {
     await expect(page.locator('#loop-toggle')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('introduces AlgoLab and offers three explicit ways to begin', async ({ page }) => {
+  test('introduces p5js live and offers three explicit ways to begin', async ({ page }) => {
     await boot(page, { tools: false, folded: true, welcome: true });
 
-    const welcome = page.getByRole('dialog', { name: 'ALGOLAB' });
+    const welcome = page.getByRole('dialog', { name: 'p5js live' });
     await expect(welcome).toBeVisible();
     const frameBefore = await page.evaluate(() => window.frameCount);
     await page.waitForTimeout(150);
     expect(await page.evaluate(() => window.frameCount)).toBeGreaterThan(frameBefore);
-    expect(
-      await page.evaluate(
-        () => getComputedStyle(document.getElementById('start-overlay'), '::before').content,
-      ),
-    ).not.toBe('none');
     await expect(welcome).toBeVisible();
-    await expect(welcome.getByAltText('Department of Arts and Entertainment Technologies')).toBeVisible();
+    const mascot = welcome.getByAltText(
+      'Cartoon live coder wearing headphones at a laptop',
+    );
+    await expect(mascot).toBeVisible();
+    expect(await mascot.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
     await expect(
       welcome.getByRole('link', {
-        name: 'Visit the Department of Arts and Entertainment Technologies website',
+        name: 'Department of Arts and Entertainment Technologies',
       }),
     ).toHaveAttribute('href', 'https://aet.utexas.edu/');
     await expect(welcome).toContainText('browser-based visual instrument');
-    await expect(welcome).toContainText('created by Eric Freeman');
-    await expect(welcome).toContainText('PATCH');
-    await expect(welcome).toContainText('SCENE');
-    await expect(welcome).toContainText('LIVE');
+    await expect(welcome).toContainText('Created by Eric Freeman');
     await expect(welcome).not.toContainText('last successful scene keeps running');
-    await expect(welcome.getByRole('button', { name: 'choose audio file' })).toBeVisible();
-    await expect(welcome.getByRole('button', { name: 'use microphone' })).toBeVisible();
+    await expect(welcome).not.toContainText('An ordered array of patches');
+    await expect(welcome.getByRole('button', { name: 'Audio file' })).toBeVisible();
+    await expect(welcome.getByRole('button', { name: 'Microphone' })).toBeVisible();
+    await expect(welcome.getByRole('button', { name: 'Start silent' })).toBeVisible();
     await expect(welcome).toContainText(
-      'Choose an audio file (.mp3, .wav, .ogg, .m4a, or .aac), microphone, or silence to begin.',
+      'Intro loop ready · files: MP3, WAV, OGG, M4A, AAC',
     );
     await expect(page.locator('#audio-file')).toHaveAttribute(
       'accept',
@@ -947,14 +949,43 @@ test.describe('the minimal display', () => {
       '.mp3,.wav,.ogg,.m4a,.aac',
     );
 
-    await welcome.getByRole('button', { name: 'enter with silence' }).click();
+    await page.mouse.move(0, 0);
+    await page.evaluate(() => document.activeElement?.blur());
+    const visualTokens = await welcome.evaluate((dialog) => {
+      const card = dialog.querySelector('.welcome-card');
+      const hero = dialog.querySelector('.welcome-hero');
+      const title = dialog.querySelector('#welcome-title');
+      const primary = dialog.querySelector('.start-primary');
+      return {
+        cardWidth: card.getBoundingClientRect().width,
+        heroBackground: getComputedStyle(hero).backgroundColor,
+        titleColor: getComputedStyle(title).color,
+        primaryBackground: getComputedStyle(primary).backgroundColor,
+        primaryRadius: getComputedStyle(primary).borderRadius,
+      };
+    });
+    expect(visualTokens.cardWidth).toBeLessThanOrEqual(560);
+    expect(visualTokens.heroBackground).toBe('rgb(193, 188, 242)');
+    expect(visualTokens.titleColor).toBe('rgb(91, 63, 166)');
+    expect(visualTokens.primaryBackground).toBe('rgb(91, 63, 166)');
+    expect(visualTokens.primaryRadius).toBe('7px');
+
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.audio.status().source))
+      .toBe('intro loop');
+    await welcome.locator('.welcome-hero').click();
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.audio.status().playing))
+      .toBe(true);
+
+    await welcome.getByRole('button', { name: 'Start silent' }).click();
     await expect(welcome).toBeHidden();
     await expect(page.locator('#stage canvas')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.audio.status().source)).toBe('none');
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.audio.status().playing)).toBe(false);
   });
 
   test('shows transfer and decoding progress while an audio file loads', async ({ page }) => {
     await boot(page, { tools: false, folded: true, welcome: true });
-    const welcome = page.getByRole('dialog', { name: 'ALGOLAB' });
+    const welcome = page.getByRole('dialog', { name: 'p5js live' });
     const initialHeight = await welcome.evaluate((element) => element.getBoundingClientRect().height);
     await page.evaluate(() => {
       window.loadSound = (_url, onSuccess, onFailure, onProgress) => {
@@ -983,9 +1014,9 @@ test.describe('the minimal display', () => {
 
     await page.evaluate(() => window.__testAudioLoad.onFailure(new Error('test decode failure')));
     await expect(loadState).toBeHidden();
-    await expect(page.getByRole('dialog', { name: 'ALGOLAB' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'p5js live' })).toBeVisible();
     await expect(page.locator('#start-note')).toContainText('Could not decode long-set.mp3');
-    await expect(page.locator('#start-note')).toContainText('enter with silence');
+    await expect(page.locator('#start-note')).toContainText('start silent');
   });
 
   test('can unfold every cell and still fold any object or function again', async ({ page }) => {
@@ -1097,7 +1128,7 @@ test.describe('the minimal display', () => {
     // The complete textarea also carries one fold control per top-level object,
     // function, class or scene. Using one returns to the structured editor with only
     // that declaration collapsed.
-    await page.evaluate(() => window.AlgoLab.editor.setFolded(false));
+    await page.evaluate(() => window.p5jsLive.editor.setFolded(false));
     await expect(page.locator('#code-layer')).not.toHaveClass(/is-folded/);
     await expect(page.getByRole('button', { name: 'Fold patch plasma' })).toBeVisible();
     await page.getByRole('button', { name: 'Fold patch plasma' }).click();
@@ -1488,7 +1519,7 @@ test.describe('the minimal display', () => {
     await page.keyboard.press('e');
     await expect(page.locator('#code-layer')).not.toHaveClass(/is-hidden/);
 
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    expect(await page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
   });
 
@@ -1545,11 +1576,11 @@ test.describe('the minimal display', () => {
     expect(source.indexOf('// %% patch customPulse')).toBeLessThan(
       source.indexOf('// %% scene scene'),
     );
-    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('customPulse'))).toBe(false);
+    expect(await page.evaluate(() => window.p5jsLive.registry.hasStrategy('customPulse'))).toBe(false);
 
     await body.press('Control+Enter');
     await expect.poll(
-      () => page.evaluate(() => window.AlgoLab.registry.hasStrategy('customPulse')),
+      () => page.evaluate(() => window.p5jsLive.registry.hasStrategy('customPulse')),
     ).toBe(true);
   });
 
@@ -1578,7 +1609,7 @@ circle(20, 20, 10);
     }
   },
 };`);
-    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('untidy'))).toBe(false);
+    expect(await page.evaluate(() => window.p5jsLive.registry.hasStrategy('untidy'))).toBe(false);
   });
 
   test('Cmd/Ctrl+Alt+T also tidies an open folded cell', async ({ page }) => {
@@ -1694,16 +1725,23 @@ circle(20, 20, 10);
       .poll(() => page.evaluate(() => getComputedStyle(document.getElementById('side')).backgroundColor))
       .toMatch(/0\.25\)/);
 
-    // "\" clears it off the canvas, and brings it back.
+    // Cmd/Ctrl+\ clears it off the canvas, and brings it back without leaving code.
     await page.locator('#code').focus();
-    await page.locator('#code').press('Escape');
-    await page.keyboard.press('\\');
+    await page.locator('#code').evaluate((element) => {
+      element.dispatchEvent(new KeyboardEvent('keydown', {
+        key: '\\', code: 'Backslash', metaKey: true, bubbles: true,
+      }));
+    });
     await expect(page.locator('#side')).toHaveClass(/is-hidden/);
-    await page.keyboard.press('\\');
+    await page.locator('#code').evaluate((element) => {
+      element.dispatchEvent(new KeyboardEvent('keydown', {
+        key: '\\', code: 'Backslash', metaKey: true, bubbles: true,
+      }));
+    });
     await expect(page.locator('#side')).not.toHaveClass(/is-hidden/);
 
     // Hiding the tools must not disturb the sketch — it is only a panel.
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    expect(await page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
   });
 
@@ -1760,20 +1798,20 @@ test.describe('safe-state recovery', () => {
     await boot(page);
 
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.controller.snapshot().safeState))
+      .poll(() => page.evaluate(() => window.p5jsLive.controller.snapshot().safeState))
       .toMatchObject({ exists: true, sceneName: 'scene', dirty: false });
 
     await page.evaluate(() => {
-      window.AlgoLab.evaluator.evaluate(
+      window.p5jsLive.evaluator.evaluate(
         'const chaos = { draw() { circle(10, 10, 5); } }; const wild = [chaos]; activate(wild); param("safeProbe", 9);',
         { label: 'buffer' },
       );
     });
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['chaos']);
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.controller.snapshot().safeState.dirty))
+      .poll(() => page.evaluate(() => window.p5jsLive.controller.snapshot().safeState.dirty))
       .toBe(true);
 
     // One action restores the whole checkpoint, not only a scene-name pointer.
@@ -1782,14 +1820,14 @@ test.describe('safe-state recovery', () => {
     await page.keyboard.press('0');
 
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
     const restored = await page.evaluate(() => ({
-      plasmaVersion: window.AlgoLab.registry.getStrategy('plasma').version,
-      hasChaos: window.AlgoLab.registry.hasStrategy('chaos'),
-      hasSafeProbe: window.AlgoLab.registry.listParams().some((entry) => entry.name === 'safeProbe'),
+      plasmaVersion: window.p5jsLive.registry.getStrategy('plasma').version,
+      hasChaos: window.p5jsLive.registry.hasStrategy('chaos'),
+      hasSafeProbe: window.p5jsLive.registry.listParams().some((entry) => entry.name === 'safeProbe'),
       source: document.getElementById('code').value,
-      safe: window.AlgoLab.controller.snapshot().safeState,
+      safe: window.p5jsLive.controller.snapshot().safeState,
     }));
     expect(restored.plasmaVersion).toBe(1);
     expect(restored.hasChaos).toBe(false);
@@ -1819,7 +1857,7 @@ test.describe('named Performance recall', () => {
       'activate(scene);',
     ].join('\n');
     await page.evaluate((source) => {
-      window.AlgoLab.editor.value = source;
+      window.p5jsLive.editor.value = source;
     }, previous);
 
     const patch = page.locator('.folded-block[data-block-description="patch previous"]');
@@ -1862,8 +1900,8 @@ test.describe('named Performance recall', () => {
       'activate(other);',
     ].join('\n');
     await page.evaluate((source) => {
-      window.AlgoLab.editor.value = source;
-      window.AlgoLab.editor.evaluateBuffer();
+      window.p5jsLive.editor.value = source;
+      window.p5jsLive.editor.evaluateBuffer();
     }, alternate);
     await page.locator('#performance-name').fill('Unsaved name');
 
@@ -1878,7 +1916,7 @@ test.describe('named Performance recall', () => {
     await dialog.getByRole('button', { name: 'Start fresh' }).click();
 
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
     await expect(page.locator('#code')).toHaveValue(
       /const scene = \[\s*asciiNoise,\s*plasma,\s*\]/,
@@ -1888,7 +1926,7 @@ test.describe('named Performance recall', () => {
     await expect(page.locator('#performance-name')).toBeFocused();
     await expect(page.locator('.performance-row')).toContainText('Keep this one');
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.controller.snapshot().safeState))
+      .poll(() => page.evaluate(() => window.p5jsLive.controller.snapshot().safeState))
       .toMatchObject({ exists: true, sceneName: 'scene', dirty: false });
   });
 
@@ -1919,10 +1957,10 @@ test.describe('named Performance recall', () => {
       'activate(other);',
     ].join('\n');
     await page.evaluate((source) => {
-      window.AlgoLab.editor.value = source;
-      window.AlgoLab.editor.evaluateBuffer();
+      window.p5jsLive.editor.value = source;
+      window.p5jsLive.editor.evaluateBuffer();
     }, alternate);
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('other');
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.activeSceneName())).toBe('other');
     await page.locator('#smoothing').evaluate((input) => {
       input.value = '0.9';
       input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1934,8 +1972,8 @@ test.describe('named Performance recall', () => {
     await page.locator('#code-size').fill('12');
 
     await page.locator('.performance-row').getByRole('button', { name: 'Recall' }).click();
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('scene');
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.activeSceneName())).toBe('scene');
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
     expect(await page.locator('#smoothing').inputValue()).toBe('0.35');
     expect(await page.locator('#auto-gain').isChecked()).toBe(false);
@@ -1943,17 +1981,17 @@ test.describe('named Performance recall', () => {
     await expect
       .poll(() => page.evaluate(() => getComputedStyle(document.getElementById('code')).fontSize))
       .toBe('18px');
-    expect(await page.locator('#code').inputValue()).toContain('ALGOLAB — starter scene');
+    expect(await page.locator('#code').inputValue()).toContain('p5js live — starter scene');
 
     // Named performances are browser-local recall points, independent of the current
     // project's automatic save, and remain available after a refresh.
     await page.reload();
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder().length))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder().length))
       .toBeGreaterThan(0);
     await page.evaluate(() => {
       document.getElementById('start-overlay').hidden = true;
-      window.AlgoLab.editor.setFolded(false);
+      window.p5jsLive.editor.setFolded(false);
     });
     await openTools(page);
     await selectTool(page, 'Project');
@@ -1974,21 +2012,21 @@ test.describe('named Performance recall', () => {
       'activate(keeperScene);',
     ].join('\n');
     await page.evaluate((source) => {
-      window.AlgoLab.editor.value = source;
-      window.AlgoLab.editor.evaluateBuffer();
+      window.p5jsLive.editor.value = source;
+      window.p5jsLive.editor.evaluateBuffer();
     }, keeper);
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('keeperScene');
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.activeSceneName())).toBe('keeperScene');
 
     // Corrupt the local slot after it has rendered. Recall reads storage at click time.
     await page.evaluate(() => {
-      const key = 'algolab.performances.v1';
+      const key = 'p5js-live.performances.v1';
       const data = JSON.parse(localStorage.getItem(key));
       data.performances[0].source = 'class Broken { draw() { ((( } }';
       localStorage.setItem(key, JSON.stringify(data));
     });
     await page.locator('.performance-row').getByRole('button', { name: 'Recall' }).click();
 
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('keeperScene');
+    await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.activeSceneName())).toBe('keeperScene');
     expect(await page.locator('#code').inputValue()).toContain('const keeperScene');
     await expect(page.locator('#diagnostics-list')).toContainText('previous performance restored');
   });
@@ -2031,14 +2069,14 @@ test.describe('project portability', () => {
       page.waitForEvent('download'),
       page.getByRole('button', { name: 'Export this project as JSON' }).click(),
     ]);
-    expect(download.suggestedFilename()).toMatch(/^algolab-project-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(download.suggestedFilename()).toMatch(/^p5js-live-project-\d{4}-\d{2}-\d{2}\.json$/);
   });
 
   test('import requires an explicit confirmation and can be cancelled', async ({ page }) => {
     await boot(page);
 
     const project = JSON.stringify({
-      format: 'algolab-project',
+      format: 'p5js-live-project',
       schema: 6,
       source: [
         'const imported = { draw() { circle(50, 50, 20); } };',
@@ -2064,7 +2102,7 @@ test.describe('project portability', () => {
     // Cancelling must change nothing.
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toBeHidden();
-    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('imported'))).toBe(false);
+    expect(await page.evaluate(() => window.p5jsLive.registry.hasStrategy('imported'))).toBe(false);
 
     // Confirming runs it.
     await page.locator('#import-file').setInputFiles({
@@ -2074,7 +2112,7 @@ test.describe('project portability', () => {
     });
     await dialog.getByRole('button', { name: 'Import and run' }).click();
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('imported')))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.hasStrategy('imported')))
       .toBe(true);
   });
 
@@ -2084,7 +2122,7 @@ test.describe('project portability', () => {
 
     // Make a mess: a new strategy, extra copies, a wrecked scene, accumulated state.
     await page.evaluate(() =>
-      window.AlgoLab.evaluator.evaluate(
+      window.p5jsLive.evaluator.evaluate(
         'const mess = { draw() { circle(5, 5, 5); } }; const messy = [mess, plasma, plasma]; activate(messy);',
         { label: 'test' },
       ),
@@ -2095,8 +2133,8 @@ test.describe('project portability', () => {
     });
     const before = await page.evaluate(() => ({
       frameCount: window.frameCount,
-      hostTime: window.AlgoLab.host.time(),
-      strategies: window.AlgoLab.registry.listStrategies().length,
+      hostTime: window.p5jsLive.host.time(),
+      strategies: window.p5jsLive.registry.listStrategies().length,
     }));
     expect(before.strategies).toBe(3);
 
@@ -2107,28 +2145,28 @@ test.describe('project portability', () => {
 
     // Cancelling changes nothing.
     await dialog.getByRole('button', { name: 'Cancel' }).click();
-    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('mess'))).toBe(true);
+    expect(await page.evaluate(() => window.p5jsLive.registry.hasStrategy('mess'))).toBe(true);
 
     await page.getByRole('button', { name: 'Discard everything and go back to the starter project' }).click();
     await dialog.getByRole('button', { name: 'Reset to starter' }).click();
 
     await expect
-      .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
       .toEqual(['asciiNoise', 'plasma']);
 
     const after = await page.evaluate(() => ({
-      hasMess: window.AlgoLab.registry.hasStrategy('mess'),
-      stateKeys: window.AlgoLab.stateStore.names().sort(),
+      hasMess: window.p5jsLive.registry.hasStrategy('mess'),
+      stateKeys: window.p5jsLive.stateStore.names().sort(),
       source: document.getElementById('code').value,
-      safeScene: window.AlgoLab.registry.safeSceneName(),
+      safeScene: window.p5jsLive.registry.safeSceneName(),
       sameCanvas: document.querySelector('#stage canvas')?.dataset.probe === 'original',
       frameCount: window.frameCount,
-      hostTime: window.AlgoLab.host.time(),
+      hostTime: window.p5jsLive.host.time(),
     }));
 
     expect(after.hasMess).toBe(false);
     expect(after.stateKeys).toEqual(['asciiNoise', 'plasma']);
-    expect(after.source).toContain('ALGOLAB — starter scene');
+    expect(after.source).toContain('p5js live — starter scene');
     expect(after.safeScene).not.toBe(null);
     // The point of doing this in place rather than reloading: the canvas and the
     // clock are the same ones. Nothing the audience is looking at restarted.
@@ -2146,7 +2184,7 @@ test.describe('project portability', () => {
     });
 
     await expect(page.locator('.dialog-backdrop')).toBeHidden();
-    await expect(page.locator('#diagnostics-list')).toContainText('Not an AlgoLab project');
+    await expect(page.locator('#diagnostics-list')).toContainText('Not a p5js live project');
   });
 });
 

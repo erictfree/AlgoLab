@@ -63,6 +63,23 @@ describe('named performance persistence', () => {
     expect(store.get('one').sceneName).toBe('encore');
   });
 
+  it('moves previous product performances to the p5js live storage key', () => {
+    const storage = fakeStorage();
+    storage.setItem('algolab.performances.v1', JSON.stringify({
+      schema: 1,
+      performances: [{
+        ...snapshot('Migrated'),
+        id: 'old-slot',
+        createdAt: 10,
+        updatedAt: 20,
+      }],
+    }));
+
+    expect(createPerformanceStore({ storage }).list()[0].name).toBe('Migrated');
+    expect(storage.getItem('p5js-live.performances.v1')).not.toBe(null);
+    expect(storage.getItem('algolab.performances.v1')).toBe(null);
+  });
+
   it('deletes only the requested performance and rejects incomplete snapshots', () => {
     const store = createPerformanceStore({
       storage: fakeStorage(),
@@ -90,7 +107,7 @@ describe('named performance persistence', () => {
     expect(warnings.length).toBeGreaterThan(0);
 
     const corrupt = fakeStorage();
-    corrupt.setItem('algolab.performances.v1', '{not json');
+    corrupt.setItem('p5js-live.performances.v1', '{not json');
     expect(createPerformanceStore({ storage: corrupt }).list()).toEqual([]);
   });
 });

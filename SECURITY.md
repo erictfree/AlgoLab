@@ -2,8 +2,8 @@
 
 ## The live-code trust boundary
 
-AlgoLab evaluates JavaScript with `new Function`. This is intentional and makes live
-replacement possible, but it means AlgoLab is not a sandbox:
+p5js live evaluates JavaScript with `new Function`. This is intentional and makes live
+replacement possible, but it means p5js live is not a sandbox:
 
 - evaluated code can access browser globals and same-origin data;
 - an infinite loop can freeze the tab;
@@ -11,7 +11,7 @@ replacement possible, but it means AlgoLab is not a sandbox:
 - imported projects have the same privileges as locally written code.
 
 Run projects and patches only when you trust their source. Review imported source
-before evaluating it. Do not use AlgoLab to execute untrusted code from a public room
+before evaluating it. Do not use p5js live to execute untrusted code from a public room
 or automated feed.
 
 ## Supported version
@@ -23,7 +23,7 @@ updates.
 
 Networking shares rendered video, not project source. Publication is explicit and the
 included signaling service validates room membership before routing messages. A
-deployment may set `ALGOLAB_NETWORK_TOKEN` for a shared room credential; public or
+deployment may set `P5JS_LIVE_NETWORK_TOKEN` for a shared room credential; public or
 multi-tenant deployments should add stronger identity, authorization, rate limiting,
 and monitoring at their edge. A `StreamRoom` token lives in editable project source
 and exports, so it must be a disposable room invite rather than a durable secret.

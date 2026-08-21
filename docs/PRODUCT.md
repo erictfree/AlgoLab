@@ -1,6 +1,6 @@
 # Product direction
 
-AlgoLab is a browser-based instrument for live-coding audio-reactive graphics with
+p5js live is a browser-based instrument for live-coding audio-reactive graphics with
 JavaScript and p5.js. It was created by Eric Freeman at the
 [Department of Arts and Entertainment Technologies](https://aet.utexas.edu/) at The
 University of Texas at Austin.
@@ -14,7 +14,7 @@ unrelated patches. Failed code does not replace the last working composition.
 
 ### Keep the host alive
 
-AlgoLab owns p5 `setup()` and `draw()`. Live code supplies patches and scene arrays.
+p5js live owns p5 `setup()` and `draw()`. Live code supplies patches and scene arrays.
 
 ### Keep composition in source
 
@@ -41,7 +41,7 @@ One analyzer produces the snapshot used by every patch.
 
 ### Use JavaScript and p5 directly
 
-AlgoLab adds lifecycle and live context without replacing familiar drawing commands
+p5js live adds lifecycle and live context without replacing familiar drawing commands
 with a proprietary language.
 
 ### Separate performer and audience views

@@ -1,13 +1,13 @@
-# Contributing to AlgoLab
+# Contributing to p5js live
 
-AlgoLab welcomes fixes, documentation, performance tools, visual patches, shader
+p5js live welcomes fixes, documentation, performance tools, visual patches, shader
 ideas, and focused improvements to the live-coding workflow.
 
 ## Set up the repository
 
 ```sh
-git clone https://github.com/erictfree/AlgoLab.git
-cd AlgoLab
+git clone https://github.com/erictfree/p5js-live.git
+cd p5js-live
 npm ci
 npm run dev
 ```

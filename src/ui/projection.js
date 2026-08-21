@@ -57,14 +57,14 @@ export function createProjection({ controller, onBlocked, onOpened }) {
       win.focus();
       return true;
     }
-    win = window.open('', 'algolab-projection', 'width=1280,height=720');
+    win = window.open('', 'p5js-live-projection', 'width=1280,height=720');
     if (!win) {
       onBlocked?.();
       win = null;
       return false;
     }
 
-    win.document.title = 'AlgoLab — projection';
+    win.document.title = 'p5js live — projection';
     win.document.head.innerHTML = `<style>${POPUP_STYLES}</style>`;
     win.document.documentElement.style.setProperty('--code-font-size', `${codeFontSize}px`);
     win.document.body.innerHTML = `

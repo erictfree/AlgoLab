@@ -30,6 +30,7 @@ export function createAudioEngine({ diagnostics } = {}) {
   let loadProgress = null;
   let lastReadAt = null;
   let looping = false;
+  let sourceRequest = 0;
 
   /** Called once from the host's setup(). */
   function init() {
@@ -52,6 +53,19 @@ export function createAudioEngine({ diagnostics } = {}) {
     fft.setInput(node);
   }
 
+  function discardSoundFile() {
+    if (!soundFile) return;
+    soundFile.stop();
+    soundFile.dispose?.();
+    soundFile = null;
+  }
+
+  function discardObjectUrl() {
+    if (!objectUrl) return;
+    URL.revokeObjectURL(objectUrl);
+    objectUrl = null;
+  }
+
   // --- file input -----------------------------------------------------------------
 
   /**
@@ -64,14 +78,11 @@ export function createAudioEngine({ diagnostics } = {}) {
    */
   function loadFile(file, { onProgress } = {}) {
     return new Promise((resolve, reject) => {
+      const request = ++sourceRequest;
       const report = () => onProgress?.(status());
       stopMic();
-      if (soundFile) {
-        soundFile.stop();
-        soundFile.dispose?.();
-        soundFile = null;
-      }
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      discardSoundFile();
+      discardObjectUrl();
       objectUrl = URL.createObjectURL(file);
       sourceKind = 'none';
       sourceLabel = file.name;
@@ -83,6 +94,14 @@ export function createAudioEngine({ diagnostics } = {}) {
       loadSound(
         objectUrl,
         (loaded) => {
+          if (request !== sourceRequest) {
+            loaded.stop?.();
+            loaded.dispose?.();
+            const error = new Error('Audio source was replaced');
+            error.name = 'AbortError';
+            reject(error);
+            return;
+          }
           soundFile = loaded;
           soundFile.setLoop?.(looping);
           sourceKind = 'file';
@@ -97,6 +116,10 @@ export function createAudioEngine({ diagnostics } = {}) {
           resolve(loaded);
         },
         (error) => {
+          if (request !== sourceRequest) {
+            reject(error);
+            return;
+          }
           sourceKind = 'none';
           sourceLabel = 'none';
           sourceError = `Could not decode ${file.name}`;
@@ -111,12 +134,71 @@ export function createAudioEngine({ diagnostics } = {}) {
           reject(error);
         },
         (progress) => {
-          if (!Number.isFinite(progress)) return;
+          if (request !== sourceRequest || !Number.isFinite(progress)) return;
           loadProgress = Math.min(1, Math.max(0, progress));
           // This p5.sound build deliberately caps byte progress at 0.99 while
           // decodeAudioData is running, so 99% is the handoff to decoding.
           loadPhase = loadProgress >= 0.99 ? 'decoding' : 'loading';
           report();
+        },
+      );
+    });
+  }
+
+  /**
+   * Load an audio asset shipped with the app. It uses the same analyzer path as a
+   * performer-selected file, so the welcome-loop can drive the visuals behind the
+   * source picker. The loop option belongs only to this asset and does not change the
+   * performer's transport preference for the next file they choose.
+   *
+   * @param {string} url
+   * @param {{ label?: string, loop?: boolean }} [options]
+   */
+  function loadUrl(url, { label = url, loop = false } = {}) {
+    return new Promise((resolve, reject) => {
+      const request = ++sourceRequest;
+      stopMic();
+      discardSoundFile();
+      discardObjectUrl();
+      sourceKind = 'none';
+      sourceLabel = label;
+      sourceError = null;
+      loadPhase = 'loading';
+      loadProgress = null;
+
+      loadSound(
+        url,
+        (loaded) => {
+          if (request !== sourceRequest) {
+            loaded.stop?.();
+            loaded.dispose?.();
+            const error = new Error('Audio source was replaced');
+            error.name = 'AbortError';
+            reject(error);
+            return;
+          }
+          soundFile = loaded;
+          soundFile.setLoop?.(Boolean(loop));
+          sourceKind = 'file';
+          sourceLabel = label;
+          sourceError = null;
+          loadPhase = null;
+          loadProgress = null;
+          route(loaded);
+          features.reset();
+          resolve(loaded);
+        },
+        (error) => {
+          if (request !== sourceRequest) {
+            reject(error);
+            return;
+          }
+          sourceKind = 'none';
+          sourceLabel = 'none';
+          sourceError = `Could not load ${label}`;
+          loadPhase = null;
+          loadProgress = null;
+          reject(error);
         },
       );
     });
@@ -130,6 +212,8 @@ export function createAudioEngine({ diagnostics } = {}) {
    * @param {string} [deviceId] from listInputs()
    */
   async function useMicrophone(deviceId) {
+    ++sourceRequest;
+    if (soundFile?.isPlaying()) soundFile.pause();
     await unlock();
 
     // Ask for permission before touching p5.AudioIn, so a denial produces one clear
@@ -150,7 +234,6 @@ export function createAudioEngine({ diagnostics } = {}) {
       return false;
     }
 
-    if (soundFile?.isPlaying()) soundFile.pause();
     stopMic();
 
     mic = new p5.AudioIn((error) => {
@@ -186,6 +269,21 @@ export function createAudioEngine({ diagnostics } = {}) {
     mic.stop();
     mic.dispose?.();
     mic = null;
+  }
+
+  /** Stop every source and return stable silence snapshots. */
+  function useSilence() {
+    ++sourceRequest;
+    stopMic();
+    discardSoundFile();
+    discardObjectUrl();
+    sourceKind = 'none';
+    sourceLabel = 'none';
+    sourceError = null;
+    loadPhase = null;
+    loadProgress = null;
+    features.reset();
+    return true;
   }
 
   /** Selectable input devices for the source picker. */
@@ -301,8 +399,10 @@ export function createAudioEngine({ diagnostics } = {}) {
   return {
     init,
     loadFile,
+    loadUrl,
     unlock,
     useMicrophone,
+    useSilence,
     listInputs,
     stopMic,
     start,

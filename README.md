@@ -1,10 +1,12 @@
-# AlgoLab
+# p5js live
 
-AlgoLab is a browser-based instrument for live-coding audio-reactive visuals with
+p5js live is a browser-based instrument for live-coding audio-reactive visuals with
 JavaScript and p5.js. The canvas, audio analysis, clock, and working scene keep
 running while you replace visual code.
 
-AlgoLab was created by **Eric Freeman** at the
+Website: [p5js.live](https://p5js.live)
+
+p5js live was created by **Eric Freeman** at the
 [Department of Arts and Entertainment Technologies](https://aet.utexas.edu/) at
 **The University of Texas at Austin**. It is an open-source project for visualists,
 creative coders, performers, and the live-coding community.
@@ -32,11 +34,11 @@ const scene = [
 activate(scene);
 ```
 
-Put the cursor in a patch or scene and press `Cmd/Ctrl+Enter`. AlgoLab evaluates
+Put the cursor in a patch or scene and press `Cmd/Ctrl+Enter`. p5js live evaluates
 that unit without restarting the host. Syntax, evaluation, and first-frame errors
 leave the last working version running.
 
-AlgoLab includes:
+p5js live includes:
 
 - file, microphone, and line-input audio analysis;
 - normalized level, bass, mid, treble, beat, spectrum, and waveform data;
@@ -66,12 +68,12 @@ npm --version
 ### Download
 
 Use **Code → Download ZIP** on the
-[GitHub repository](https://github.com/erictfree/AlgoLab), then unzip it. Or clone
+[GitHub repository](https://github.com/erictfree/p5js-live), then unzip it. Or clone
 the repository:
 
 ```sh
-git clone https://github.com/erictfree/AlgoLab.git
-cd AlgoLab
+git clone https://github.com/erictfree/p5js-live.git
+cd p5js-live
 ```
 
 If you downloaded the ZIP, open a terminal in the unzipped folder that contains
@@ -87,9 +89,10 @@ npm run dev
 Keep the terminal open and visit [http://localhost:5173](http://localhost:5173).
 Do not open `index.html` directly; the application must run from an HTTP server.
 
-Choose an audio file, microphone, or silence. The file picker accepts MP3, WAV,
-OGG, M4A, and AAC files; codec support still depends on the browser. A click is
-required before audio can start because browsers block autoplay.
+The source picker loads a bundled intro loop. It starts immediately when the browser
+allows autoplay; otherwise a click in the dialog unlocks it. Loading a file, choosing
+the microphone, or continuing in silence replaces or stops the loop. The file picker
+accepts MP3, WAV, OGG, M4A, and AAC files; codec support depends on the browser.
 
 To stop the server, press `Ctrl+C` in the terminal. Working source and named
 performances remain in that browser. Export projects that need to move to another
@@ -114,7 +117,7 @@ should change without a page reload.
 
 To add a built-in patch:
 
-1. Open tools with `☰` or `\`.
+1. Open tools with `☰` or `Cmd/Ctrl+\`.
 2. In **Library**, select **Install source**.
 3. Select **Add to scene**.
 4. Evaluate the opened scene with `Cmd/Ctrl+Enter`.
@@ -129,7 +132,7 @@ Installing adds editable source. Adding to scene edits the scene array. The scen
 becomes active only after evaluation.
 
 To write a patch, hover in the far-left gutter beside a folded cell and select the
-subtle `+`. Enter a JavaScript name. AlgoLab inserts an object patch and places the
+subtle `+`. Enter a JavaScript name. p5js live inserts an object patch and places the
 cursor in `draw()`.
 
 ## Main commands
@@ -143,7 +146,7 @@ cursor in `draw()`.
 | `Cmd/Ctrl+Alt+N` | Start a new performance from the default scene |
 | `Esc` | Release editor focus |
 | `Space` | Play or pause audio |
-| `\` | Show or hide tools |
+| `Cmd/Ctrl+\` | Show or hide tools |
 | `r` | Show or hide the installed-patch reference |
 | `e` | Show or hide code |
 | `f` | Enter or leave fullscreen |
@@ -159,7 +162,7 @@ Install Node.js 20 or newer, close the terminal, and open it again.
 
 ### `npm` cannot find `package.json`
 
-Change into the AlgoLab folder before running the command.
+Change into the `p5js-live` folder before running the command.
 
 ### The page is blank or reports module/CORS errors
 
@@ -176,7 +179,7 @@ Add it to the scene, then evaluate the scene cell.
 
 ### Old source returns after a restart
 
-AlgoLab restores the working project saved in that browser. Use **New performance**
+p5js live restores the working project saved in that browser. Use **New performance**
 for the default ASCII Noise + Plasma scene, or import another project.
 
 ### Audio does not start
@@ -211,6 +214,6 @@ community patch.
 
 ## Security
 
-AlgoLab evaluates trusted JavaScript with `new Function`; it is not a sandbox. Code
+p5js live evaluates trusted JavaScript with `new Function`; it is not a sandbox. Code
 can access browser globals, consume unbounded resources, or freeze the tab. Run only
 source you trust. See [SECURITY.md](SECURITY.md).

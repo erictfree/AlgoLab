@@ -1,5 +1,5 @@
 {
-  "name": "algolab",
+  "name": "p5js-live",
   "version": "0.1.0",
   "private": true,
   "description": "A browser-based p5.js instrument for live-coding audio-reactive visuals",
@@ -15,8 +15,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/erictfree/AlgoLab.git"
+    "url": "https://github.com/erictfree/p5js-live.git"
   },
+  "homepage": "https://p5js.live",
   "type": "module",
   "scripts": {
     "build:patches": "node scripts/build-patch-library.mjs",

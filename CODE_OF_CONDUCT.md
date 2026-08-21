@@ -1,6 +1,6 @@
 # Community code of conduct
 
-AlgoLab is for people making, performing, sharing, and discussing live-coded visuals.
+p5js live is for people making, performing, sharing, and discussing live-coded visuals.
 Participation should make that work safer and more welcoming.
 
 ## Expected behavior
@@ -26,4 +26,4 @@ may edit or remove contributions, restrict participation, or take other proporti
 action to protect the community.
 
 This code applies in repository spaces and in public events where someone is
-representing AlgoLab or its community.
+representing p5js live or its community.

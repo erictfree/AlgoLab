@@ -5,7 +5,8 @@
 // tuned parameters, audio-analysis settings, and the useful parts of the stage view.
 // Compiled functions and File objects never enter storage.
 
-const KEY = 'algolab.performances.v1';
+const KEY = 'p5js-live.performances.v1';
+const PREVIOUS_KEY = 'algolab.performances.v1';
 const SCHEMA = 1;
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -18,10 +19,19 @@ export function createPerformanceStore({
 } = {}) {
   function read() {
     try {
-      const raw = storage?.getItem(KEY);
+      let raw = storage?.getItem(KEY);
+      let sourceKey = KEY;
+      if (!raw) {
+        raw = storage?.getItem(PREVIOUS_KEY);
+        sourceKey = PREVIOUS_KEY;
+      }
       if (!raw) return [];
       const data = JSON.parse(raw);
       if (data?.schema !== SCHEMA || !Array.isArray(data.performances)) return [];
+      if (sourceKey !== KEY) {
+        storage?.setItem(KEY, raw);
+        storage?.removeItem(sourceKey);
+      }
       return data.performances.filter(validPerformance).map(clone);
     } catch (error) {
       diagnostics?.warn('Could not read saved performances', error.message);

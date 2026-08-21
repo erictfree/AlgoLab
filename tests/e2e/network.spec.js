@@ -6,7 +6,7 @@ async function boot(page) {
     localStorage.clear();
     document.getElementById('start-overlay').hidden = true;
   });
-  await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder().length)).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder().length)).toBe(2);
 }
 
 test('publishes, discovers, inserts, and receives another editor canvas', async ({ page, context }) => {
@@ -14,7 +14,7 @@ test('publishes, discovers, inserts, and receives another editor canvas', async 
   await boot(page);
   await boot(receiverPage);
 
-  const publishResult = await page.evaluate(() => window.AlgoLab.evaluator.evaluate(`
+  const publishResult = await page.evaluate(() => window.p5jsLive.evaluator.evaluate(`
     const networkRoom = new StreamRoom({
       name: "e2e-room",
       performer: "Eric",
@@ -25,20 +25,20 @@ test('publishes, discovers, inserts, and receives another editor canvas', async 
   `));
   expect(publishResult.ok).toBe(true);
   await expect.poll(() => page.evaluate(() =>
-    window.AlgoLab.network.snapshot().rooms[0]?.status,
+    window.p5jsLive.network.snapshot().rooms[0]?.status,
   )).toBe('joined');
   await expect.poll(() => page.evaluate(() =>
-    window.AlgoLab.network.snapshot().rooms[0]?.publishing[0]?.status,
+    window.p5jsLive.network.snapshot().rooms[0]?.publishing[0]?.status,
   )).toBe('publishing');
 
   await receiverPage.evaluate(() => {
-    window.AlgoLab.controller.actions.joinNetworkRoom({
+    window.p5jsLive.controller.actions.joinNetworkRoom({
       name: 'e2e-room',
       performer: 'Maya',
     });
   });
   await expect.poll(() => receiverPage.evaluate(() =>
-    window.AlgoLab.network.snapshot().rooms[0]?.streams.some(
+    window.p5jsLive.network.snapshot().rooms[0]?.streams.some(
       (stream) => stream.label === 'Eric/main-output',
     ),
   )).toBe(true);
@@ -47,18 +47,18 @@ test('publishes, discovers, inserts, and receives another editor canvas', async 
   await receiverPage.getByRole('tab', { name: 'Network' }).click();
   await expect(receiverPage.locator('#network-panel')).toContainText('Eric/main-output');
   await receiverPage.getByRole('button', { name: /Add Eric\/main-output as a receiver/ }).click();
-  await expect.poll(() => receiverPage.evaluate(() => window.AlgoLab.editor.value))
+  await expect.poll(() => receiverPage.evaluate(() => window.p5jsLive.editor.value))
     .toContain('const EricMainOutput = EricMainOutputRoom.receive({');
   await expect.poll(() => receiverPage.evaluate(() =>
-    window.AlgoLab.registry.activeOrder().includes('EricMainOutput'),
+    window.p5jsLive.registry.activeOrder().includes('EricMainOutput'),
   )).toBe(true);
   await expect.poll(() => receiverPage.evaluate(() =>
-    window.AlgoLab.evaluator.binding('EricMainOutput')?.status,
+    window.p5jsLive.evaluator.binding('EricMainOutput')?.status,
   ), { timeout: 15_000 }).toBe('live');
 
   await receiverPage.getByRole('button', { name: /Add Eric\/main-output as a receiver/ }).click();
   expect(await receiverPage.evaluate(() =>
-    (window.AlgoLab.editor.value.match(/\/\/ %% patch EricMainOutput\n/g) ?? []).length,
+    (window.p5jsLive.editor.value.match(/\/\/ %% patch EricMainOutput\n/g) ?? []).length,
   )).toBe(1);
 
   await receiverPage.close();

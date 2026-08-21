@@ -114,6 +114,72 @@ describe('audio file loading status', () => {
   });
 });
 
+describe('built-in audio sources', () => {
+  it('loads a looping preview without changing the performer loop preference', async () => {
+    let succeed;
+    globalThis.loadSound = vi.fn((_url, onSuccess) => {
+      succeed = onSuccess;
+    });
+    const engine = createAudioEngine();
+    const loaded = {
+      duration: () => 8,
+      isPlaying: () => false,
+      currentTime: () => 0,
+      setLoop: vi.fn(),
+      stop: vi.fn(),
+      dispose: vi.fn(),
+    };
+
+    const pending = engine.loadUrl('/assets/sounds/intro.mp3', {
+      label: 'intro loop',
+      loop: true,
+    });
+    succeed(loaded);
+    await expect(pending).resolves.toBe(loaded);
+
+    expect(globalThis.loadSound).toHaveBeenCalledWith(
+      '/assets/sounds/intro.mp3',
+      expect.any(Function),
+      expect.any(Function),
+    );
+    expect(loaded.setLoop).toHaveBeenCalledWith(true);
+    expect(engine.status()).toMatchObject({
+      source: 'intro loop',
+      loaded: true,
+      looping: false,
+    });
+
+    engine.useSilence();
+    expect(loaded.stop).toHaveBeenCalledOnce();
+    expect(loaded.dispose).toHaveBeenCalledOnce();
+    expect(engine.status()).toMatchObject({ source: 'none', loaded: false, playing: false });
+  });
+
+  it('cannot overwrite a later source when its decode finishes late', async () => {
+    let succeed;
+    globalThis.loadSound = vi.fn((_url, onSuccess) => {
+      succeed = onSuccess;
+    });
+    const engine = createAudioEngine();
+    const loaded = {
+      duration: () => 8,
+      isPlaying: () => false,
+      currentTime: () => 0,
+      stop: vi.fn(),
+      dispose: vi.fn(),
+    };
+
+    const pending = engine.loadUrl('/assets/sounds/intro.mp3');
+    engine.useSilence();
+    succeed(loaded);
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(loaded.stop).toHaveBeenCalledOnce();
+    expect(loaded.dispose).toHaveBeenCalledOnce();
+    expect(engine.status()).toMatchObject({ source: 'none', loaded: false });
+  });
+});
+
 describe('Safari-safe audio unlocking', () => {
   it('uses p5 userStartAudio while handling the trusted user gesture', async () => {
     const context = {

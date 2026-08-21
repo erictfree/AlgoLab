@@ -1,4 +1,4 @@
-// AlgoLab's compact system patch library.
+// p5js live's compact system patch library.
 //
 // The core mixing patches deliberately use several forms patch authors can remix:
 // a plain function, arrow functions, object literals, higher-order factories, and
@@ -504,7 +504,7 @@ const waveform = {
     source: `// %% patch frequencyBars
 // frequencyBars — raw FFT magnitudes from low frequency on the left to high
 // frequency on the right. Unlike audio.bass/mid/treble, these values are 0..255
-// and have not been normalized by AlgoLab's auto-gain.
+// and have not been normalized by p5js live's auto-gain.
 const frequencyBars = {
   bars: 64,
   heightRatio: 0.34,
@@ -830,7 +830,7 @@ const neonInk = new ShaderChain()
     category: 'shader',
     blurb: 'Soft polygon cells twisted by noise and their previous frame. Feedback shader class.',
     source: `// %% patch cellularBlobular
-// @title Cellular & Blobular — AlgoLab study
+// @title Cellular & Blobular — p5js live study
 // @author After Mahalia H-R (IG: mm_hr_)
 // @description A p5/WebGL interpretation of the Hydra sketch mahalia_4.
 // Original sketch: https://hydra.ojack.xyz/?sketch_id=mahalia_4
