@@ -15,7 +15,7 @@
 import { ShaderChain } from '../shaders/shaderChain.js';
 
 export const LIVE_API_NAMES = [
-  'go',
+  'activate',
   'reset',
   'param',
   'ShaderChain',
@@ -126,12 +126,12 @@ export function createTransaction(source = '', { nameOf = () => null } = {}) {
   const api = {
     ShaderChain,
 
-    go(scene) {
+    activate(scene) {
       if (typeof scene === 'string') {
-        throw new TypeError('go() takes a scene array, not a scene name');
+        throw new TypeError('activate() takes a scene array, not a scene name');
       }
-      if (!Array.isArray(scene)) throw new TypeError('go() needs a scene array');
-      operations.push({ type: 'go', target: scene });
+      if (!Array.isArray(scene)) throw new TypeError('activate() needs a scene array');
+      operations.push({ type: 'activate', target: scene });
       return scene;
     },
 
@@ -154,7 +154,7 @@ export function createTransaction(source = '', { nameOf = () => null } = {}) {
   function resolveCommandTargets(localNameOf = nameOf) {
     for (const op of operations) {
       if (!Object.hasOwn(op, 'target')) continue;
-      if (op.type === 'go') {
+      if (op.type === 'activate') {
         op.name = localNameOf(op.target);
         assertName('Scene', op.name);
         delete op.target;

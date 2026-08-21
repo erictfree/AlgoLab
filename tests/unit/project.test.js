@@ -23,7 +23,7 @@ function setup() {
   registry.stageStrategy('rings', { draw() {} }, 'const rings = { draw() {} };');
   registry.confirmStrategy('rings');
   registry.defineScene('tunnel', ['wash', 'rings']);
-  registry.go('tunnel');
+  registry.activate('tunnel');
   registry.setSafeScene('tunnel');
   registry.declareParam('trail', 0.08, { min: 0, max: 0.3, step: 0.01 });
   return { registry, storage, store };
@@ -33,7 +33,7 @@ const SOURCE = [
   'const wash = { draw() {} };',
   'const rings = { draw() {} };',
   'const tunnel = [wash, rings];',
-  'go(tunnel);',
+  'activate(tunnel);',
 ].join('\n');
 
 describe('D-01 local persistence', () => {

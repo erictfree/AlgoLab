@@ -168,7 +168,7 @@ const plasma = new Plasma();
 const scene = [
   plasma,
 ];
-go(scene);
+activate(scene);
 `;
 
 /** Upgrade known untouched starter Plasma versions without disturbing other cells. */

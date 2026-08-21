@@ -155,13 +155,13 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
 
     for (const declaration of declarations) {
       const value = captured[declaration.name];
-      const isGoTarget = transaction.operations.some(
-        (op) => op.type === 'go' && op.target === value,
+      const isActivationTarget = transaction.operations.some(
+        (op) => op.type === 'activate' && op.target === value,
       );
       const isExistingScene = registry.listScenes().some((scene) => scene.name === declaration.name);
       if (
         isStrategyArray(value) ||
-        (Array.isArray(value) && (isGoTarget || isExistingScene))
+        (Array.isArray(value) && (isActivationTarget || isExistingScene))
       ) {
         transaction.defineScene(declaration.name, value, localNameOf, declaration.source);
       }
@@ -204,7 +204,7 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
         if (missing.length) {
           return new Error(`Scene "${op.name}" contains an undefined strategy: ${missing.join(', ')}`);
         }
-      } else if (op.type === 'go') {
+      } else if (op.type === 'activate') {
         if (!sceneNames.has(op.name)) return new Error(`No scene named "${op.name}"`);
       } else if (TARGETED_OPS.has(op.type)) {
         const base = strategyOf(op.name);
@@ -237,7 +237,7 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
         staged.push(name);
       }
 
-      // Scene arrays may be captured after go() ran inside the JavaScript function.
+      // Scene arrays may be captured after activate() ran inside the JavaScript function.
       // Definitions therefore apply first, then commands run in their written order.
       for (const op of transaction.operations.filter((op) => op.type === 'scene')) {
         applyOperation(op, label);
@@ -272,8 +272,8 @@ export function createEvaluator({ registry, stateStore, diagnostics }) {
           stateStore.ensure(instance.id, registry.boundMethod(instance.strategy, 'state'));
         }
         break;
-      case 'go':
-        registry.go(op.name);
+      case 'activate':
+        registry.activate(op.name);
         break;
       case 'reset': {
         const count = stateStore.resetStrategy(op.name, registry.boundMethod(op.name, 'state'));

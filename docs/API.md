@@ -172,7 +172,7 @@ class ReactiveHalo {
 const bassHalo = new ReactiveHalo({ band: "bass", scale: 300 });
 const trebleHalo = new ReactiveHalo({ band: "treble", scale: 120 });
 const duet = [bassHalo, trebleHalo];
-go(duet);
+activate(duet);
 ```
 
 AlgoLab supplies the same read-only-by-convention inputs to both. Each object owns
@@ -197,7 +197,7 @@ const clubLens = new ShaderChain()
   .contrast(1.15);
 
 const scene = [solidBackground, laserFan, clubLens, plasma];
-go(scene);
+activate(scene);
 ```
 
 Every operator argument may be either a number or a function receiving the same live
@@ -231,11 +231,11 @@ the future multi-source routing model rather than being hidden inside this class
 
 ```js
 const scene = [checkerZoom, neonTunnel, laserFan, plasma];
-go(scene);
+activate(scene);
 ```
 
 Earlier entries draw underneath later entries. Re-evaluating the array changes the
-composition without replacing its members or their persistent state. `go()` accepts
+composition without replacing its members or their persistent state. `activate()` accepts
 the array itself, not its name as a string.
 
 Named entries use their JavaScript binding names—`laserFan` and `plasma`—as stable
@@ -262,7 +262,7 @@ const scene = [
   plasma,
 ];
 
-go(scene);
+activate(scene);
 ```
 
 When this cell is evaluated, JavaScript creates each inline value once. On every draw,
@@ -280,7 +280,7 @@ The same strategy can appear more than once:
 
 ```js
 const echoes = [laserFan, laserFan, laserFan, plasma];
-go(echoes);
+activate(echoes);
 ```
 
 The copies share the current implementation but receive independent persistent state.
@@ -291,8 +291,8 @@ They appear as `laserFan`, `laserFan#2`, and `laserFan#3` in the scene UI.
 Commands take first-class JavaScript values:
 
 ```js
+activate(scene);     // make this scene array active at the next frame boundary
 reset(laserFan);     // reset every copy's persistent state
-go(scene);           // activate this scene array
 param("trail", 0.08, { min: 0, max: 0.3 });
 ```
 
@@ -302,7 +302,7 @@ reorder entries by editing and evaluating the array:
 ```js
 const scene = [laserFan, laserFan, neonTunnel, plasma]; // two independent copies
 const empty = [];                                        // an intentionally empty scene
-go(scene);
+activate(scene);
 ```
 
 An ordinary method call is also valid live code:
@@ -341,6 +341,10 @@ becomes `// // line`; removing the outer layer restores its earlier disabled sta
 Folding is reversible in both presentations: the structured editor can
 expand every object/function/class and still collapse any one again, while the complete
 editor keeps a disclosure control beside every top-level declaration.
+In the structured editor, hovering a boundary in the far-left gutter reveals a
+keyboard-accessible **＋ New patch** control. It inserts a complete object-patch cell at
+that source boundary, keeps scene cells last when necessary, opens the new cell, and
+places the caret inside `draw()` without evaluating or activating the patch.
 `Cmd/Ctrl+Option/Alt+T` tidies indentation in the current cell without evaluating it. Plain
 `Cmd/Ctrl+T` remains the browser's new-tab command.
 The Project panel's **code size** control changes the complete editor, folded cells,

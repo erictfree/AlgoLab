@@ -6,7 +6,7 @@ import { createTestHost } from './helpers.js';
 const RINGS_V1 = `
   const rings = { draw({ state }) { state.n = (state.n || 0) + 1; } };
   const show = [rings];
-  go(show);
+  activate(show);
 `;
 
 describe('S-01 a syntax error never replaces a valid active strategy', () => {
@@ -94,7 +94,7 @@ const kaleido = makeKaleido();`);
     h.evaluator.evaluate(RINGS_V1);
     h.frame(2);
 
-    const result = h.evaluator.evaluate('const x = [rings, ghost]; go(x);');
+    const result = h.evaluator.evaluate('const x = [rings, ghost]; activate(x);');
 
     expect(result.ok).toBe(false);
     expect(result.error.message).toContain('ghost');
@@ -124,7 +124,7 @@ const kaleido = makeKaleido();`);
       const palette = { hue: 190 };
       const rings = { draw({ state }) { state.hue = palette.hue; } };
       const show = [rings];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
 
@@ -136,19 +136,19 @@ const kaleido = makeKaleido();`);
 
   it('rejects a helper object only when it is used as a strategy', () => {
     const h = createTestHost();
-    const result = h.evaluator.evaluate('const helper = {}; const show = [helper]; go(show);');
+    const result = h.evaluator.evaluate('const helper = {}; const show = [helper]; activate(show);');
 
     expect(result.ok).toBe(false);
     expect(result.error.message).toContain('draw()');
     expect(h.registry.hasStrategy('helper')).toBe(false);
   });
 
-  it('rejects string scene names because go() takes the array itself', () => {
+  it('rejects string scene names because activate() takes the array itself', () => {
     const h = createTestHost();
     const result = h.evaluator.evaluate(`
       const wash = { draw() {} };
       const show = [wash];
-      go("show");
+      activate("show");
     `);
 
     expect(result.ok).toBe(false);
@@ -160,7 +160,7 @@ const kaleido = makeKaleido();`);
     const result = h.evaluator.evaluate(`
       const wash = { draw() {} };
       const show = [{ strategy: wash, config: { alpha: 20 } }];
-      go(show);
+      activate(show);
     `);
 
     expect(result.ok).toBe(false);
@@ -177,6 +177,18 @@ const kaleido = makeKaleido();`);
     expect(result.ok).toBe(false);
     expect(result.error.message).toContain('add is not defined');
   });
+
+  it('does not expose the retired go() scene alias', () => {
+    const h = createTestHost();
+    const result = h.evaluator.evaluate(`
+      const wash = { draw() {} };
+      const show = [wash];
+      go(show);
+    `);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.message).toContain('go is not defined');
+  });
 });
 
 describe('first-class function strategies', () => {
@@ -187,7 +199,7 @@ describe('first-class function strategies', () => {
         state.total = (state.total || 0) + audio.level;
       };
       const show = [wash];
-      go(show);
+      activate(show);
     `);
     h.frame(5, { beat: false, level: 0.25 });
 
@@ -203,7 +215,7 @@ describe('first-class function strategies', () => {
       }
       const pulse = makePulse(7);
       const show = [pulse];
-      go(show);
+      activate(show);
     `);
     h.frame(3);
 
@@ -217,7 +229,7 @@ describe('first-class function strategies', () => {
     h.evaluator.evaluate(`
       const wash = ({ state }) => { state.version = 1; };
       const show = [wash];
-      go(show);
+      activate(show);
     `);
     h.frame(3);
 
@@ -232,7 +244,7 @@ describe('first-class function strategies', () => {
     const h = createTestHost();
     h.evaluator.evaluate(`
       const show = [({ state }) => { state.good = (state.good || 0) + 1; }];
-      go(show);
+      activate(show);
     `);
     h.frame(5);
     const good = h.registry.getStrategy('show[0]').definition;
@@ -265,7 +277,7 @@ class Counter {
 }
 const counter = new Counter();
 const show = [counter];
-go(show);`;
+activate(show);`;
 
     h.evaluator.evaluate(source);
     h.frame(3);
@@ -283,7 +295,7 @@ class Plasma {
 }
 const plasma = new Plasma();
 const show = [plasma];
-go(show);`;
+activate(show);`;
     const second = first.replace('state.version = 1', 'state.version = 2');
 
     expect(h.evaluator.evaluate(first).ok).toBe(true);
@@ -306,7 +318,7 @@ const plasma = new Plasma();
 
 // %% scene show
 const show = [plasma];
-go(show);
+activate(show);
 
 // %% patch plasma
 class Plasma { draw({ state }) { state.version = 2; } }
@@ -389,7 +401,7 @@ describe('S-03 a first-frame runtime error restores the previous object', () => 
     h.evaluator.evaluate(`
       const good = { draw({ state }) { state.frames = (state.frames || 0) + 1; } };
       const trusted = [good];
-      go(trusted);
+      activate(trusted);
     `);
     h.frame(8);
     const before = h.stateStore.get('good').frames;
@@ -397,7 +409,7 @@ describe('S-03 a first-frame runtime error restores the previous object', () => 
     h.evaluator.evaluate(`
       const broken = { draw() { throw new Error("first frame failed"); } };
       const risky = [broken];
-      go(risky);
+      activate(risky);
     `);
     h.frame(3);
 
@@ -419,7 +431,7 @@ describe('resource disposal', () => {
         dispose() { __disposed.push("old"); },
       };
       const show = [shader];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
 
@@ -455,7 +467,7 @@ describe('S-04 one failing strategy does not stop the others', () => {
       const broken = { draw() { throw new Error("always"); } };
       const rings = { draw({ state }) { state.n = (state.n || 0) + 1; } };
       const show = [wash, broken, rings];
-      go(show);
+      activate(show);
     `);
     h.frame(32);
 
@@ -469,7 +481,7 @@ describe('S-04 one failing strategy does not stop the others', () => {
     h.evaluator.evaluate(`
       const broken = { draw() { throw new Error("always"); } };
       const show = [broken];
-      go(show);
+      activate(show);
     `);
     h.frame(400);
 
@@ -482,7 +494,7 @@ describe('S-04 one failing strategy does not stop the others', () => {
     h.evaluator.evaluate(`
       const broken = { draw() { throw new Error("always"); } };
       const show = [broken];
-      go(show);
+      activate(show);
     `);
     h.frame(10);
 
@@ -496,7 +508,7 @@ describe('S-05 version history and reversion', () => {
     for (let i = 1; i <= 12; i++) {
       h.evaluator.evaluate(`
         const rings = { draw({ state }) { state.mark = ${i}; } };
-        ${i === 1 ? 'const show = [rings]; go(show);' : ''}
+        ${i === 1 ? 'const show = [rings]; activate(show);' : ''}
       `);
       h.frame(2);
     }
@@ -520,7 +532,7 @@ describe('R-03 / L-02 replacement is scoped and lands at a frame boundary', () =
       const wash = { state() { return { born: 1 }; }, draw({ state }) { state.n = (state.n||0)+1; } };
       const rings = { draw() {} };
       const show = [wash, rings];
-      go(show);
+      activate(show);
     `);
     h.frame(10);
     const washState = h.stateStore.get('wash');

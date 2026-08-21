@@ -13,6 +13,7 @@ import {
   insertSceneMember,
   moveSceneCellsLast,
   renameLegacyStarterScene,
+  upgradeLegacyActivation,
 } from '../../src/language/sourceBlocks.js';
 
 const SOURCE = `// a comment with a brace {
@@ -31,7 +32,7 @@ const rings = {
 };
 
 const tunnel = [wash, rings];
-go(tunnel)
+activate(tunnel)
 `;
 
 describe('findBlocks', () => {
@@ -41,7 +42,7 @@ describe('findBlocks', () => {
       'strategy wash',
       'strategy rings',
       'scene tunnel',
-      'go tunnel',
+      'activate tunnel',
     ]);
   });
 
@@ -54,7 +55,7 @@ describe('findBlocks', () => {
 
   it('ends a statement at a newline when brackets are balanced', () => {
     const blocks = findBlocks(SOURCE);
-    expect(blocks.at(-1).text.trim()).toBe('go(tunnel)');
+    expect(blocks.at(-1).text.trim()).toBe('activate(tunnel)');
   });
 
   it('handles template literals, regexes, and block comments', () => {
@@ -62,12 +63,12 @@ describe('findBlocks', () => {
       'const a = { draw() { const s = `x ${ { y: 1 } } z`; } };',
       'const r = /}\\/;{/g;',
       '/* } ; } */',
-      'go(a)',
+      'activate(a)',
     ].join('\n');
     const blocks = findBlocks(source);
     expect(blocks).toHaveLength(3);
     expect(blocks[0].text).toContain('${ { y: 1 } }');
-    expect(blocks.at(-1).text.trim()).toBe('go(a)');
+    expect(blocks.at(-1).text.trim()).toBe('activate(a)');
   });
 
   it('recognizes a constructed class instance as a strategy declaration', () => {
@@ -92,7 +93,7 @@ const orbiters = new Orbiters();
 
 // %% scene show
 const show = [orbiters];
-go(show);
+activate(show);
 `;
 
   it('groups a class and its instance into one atomic block', () => {
@@ -120,7 +121,7 @@ const wash = { draw() {} };
 
 // %% scene tunnel
 const tunnel = [wash, newPatch];
-go(tunnel);
+activate(tunnel);
 
 // %% patch newPatch
 const newPatch = { draw() {} };
@@ -152,7 +153,7 @@ const show = [
   plasma,
 
 ];
-go(show);`;
+activate(show);`;
     const blank = scene.indexOf('\n\n') + 1;
 
     expect(insertSceneMember(scene, 'show', 'rings', { before: 'plasma', at: blank }))
@@ -161,7 +162,45 @@ const show = [
   plasma,
   rings,
 ];
-go(show);`);
+activate(show);`);
+  });
+
+  it('inserts before a top-level scene line when the cursor is in its indentation', () => {
+    const scene = `// %% scene show
+const show = [
+  wash,
+  plasma,
+];
+activate(show);`;
+    const plasmaLine = scene.indexOf('  plasma,') + 1;
+
+    expect(insertSceneMember(scene, 'show', 'rings', { before: 'plasma', at: plasmaLine }))
+      .toBe(`// %% scene show
+const show = [
+  wash,
+  rings,
+  plasma,
+];
+activate(show);`);
+  });
+
+  it('does not split a nested multi-line scene expression at the cursor', () => {
+    const scene = `const scene = [
+  makeShaderFlow({
+    warp: 0.2,
+  }),
+  plasma,
+];`;
+    const nestedLine = scene.indexOf('    warp:');
+
+    expect(insertSceneMember(scene, 'scene', 'rings', { before: 'plasma', at: nestedLine }))
+      .toBe(`const scene = [
+  makeShaderFlow({
+    warp: 0.2,
+  }),
+  rings,
+  plasma,
+];`);
   });
 
   it('renames only the marked legacy starter scene', () => {
@@ -178,7 +217,7 @@ go(tunnel);
     expect(renamed).toContain(`const scene = [
   plasma,
 ];`);
-    expect(renamed).toContain('go(scene);');
+    expect(renamed).toContain('activate(scene);');
     expect(renamed).not.toContain('tunnel');
   });
 
@@ -189,20 +228,34 @@ go(tunnel);
   });
 });
 
+describe('upgradeLegacyActivation', () => {
+  it('upgrades executable calls but leaves strings and comments untouched', () => {
+    const source = `// go(scene) is the retired spelling
+const note = "go(scene)";
+controller.go(scene);
+go(scene);`;
+
+    expect(upgradeLegacyActivation(source)).toBe(`// go(scene) is the retired spelling
+const note = "go(scene)";
+controller.go(scene);
+activate(scene);`);
+  });
+});
+
 describe('insertSceneMember', () => {
   it('preserves a commented-out patch and adds a separate active line', () => {
     const source = `// %% scene scene
 const scene = [
   // plasma,
 ];
-go(scene);`;
+activate(scene);`;
 
     expect(insertSceneMember(source, 'scene', 'rings', { before: 'plasma' })).toBe(`// %% scene scene
 const scene = [
   // plasma,
   rings,
 ];
-go(scene);`);
+activate(scene);`);
   });
 
   it('inserts before an active post-processing patch without rewriting comments', () => {
@@ -238,7 +291,7 @@ describe('blockAt', () => {
   });
 
   it('falls back to the last block past the end of the buffer', () => {
-    expect(describeBlock(blockAt(SOURCE, SOURCE.length).text)).toBe('go tunnel');
+    expect(describeBlock(blockAt(SOURCE, SOURCE.length).text)).toBe('activate tunnel');
   });
 
   it('returns null when there is nothing to evaluate', () => {

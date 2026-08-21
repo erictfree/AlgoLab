@@ -81,10 +81,10 @@ them as JavaScript, and captures declared bindings. It classifies values by beha
   such as `scene[1]`;
 - an array entirely composed of strategy values is a scene, named by its binding;
 - unused functions, classes, arrays, and other values remain ordinary reusable bindings;
-- `go`, `reset`, and `param` are the only injected live commands.
+- `activate`, `reset`, and `param` are the only injected live commands.
 
 Bindings are retained between block evaluations, which is why a later
-`const stacked = [checkerZoom, waveScope]` uses the actual earlier values. `go(stacked)` uses
+`const stacked = [checkerZoom, waveScope]` uses the actual earlier values. `activate(stacked)` uses
 the scene array itself rather than repeating its name as a string. There is no
 student-facing registration table and no duplicate string identity.
 

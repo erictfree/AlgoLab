@@ -95,7 +95,7 @@ export function findStatements(source) {
 
     if (ch === '\n') {
       // Newline ends a top-level statement only when everything is balanced —
-      // the "automatic semicolon" case: `go(scene)` on its own line.
+      // the "automatic semicolon" case: `activate(scene)` on its own line.
       if (depth === 0 && start !== -1 && endsStatement(prev)) push(i + 1);
       i++;
       continue;
@@ -136,6 +136,26 @@ export function findCells(source) {
 }
 
 /**
+ * Upgrade the retired scene command in persisted source without exposing it as a
+ * runtime alias. Comments and strings remain untouched so teaching notes and example
+ * text retain exactly what the author wrote.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export function upgradeLegacyActivation(source) {
+  const masked = maskCommentsAndStrings(source);
+  const matches = [...masked.matchAll(/\bgo(?=\s*\()/g)]
+    .filter((match) => masked[match.index - 1] !== '.');
+  let upgraded = source;
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const at = matches[i].index;
+    upgraded = `${upgraded.slice(0, at)}activate${upgraded.slice(at + 2)}`;
+  }
+  return upgraded;
+}
+
+/**
  * Rename the original demo's default `tunnel` scene without touching patches or a
  * deliberately named scene in another project. The exact marked cell makes this a
  * narrow source migration rather than a global identifier replacement.
@@ -155,7 +175,7 @@ export function renameLegacyStarterScene(source) {
       /\b(const|let|var)\s+scene\s*=\s*\[\s*plasma\s*,?\s*\]\s*;?/,
       '$1 scene = [\n  plasma,\n];',
     )
-    .replace(/\bgo\s*\(\s*tunnel\s*\)/, 'go(scene)');
+    .replace(/\b(?:go|activate)\s*\(\s*tunnel\s*\)/, 'activate(scene)');
   return `${source.slice(0, legacy.start)}${renamed}${source.slice(legacy.end)}`;
 }
 
@@ -201,23 +221,41 @@ export function insertSceneMember(source, sceneName, memberName, { before = null
       ?? contentLine?.match(/^[ \t]*/)?.[0]
       ?? `${trailing?.[2] ?? ''}  `;
 
-    // A blank line inside the array is an explicit layer-order choice. It wins over
-    // the convenience anchor (normally "before plasma") and becomes the new member
-    // line without rebuilding or reformatting the surrounding scene.
-    if (Number.isInteger(at) && at > open && at < close) {
+    // The caret can explicitly choose layer order without rebuilding the array.
+    // A blank line is replaced in place. At the beginning of a top-level entry,
+    // the new member is inserted before that line and the existing source moves
+    // down. Nested lines inside a function, object, or ShaderChain are ignored so
+    // insertion cannot split a valid expression.
+    if (Number.isInteger(at) && at > open && at <= close) {
       const lineStart = source.lastIndexOf('\n', at - 1) + 1;
       const nextNewline = source.indexOf('\n', at);
       const lineEnd = nextNewline === -1 ? source.length : nextNewline;
+      const line = source.slice(lineStart, lineEnd).replace(/\r$/, '');
       if (
         lineStart > open &&
         lineEnd <= close &&
-        source.slice(lineStart, lineEnd).trim() === ''
+        line.trim() === ''
       ) {
-        const blankIndent = source.slice(lineStart, lineEnd).replace(/\r$/, '');
+        const blankIndent = line;
         const memberIndent = blankIndent || indent;
         return source.slice(0, lineStart) +
           `${memberIndent}${memberName},` +
           source.slice(lineEnd);
+      }
+
+      const leading = line.match(/^[ \t]*/)?.[0] ?? '';
+      const bodyLineStart = lineStart - (open + 1);
+      const beginsTopLevelLine =
+        lineStart > open &&
+        lineStart <= close &&
+        at <= lineStart + leading.length &&
+        structureDepth(masked, bodyLineStart) === 0;
+      if (beginsTopLevelLine) {
+        const isClosingLine = close >= lineStart && close <= lineEnd;
+        const memberIndent = isClosingLine ? indent : (leading || indent);
+        return source.slice(0, lineStart) +
+          `${memberIndent}${memberName},${eol}` +
+          source.slice(lineStart);
       }
     }
 
@@ -264,6 +302,18 @@ function isIdentifier(value) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Structural nesting depth immediately before an offset in masked source. */
+function structureDepth(source, end) {
+  let depth = 0;
+  for (let i = 0; i < Math.max(0, end); i++) {
+    if (source[i] === '(' || source[i] === '[' || source[i] === '{') depth++;
+    else if (source[i] === ')' || source[i] === ']' || source[i] === '}') {
+      depth = Math.max(0, depth - 1);
+    }
+  }
+  return depth;
 }
 
 /** Find the closing bracket while ignoring brackets inside comments and strings. */
@@ -495,8 +545,8 @@ export function describeBlock(text) {
   const classDeclaration = /\bclass\s+([A-Za-z_$][\w$]*)/.exec(text);
   if (classDeclaration) return `class ${classDeclaration[1]}`;
 
-  const goCommand = /\bgo\s*\(\s*([A-Za-z_$][\w$]*)/.exec(text);
-  if (goCommand) return `go ${goCommand[1]}`;
+  const activateCommand = /\bactivate\s*\(\s*([A-Za-z_$][\w$]*)/.exec(text);
+  if (activateCommand) return `activate ${activateCommand[1]}`;
 
   const namedCommand = /\bparam\s*\(\s*["'`]([^"'`]+)["'`]/.exec(text);
   if (namedCommand) return `param ${namedCommand[1]}`;

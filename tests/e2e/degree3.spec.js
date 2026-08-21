@@ -36,7 +36,7 @@ const trailDots = {
 
 // %% scene degree
 const degree = [baseFade, laserFan, trailDots, plasma];
-go(degree);
+activate(degree);
 `;
 
 const LASER_EDITED = `const laserFan = {

@@ -42,7 +42,7 @@ export function evaluateStartupProject({
       fallback = 'recovery';
       const recoveryScene = `// %% scene recovery
 const recovery = [plasma];
-go(recovery);`;
+activate(recovery);`;
       const recoveryResult = evaluator.evaluate(recoveryScene, { label: 'recovery scene' });
       if (recoveryResult.ok) evaluator.applyPending();
     } else {

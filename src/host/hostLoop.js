@@ -155,7 +155,7 @@ export function createHostLoop({
 
       // Anonymous scene entries have registry identities like `scene[1]`, but no
       // hidden JavaScript variable. Rebuild the visible scene-array binding from the
-      // restored registry configuration so a later `go(scene)` cannot accidentally
+      // restored registry configuration so a later `activate(scene)` cannot accidentally
       // resurrect the failed function object. Named strategies restore normally.
       const inline = /^(.*)\[(\d+)\]$/.exec(name);
       if (inline && evaluator.hasBinding(inline[1])) {

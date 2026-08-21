@@ -7,13 +7,13 @@ import { createTestHost } from './helpers.js';
 const COUNTER = `
   const c = { draw({ state }) { state.n = (state.n || 0) + 1; } };
   const show = [c];
-  go(show);
+  activate(show);
 `;
 
 const COUNTER_COPIES = `
   const c = { draw({ state }) { state.n = (state.n || 0) + 1; } };
   const show = [c, c];
-  go(show);
+  activate(show);
 `;
 
 describe('first-class strategy instances', () => {
@@ -22,7 +22,7 @@ describe('first-class strategy instances', () => {
     h.evaluator.evaluate(`
       const c = { draw() {} };
       const show = [c];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
 
@@ -52,7 +52,7 @@ describe('first-class strategy instances', () => {
       }
       const oop = new SophisticatedStrategy();
       const show = [oop];
-      go(show);
+      activate(show);
       globalThis.__oopImplementation = oop;
     `);
     h.frame(4);
@@ -82,7 +82,7 @@ describe('first-class strategy instances', () => {
       const a = { draw() {} };
       const b = { draw() {} };
       const show = [a, b, a, b];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
     expect(h.registry.activeOrder()).toEqual(['a', 'b', 'a#2', 'b#2']);
@@ -105,7 +105,7 @@ describe('first-class strategy instances', () => {
     h.evaluator.evaluate(`
       const c = { draw() { __drawn.push("c"); } };
       const show = [c, c, c];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
 
@@ -123,7 +123,7 @@ describe('source-authoritative composition', () => {
       const a = { draw() {} };
       const b = { draw() {} };
       const show = [a];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
     expect(h.registry.activeOrder()).toEqual(['a']);
@@ -157,7 +157,7 @@ describe('source-authoritative composition', () => {
         draw({ state }) { state.n = (state.n || 0) + 1; state.hue = this.hue; },
       };
       const show = [c];
-      go(show);
+      activate(show);
     `);
     h.frame(5);
     const state = h.stateStore.get('c');
@@ -183,7 +183,7 @@ describe('lifecycle is per scene instance', () => {
         draw() {},
       };
       const show = [c, c];
-      go(show);
+      activate(show);
     `);
     h.frame(3);
     expect(globalThis.__life).toEqual(['enter', 'enter']);
@@ -201,7 +201,7 @@ describe('lifecycle is per scene instance', () => {
     h.evaluator.evaluate(`
       const c = { beat() { __beat(); }, draw() {} };
       const show = [c, c, c];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
 
@@ -219,7 +219,7 @@ describe('replacing a duplicated strategy', () => {
     h.evaluator.evaluate(`
       const c = { draw() { __versions.push(1); } };
       const show = [c, c];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
 
@@ -269,7 +269,7 @@ describe('replacing a duplicated strategy', () => {
     h.evaluator.evaluate(`
       const c = { state: () => ({ n: 0 }), draw({ state }) { state.n++; } };
       const show = [c, c];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
     h.stateStore.get('c#2').fail = true;
@@ -295,7 +295,7 @@ describe('replacing a duplicated strategy', () => {
     h.evaluator.evaluate(`
       const c = { state: () => ({ n: 0 }), draw({ state }) { state.n++; } };
       const show = [c, c];
-      go(show);
+      activate(show);
     `);
     h.frame(10);
     expect(h.stateStore.get('c').n).toBeGreaterThan(5);
@@ -317,7 +317,7 @@ describe('scene-local identities', () => {
           state.last = time + audio.level;
         },
       ];
-      go(show);
+      activate(show);
     `);
     h.frame(4, { beat: false, level: 0.25 });
 
@@ -338,7 +338,7 @@ describe('scene-local identities', () => {
           state.total = this.total;
         },
       }];
-      go(show);
+      activate(show);
     `);
     h.frame(4);
 
@@ -358,7 +358,7 @@ describe('scene-local identities', () => {
         };
       }
       const show = [multiplyBy(4)];
-      go(show);
+      activate(show);
     `);
     h.frame(4);
 
@@ -371,7 +371,7 @@ describe('scene-local identities', () => {
     const h = createTestHost();
     h.evaluator.evaluate(`
       const show = [({ state }) => { state.calls = (state.calls || 0) + 1; }];
-      go(show);
+      activate(show);
     `);
     h.frame(5);
     const state = h.stateStore.get('show[0]');
@@ -396,7 +396,7 @@ describe('scene-local identities', () => {
     h.evaluator.evaluate(`
       const named = () => {};
       const show = [({ state }) => { state.position = 0; }];
-      go(show);
+      activate(show);
     `);
     h.frame(3);
 
@@ -420,7 +420,7 @@ const show = [
   named,
   ({ state }) => { state.inline = true; },
 ];
-go(show);`, { label: 'buffer' });
+activate(show);`, { label: 'buffer' });
     h.frame(3);
 
     const source = h.registry.getStrategy('show[1]').source;
@@ -433,7 +433,7 @@ go(show);`, { label: 'buffer' });
     const h = createTestHost();
     const result = h.evaluator.evaluate(`
       const badScene = [{ helper: true }];
-      go(badScene);
+      activate(badScene);
     `);
 
     expect(result.ok).toBe(false);

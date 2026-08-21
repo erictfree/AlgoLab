@@ -21,7 +21,7 @@ const KEYWORDS = new Set([
  * AlgoLab's own vocabulary (§9). Coloured apart from every other call because these
  * are the small command vocabulary around otherwise ordinary JavaScript objects.
  */
-const HOST_API = new Set(['go', 'reset', 'param']);
+const HOST_API = new Set(['activate', 'reset', 'param']);
 
 /**
  * @typedef {'comment' | 'string' | 'number' | 'keyword' | 'host' | 'call' | 'text'} TokenKind

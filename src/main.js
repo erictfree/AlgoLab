@@ -34,6 +34,7 @@ import {
   findCells,
   moveSceneCellsLast,
   renameLegacyStarterScene,
+  upgradeLegacyActivation,
 } from './language/sourceBlocks.js';
 
 const STARTER_PATCHES = findCells(STARTER_SOURCE).flatMap((cell) => {
@@ -194,7 +195,8 @@ window.setup = function setup() {
   const source = saved?.source ?? STARTER_SOURCE;
   const upgradedSource = upgradeLegacyPlasma(source);
   const diagnosticSource = upgradeOpaqueDiagnostics(upgradedSource);
-  const namedSource = renameLegacyStarterScene(diagnosticSource);
+  const commandSource = upgradeLegacyActivation(diagnosticSource);
+  const namedSource = renameLegacyStarterScene(commandSource);
   const orderedSource = moveSceneCellsLast(namedSource);
   editor.value = orderedSource;
   if (upgradedSource !== source) {
@@ -209,7 +211,13 @@ window.setup = function setup() {
       'Frequency bars and audio meters now draw solid marks with no backing tint.',
     );
   }
-  if (namedSource !== diagnosticSource) {
+  if (commandSource !== diagnosticSource) {
+    diagnostics.info(
+      'Updated scene activation command',
+      'activate(scene) now makes a scene array active.',
+    );
+  }
+  if (namedSource !== commandSource) {
     diagnostics.info('Renamed the starter scene', 'The default scene binding is now simply scene.');
   }
   if (orderedSource !== namedSource) {
@@ -238,7 +246,7 @@ window.setup = function setup() {
     );
   }
   projectStore.restoreSettings(
-    saved?.safeScene === 'tunnel' && namedSource !== diagnosticSource
+    saved?.safeScene === 'tunnel' && namedSource !== commandSource
       ? { ...saved, safeScene: 'scene' }
       : saved,
   );
@@ -769,22 +777,23 @@ function restoreBeforePerformance(checkpoint, performance, detail) {
 function recallPerformance(performance) {
   const checkpoint = controller.checkpoint();
   const sequence = ++performanceRecallSequence;
+  const performanceSource = upgradeLegacyActivation(performance.source);
 
   evaluator.discardPending();
   evaluator.clearBindings();
   host.reset();
   registry.reset();
   stateStore.clear();
-  editor.value = performance.source;
-  const result = evaluator.evaluate(performance.source, { label: `performance ${performance.name}` });
+  editor.value = performanceSource;
+  const result = evaluator.evaluate(performanceSource, { label: `performance ${performance.name}` });
   if (!result.ok) {
     restoreBeforePerformance(checkpoint, performance, result.error?.message ?? result.phase);
     return result;
   }
   evaluator.applyPending();
   applyPerformanceSettings(performance);
-  projection.setActiveCode(performance.source);
-  projectStore.saveSoon(performance.source, 0);
+  projection.setActiveCode(performanceSource);
+  projectStore.saveSoon(performanceSource, 0);
   controller.sourceChanged();
   diagnostics.success(
     `Performance recalled — ${performance.name}`,
@@ -1072,6 +1081,7 @@ document.getElementById('import-file').addEventListener('change', async (event) 
     diagnostics.error(`Could not import ${file.name}`, parsed.error);
     return;
   }
+  const importedSource = upgradeLegacyActivation(parsed.data.source);
 
   // D-03: importing runs someone else's JavaScript on this machine. §13.3 is explicit
   // that error boundaries are not a sandbox, so the confirmation shows the actual
@@ -1079,10 +1089,10 @@ document.getElementById('import-file').addEventListener('change', async (event) 
   const confirmed = await dialog.ask({
     title: `Import "${file.name}"?`,
     body:
-      `This project contains ${parsed.data.source.split('\n').length} lines of JavaScript ` +
+      `This project contains ${importedSource.split('\n').length} lines of JavaScript ` +
       `including its scene arrays. Importing replaces your current editor contents ` +
       `and runs this code immediately.`,
-    preview: parsed.data.source.slice(0, 1200),
+    preview: importedSource.slice(0, 1200),
     warning:
       'AlgoLab runs imported code with the same privileges as your own. It is not a ' +
       'sandbox — imported code can freeze this tab. Only import projects from someone you trust.',
@@ -1098,15 +1108,15 @@ document.getElementById('import-file').addEventListener('change', async (event) 
   host.reset();
   registry.reset();
   stateStore.clear();
-  editor.value = parsed.data.source;
-  const result = evaluator.evaluate(parsed.data.source, { label: file.name });
+  editor.value = importedSource;
+  const result = evaluator.evaluate(importedSource, { label: file.name });
   evaluator.applyPending();
   if (!result.ok) {
     diagnostics.error(`Could not run ${file.name}`, result.error?.message);
     return;
   }
   projectStore.restoreSettings(parsed.data);
-  projection.setActiveCode(parsed.data.source);
+  projection.setActiveCode(importedSource);
   diagnostics.success(`Imported ${file.name}`);
 });
 

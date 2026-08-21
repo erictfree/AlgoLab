@@ -179,6 +179,111 @@ input:focus-visible {
   background: transparent;
   border-top: 0;
 }
+.folded-new-patch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 12px;
+  padding: 0;
+}
+button.folded-new-patch-button {
+  position: absolute;
+  top: 50%;
+  left: calc((var(--folded-gutter-width) - 26px) / 2);
+  z-index: 1;
+  width: 26px;
+  min-width: 26px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  color: rgba(205, 205, 214, 0.76);
+  border-color: transparent;
+  background: rgba(10, 10, 12, 0.22);
+  font-size: max(15px, calc(var(--code-font-size) * 0.68));
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 100ms ease, color 100ms ease, background 100ms ease;
+}
+.folded-new-patch:hover button.folded-new-patch-button,
+button.folded-new-patch-button:hover,
+button.folded-new-patch-button:focus-visible {
+  color: var(--accent);
+  border-color: rgba(122, 162, 247, 0.6);
+  background: rgba(10, 10, 12, calc(0.78 + var(--tools-alpha) * 0.15));
+  opacity: 1;
+}
+button.folded-new-patch-button::after {
+  content: 'New patch';
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 5px);
+  padding: 2px 6px;
+  color: var(--text);
+  border: 1px solid rgba(122, 162, 247, 0.5);
+  border-radius: 3px;
+  background: rgba(10, 10, 12, 0.94);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) translateX(-3px);
+  transition: opacity 100ms ease, transform 100ms ease;
+}
+button.folded-new-patch-button:hover::after,
+button.folded-new-patch-button:focus-visible::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+.folded-new-patch.is-editing {
+  min-height: max(32px, calc(var(--code-line-height) + 8px));
+  padding-left: var(--folded-code-column);
+}
+.folded-new-patch-form {
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  max-width: calc(100% - 12px);
+  padding: 3px 5px;
+  border: 1px solid rgba(122, 162, 247, 0.55);
+  border-radius: 4px;
+  background: rgba(10, 10, 12, calc(0.86 + var(--tools-alpha) * 0.1));
+}
+.folded-new-patch-name {
+  width: min(20ch, 45vw);
+  min-width: 11ch;
+  padding: 2px 6px;
+  color: var(--code-text);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel-2);
+  font: inherit;
+}
+.folded-new-patch-name[aria-invalid='true'] {
+  border-color: var(--bad);
+}
+.folded-new-patch-error {
+  flex-basis: 100%;
+  color: var(--bad);
+  font-size: 11px;
+}
+.folded-new-patch-error:empty {
+  display: none;
+}
+.folded-empty-project {
+  display: grid;
+  gap: 8px;
+}
+.folded-empty-project .folded-new-patch {
+  min-height: 28px;
+}
+.folded-empty-project button.folded-new-patch-button {
+  opacity: 0.8;
+}
 .folded-block {
   margin: 0;
   background: transparent;

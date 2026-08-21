@@ -1278,4 +1278,4 @@ const stacked = [
   beatBurst,
   strobe,
 ];
-go(stacked);`;
+activate(stacked);`;

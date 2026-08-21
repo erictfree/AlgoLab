@@ -27,7 +27,7 @@ describe('tokenize', () => {
 
   it('treats keywords, numbers and strings as themselves', () => {
     expect(coloured('const x = 0.5;')).toEqual(['keyword:const', 'number:0.5']);
-    expect(coloured('go(tunnel)')).toEqual(['host:go']);
+    expect(coloured('activate(tunnel)')).toEqual(['host:activate']);
   });
 
   it('does not read code inside a comment', () => {
@@ -67,10 +67,10 @@ describe('tokenizeLines', () => {
   });
 
   it('cuts a block comment at each line so no line needs the one before it', () => {
-    const lines = tokenizeLines('/* one\n   two */\ngo(x)');
+    const lines = tokenizeLines('/* one\n   two */\nactivate(x)');
     expect(lines[0]).toEqual([{ kind: 'comment', text: '/* one' }]);
     expect(lines[1]).toEqual([{ kind: 'comment', text: '   two */' }]);
-    expect(lines[2][0]).toEqual({ kind: 'host', text: 'go' });
+    expect(lines[2][0]).toEqual({ kind: 'host', text: 'activate' });
   });
 
   it('does the same for a template literal', () => {

@@ -285,7 +285,7 @@ test.describe('multiple copies of one strategy', () => {
     await appendCellAndEvaluate(page, `// %% configured laser scene
 const pinkLasers = { ...laserFan, hue: 330, direction: -1 };
 const laserScene = [laserFan, laserFan, pinkLasers, plasma];
-go(laserScene);`);
+activate(laserScene);`);
     await expect
       .poll(() =>
         page.evaluate(() => window.AlgoLab.registry.getStrategy('pinkLasers')?.definition.hue),
@@ -367,6 +367,26 @@ go(laserScene);`);
 
     await expect(page.locator('#code')).toHaveValue(
       /const scene = \[\n  plasma,\n  checkerZoom,\n\];/,
+    );
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+  });
+
+  test('Add to scene moves a top-level scene line down when the caret begins that line', async ({ page }) => {
+    await boot(page, { tools: true });
+    await page.getByRole('button', { name: /^Install checkerZoom system patch source —/ }).click();
+    await page.locator('#code').evaluate((editor) => {
+      const plasmaLine = editor.value.indexOf('  plasma,');
+      editor.focus();
+      editor.setSelectionRange(plasmaLine, plasmaLine);
+      editor.dispatchEvent(new Event('select', { bubbles: true }));
+    });
+
+    await page
+      .getByRole('button', { name: 'Add installed patch checkerZoom to the active scene source' })
+      .click();
+
+    await expect(page.locator('#code')).toHaveValue(
+      /const scene = \[\n  checkerZoom,\n  plasma,\n\];/,
     );
     expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
   });
@@ -540,7 +560,7 @@ const audioMeters = { draw() { rect(20, 20, 40, 8); } };
 
 // %% scene show
 const show = [frequencyBars, audioMeters];
-go(show);`;
+activate(show);`;
 
     await page.addInitScript((savedSource) => {
       localStorage.clear();
@@ -678,7 +698,7 @@ const inlineShow = [
     );
   },
 ];
-go(inlineShow);`);
+activate(inlineShow);`);
 
     await expect
       .poll(() => page.evaluate(() => ({
@@ -703,8 +723,8 @@ go(inlineShow);`);
     const plasma = page.locator('#reference-side [data-strategy="plasma"]');
     await plasma.locator('summary').click();
     await expect(plasma).toContainText('Plasma instance · running');
-    await expect(plasma).toContainText('speed: 0.22');
-    await expect(plasma).toContainText('motion: 0.34');
+    await expect(plasma).toContainText('speed: 0.35');
+    await expect(plasma).toContainText('motion: 0.48');
     await expect(plasma).toContainText('intensity({ audio })');
     await expect(plasma).toContainText('warp({ audio })');
     await expect(plasma).toContainText('draw({ audio, time, canvas })');
@@ -1426,6 +1446,49 @@ test.describe('the minimal display', () => {
     expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
   });
 
+  test('creates a handwritten object patch between folded cells', async ({ page }) => {
+    await boot(page, { tools: false, folded: true });
+
+    const add = page.getByRole('button', {
+      name: 'New patch between patch plasma and scene scene',
+    });
+    await expect(add).toBeVisible();
+    await add.click();
+
+    const name = page.getByRole('textbox', { name: 'New patch name' });
+    await expect(name).toBeFocused();
+    await name.fill('class');
+    await name.press('Enter');
+    await expect(page.getByRole('alert')).toHaveText('class is reserved. Choose another name.');
+
+    await name.fill('studentPulse');
+    await name.press('Enter');
+
+    const patch = page.locator('.folded-block[data-block-description="patch studentPulse"]');
+    await expect(patch).toBeVisible();
+    await expect(patch).toHaveAttribute('open', '');
+    const body = patch.getByRole('textbox', { name: 'Edit patch studentPulse' });
+    await expect(body).toBeFocused();
+    await expect(body).toHaveValue(/const studentPulse = \{\n  draw\(\{ time, audio \}\) \{/);
+    expect(await body.evaluate((element) => ({
+      start: element.selectionStart,
+      before: element.value.slice(0, element.selectionStart),
+    }))).toMatchObject({
+      before: expect.stringMatching(/draw\(\{ time, audio \}\) \{\n    $/),
+    });
+
+    const source = await page.locator('#code').inputValue();
+    expect(source.indexOf('// %% patch studentPulse')).toBeLessThan(
+      source.indexOf('// %% scene scene'),
+    );
+    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('studentPulse'))).toBe(false);
+
+    await body.press('Control+Enter');
+    await expect.poll(
+      () => page.evaluate(() => window.AlgoLab.registry.hasStrategy('studentPulse')),
+    ).toBe(true);
+  });
+
   test('Cmd/Ctrl+Alt+T tidies the current code cell without evaluating it', async ({ page }) => {
     await boot(page);
     await page.evaluate(() => {
@@ -1633,7 +1696,7 @@ test.describe('S-06 / P-05 safe-state recovery', () => {
 
     await page.evaluate(() => {
       window.AlgoLab.evaluator.evaluate(
-        'const chaos = { draw() { circle(10, 10, 5); } }; const wild = [chaos]; go(wild); param("safeProbe", 9);',
+        'const chaos = { draw() { circle(10, 10, 5); } }; const wild = [chaos]; activate(wild); param("safeProbe", 9);',
         { label: 'buffer' },
       );
     });
@@ -1681,7 +1744,7 @@ test.describe('named Performance recall', () => {
       'const alternate = { draw() { circle(40, 40, 20); } };',
       '// %% scene other',
       'const other = [alternate];',
-      'go(other);',
+      'activate(other);',
     ].join('\n');
     await page.evaluate((source) => {
       window.AlgoLab.editor.value = source;
@@ -1736,7 +1799,7 @@ test.describe('named Performance recall', () => {
       '// %% scene other',
       'const other = [alternate];',
       'param("energy", 0.2, { min: 0, max: 1 });',
-      'go(other);',
+      'activate(other);',
     ].join('\n');
     await page.evaluate((source) => {
       window.AlgoLab.editor.value = source;
@@ -1790,7 +1853,7 @@ test.describe('named Performance recall', () => {
       'const keeper = { draw() { circle(80, 80, 30); } };',
       '// %% scene keeperScene',
       'const keeperScene = [keeper];',
-      'go(keeperScene);',
+      'activate(keeperScene);',
     ].join('\n');
     await page.evaluate((source) => {
       window.AlgoLab.editor.value = source;
@@ -1862,7 +1925,7 @@ test.describe('D-02 / D-03 project portability', () => {
       source: [
         'const imported = { draw() { circle(50, 50, 20); } };',
         'const main = [imported];',
-        'go(main);',
+        'activate(main);',
       ],
       params: [],
     });
@@ -1904,7 +1967,7 @@ test.describe('D-02 / D-03 project portability', () => {
     // Make a mess: a new strategy, extra copies, a wrecked scene, accumulated state.
     await page.evaluate(() =>
       window.AlgoLab.evaluator.evaluate(
-        'const mess = { draw() { circle(5, 5, 5); } }; const messy = [mess, plasma, plasma]; go(messy);',
+        'const mess = { draw() { circle(5, 5, 5); } }; const messy = [mess, plasma, plasma]; activate(messy);',
         { label: 'test' },
       ),
     );

@@ -14,6 +14,27 @@ import { tidySource } from './tidy.js';
 
 const INDENT = '  ';
 const PAIRS = { '{': '}', '[': ']', '(': ')' };
+const PATCH_NAME = /^[A-Za-z_$][\w$]*$/;
+const RESERVED_PATCH_NAMES = new Set([
+  'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger',
+  'default', 'delete', 'do', 'else', 'enum', 'export', 'extends', 'false',
+  'finally', 'for', 'function', 'if', 'implements', 'import', 'in', 'instanceof',
+  'interface', 'let', 'new', 'null', 'package', 'private', 'protected', 'public',
+  'return', 'static', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof',
+  'var', 'void', 'while', 'with', 'yield',
+  // These are evaluator-provided bindings, so declaring one in a cell would collide
+  // with the live-coding API even though it is a legal JavaScript identifier.
+  'activate', 'param', 'reset', 'ShaderChain',
+]);
+
+function patchScaffold(name) {
+  return `// %% patch ${name}\n\nconst ${name} = {\n  draw({ time, audio }) {\n    \n  },\n};`;
+}
+
+function declaredName(source, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b(?:const|let|var|class|function)\\s+${escaped}\\b`).test(source);
+}
 
 function isPatchBlock(block, name) {
   const label = describeBlock(block.text);
@@ -350,11 +371,119 @@ export function createEditor(textarea, handlers) {
     return true;
   }
 
+  function patchNameProblem(name) {
+    if (!name) return 'Enter a patch name.';
+    if (!PATCH_NAME.test(name)) return 'Use a JavaScript name such as ripple or myPatch.';
+    if (RESERVED_PATCH_NAMES.has(name)) return `${name} is reserved. Choose another name.`;
+    if (declaredName(textarea.value, name)) return `${name} is already defined in this project.`;
+    return '';
+  }
+
+  /** Insert a complete object patch at one folded-cell boundary and focus draw(). */
+  function createPatchAt(name, at) {
+    const problem = patchNameProblem(name);
+    if (problem) return { ok: false, problem };
+
+    const source = textarea.value;
+    const safeAt = Math.max(0, Math.min(source.length, at));
+    const before = source.slice(0, safeAt);
+    const after = source.slice(safeAt);
+    const leading = before === '' || before.endsWith('\n\n')
+      ? ''
+      : before.endsWith('\n') ? '\n' : '\n\n';
+    const scaffold = patchScaffold(name);
+    const candidate = `${before}${leading}${scaffold}\n\n${after}`;
+    const next = moveSceneCellsLast(candidate);
+
+    // The name is unique, so its first fold identity is deterministic even if moving
+    // scene cells changes its line number during insertion.
+    openFolds.add(`patch ${name}:0`);
+    foldedSource = null;
+    write(next, true);
+    changed();
+
+    const target = findBlocks(textarea.value).find((block) => isPatchBlock(block, name));
+    if (!target) return { ok: false, problem: 'The new patch could not be located.' };
+    const drawBody = '  draw({ time, audio }) {\n    ';
+    const localCaret = target.text.indexOf(drawBody) + drawBody.length;
+    const caret = target.start + Math.max(0, localCaret);
+    revealRange(caret);
+    return { ok: true, name, caret };
+  }
+
+  /** A keyboard-accessible inline composer used before, between, and after cells. */
+  function newPatchControl(at, position) {
+    const row = document.createElement('div');
+    row.className = 'folded-new-patch';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'folded-new-patch-button';
+    button.textContent = '＋';
+    button.setAttribute('aria-label', `New patch ${position}`);
+    button.title = `Create a new object patch ${position}`;
+
+    const begin = () => {
+      row.classList.add('is-editing');
+      const form = document.createElement('form');
+      form.className = 'folded-new-patch-form';
+      const input = document.createElement('input');
+      input.className = 'folded-new-patch-name';
+      input.type = 'text';
+      input.placeholder = 'patchName';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.setAttribute('aria-label', 'New patch name');
+      const create = document.createElement('button');
+      create.type = 'submit';
+      create.textContent = 'Create';
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.textContent = 'Cancel';
+      const error = document.createElement('span');
+      error.className = 'folded-new-patch-error';
+      error.setAttribute('role', 'alert');
+
+      const restore = () => {
+        row.classList.remove('is-editing');
+        row.replaceChildren(button);
+        button.focus();
+      };
+      cancel.addEventListener('click', restore);
+      input.addEventListener('input', () => {
+        error.textContent = '';
+        input.removeAttribute('aria-invalid');
+      });
+      input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        restore();
+      });
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const result = createPatchAt(input.value.trim(), at);
+        if (result.ok) return;
+        error.textContent = result.problem;
+        input.setAttribute('aria-invalid', 'true');
+        input.focus();
+      });
+
+      form.append(input, create, cancel, error);
+      row.replaceChildren(form);
+      input.focus();
+    };
+
+    button.addEventListener('click', begin);
+    row.append(button);
+    return row;
+  }
+
   /** A source-safe VS Code-like editor; the complete textarea remains the source of truth. */
   function renderFolded(source) {
     if (!foldedView || source === foldedSource) return;
     foldedSource = source;
-    const rows = foldEntries(source).map(({ block, firstLine, preview, foldKey }) => {
+    const entries = foldEntries(source);
+    const blocks = entries.map(({ block, firstLine, preview, foldKey }) => {
 
       const details = document.createElement('details');
       details.className = 'folded-block';
@@ -560,10 +689,22 @@ export function createEditor(textarea, handlers) {
       return details;
     });
 
-    if (rows.length === 0) {
+    const rows = [];
+    entries.forEach((entry, index) => {
+      const position = index === 0
+        ? `before ${entry.preview.description}`
+        : `between ${entries[index - 1].preview.description} and ${entry.preview.description}`;
+      rows.push(newPatchControl(entry.block.start, position), blocks[index]);
+    });
+    if (entries.length > 0) {
+      rows.push(newPatchControl(source.length, `after ${entries.at(-1).preview.description}`));
+    } else {
       const empty = document.createElement('div');
-      empty.className = 'hint';
-      empty.textContent = 'No code cells yet.';
+      empty.className = 'folded-empty-project';
+      const hint = document.createElement('span');
+      hint.className = 'hint';
+      hint.textContent = 'No code cells yet.';
+      empty.append(hint, newPatchControl(0, 'in the empty project'));
       rows.push(empty);
     }
     foldedView.replaceChildren(...rows);
@@ -927,6 +1068,12 @@ export function createEditor(textarea, handlers) {
   function write(text, all = false) {
     const active = document.activeElement;
     const restore = active !== textarea ? active : null;
+    const original = textarea.value;
+    const originalFrom = textarea.selectionStart;
+    const originalTo = textarea.selectionEnd;
+    const expected = all
+      ? text
+      : `${original.slice(0, originalFrom)}${text}${original.slice(originalTo)}`;
     if (restore) textarea.focus();
 
     const { scrollTop } = textarea;
@@ -938,10 +1085,14 @@ export function createEditor(textarea, handlers) {
     } catch {
       /* falls through to the assignment below */
     }
-    if (!inserted) {
-      const { selectionStart: from, selectionEnd: to, value } = textarea;
-      textarea.value = all ? text : `${value.slice(0, from)}${text}${value.slice(to)}`;
-      if (!all) textarea.selectionStart = textarea.selectionEnd = from + text.length;
+    // A hidden textarea cannot always take focus from an inline folded-cell input.
+    // Chromium can then return true after inserting into that input instead. Trust
+    // the native path only when the authoritative source has the expected value.
+    if (!inserted || textarea.value !== expected) {
+      textarea.value = expected;
+      if (!all) {
+        textarea.selectionStart = textarea.selectionEnd = originalFrom + text.length;
+      }
       changed();
     }
 
@@ -1074,7 +1225,7 @@ export function createEditor(textarea, handlers) {
     );
 
     if (!target) {
-      const source = `// %% scene ${sceneName}\n${declaration}\ngo(${sceneName});`;
+      const source = `// %% scene ${sceneName}\n${declaration}\nactivate(${sceneName});`;
       appendSource(source);
     } else {
       const caret = Number.isInteger(lastSourceCaret) &&

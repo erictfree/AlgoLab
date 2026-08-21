@@ -28,7 +28,7 @@ const scene = [
   plasma,
 ];
 
-go(scene);
+activate(scene);
 ```
 
 - A **patch** is an ordinary JavaScript object, function, or class instance that can
@@ -174,7 +174,7 @@ const scene = [
   plasma,
 ];
 
-go(scene);
+activate(scene);
 ```
 
 Open the Plasma cell, change its public `speed` or `motion` property, put the cursor
@@ -185,9 +185,28 @@ To add another patch:
 
 1. Open the tools drawer with the `☰` button or `\` key.
 2. Open **Library** and choose **Install source** for a patch.
-3. Choose **Add to scene**. The button changes to **Added — run scene** immediately.
+3. Choose **Add to scene**. The button changes to **Added — activate scene** immediately.
 4. Evaluate the opened scene cell with `Cmd/Ctrl+Enter`.
 5. The patch becomes Active and then Running after it renders successfully.
+
+To write your own patch in the structured editor, move the pointer through the
+far-left gutter between two folded cells. A subtle **＋** appears at that boundary;
+click it, enter a JavaScript identifier such as `orbitDots`, and press Enter. Keyboard
+focus reveals the same control. AlgoLab inserts and opens this complete object scaffold:
+
+```js
+// %% patch orbitDots
+
+const orbitDots = {
+  draw({ time, audio }) {
+
+  },
+};
+```
+
+Write the drawing code inside `draw()`, evaluate that patch cell with
+`Cmd/Ctrl+Enter`, add `orbitDots` to the scene array, and evaluate the scene cell.
+The new source remains ordinary project code in the complete project buffer.
 
 ### 8. Stop the server
 
@@ -373,8 +392,8 @@ AlgoLab automatically restores the working source saved in that browser. Use
 
 ### A patch was added but is not drawing
 
-**Add to scene** changes source; it does not run the scene automatically. When the
-button says **Added — run scene**, evaluate the opened scene cell with
+**Add to scene** changes source; it does not activate the scene automatically. When the
+button says **Added — activate scene**, evaluate the opened scene cell with
 `Cmd/Ctrl+Enter`.
 
 ### Audio does not play

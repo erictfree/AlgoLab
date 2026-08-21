@@ -143,6 +143,41 @@ patches continue receiving an audio object whose values are zero.
 Press `?` after releasing editor focus to see the current command sheet. While typing,
 `Cmd/Ctrl+Option/Alt+/` opens the same sheet without first leaving the editor.
 
+## Starting a handwritten patch
+
+In the structured editor, every boundary before, between, and after folded cells has a
+quiet insertion target in the far-left gutter, before the line numbers. Hover over a
+boundary—or reach it with keyboard focus—to reveal **＋ New patch**. Click it, enter a
+JavaScript identifier such as `orbitDots`, and press Enter. AlgoLab inserts an ordinary
+source cell, opens it, and places the caret inside `draw()`:
+
+```js
+// %% patch orbitDots
+
+const orbitDots = {
+  draw({ time, audio }) {
+
+  },
+};
+```
+
+The control rejects invalid, reserved, and already-declared names. If insertion would
+place the declaration after a scene cell, AlgoLab keeps scene cells last so the scene
+cannot refer to the patch before JavaScript has created it. This is only scaffolding:
+the complete editor remains the source of truth, and creating the cell does not
+evaluate or activate it.
+
+The exact live-coding sequence is:
+
+1. Write the patch's behavior inside `draw()`.
+2. With the caret in that patch cell, press `Cmd/Ctrl+Enter` to evaluate it.
+3. Add the patch name to the scene array, either by typing it or using Library tooling.
+4. With the caret in the scene cell, press `Cmd/Ctrl+Enter` to activate the new scene.
+
+The patch is now project source, but a handwritten patch is not automatically added to
+the reusable Patch Library catalog. Reusable-library lifecycle controls are deferred
+product work rather than hidden behavior.
+
 ## The four patch statuses
 
 - **Available**: the patch exists in the library.
@@ -152,7 +187,7 @@ Press `?` after releasing editor focus to see the current command sheet. While t
 
 Installing a patch does not activate it. Adding it to a scene edits the visible source,
 but that edit does not affect the performance until you evaluate the scene cell. The
-Library label **Added — run scene** describes this in-between source state; it is not a
+Library label **Added — activate scene** describes this in-between source state; it is not a
 fifth runtime status.
 
 ## First scene
@@ -165,7 +200,7 @@ const scene = [
   solidBackground,
   waveScope,
 ];
-go(scene);
+activate(scene);
 ```
 
 Place the cursor in the scene cell and press `Cmd/Ctrl+Enter`. `solidBackground` draws
@@ -343,7 +378,7 @@ const pulse = ({ time }) => {
 
 // %% scene firstScene
 const firstScene = [pulse];
-go(firstScene);
+activate(firstScene);
 ```
 
 `pulse` is a function value. `pulse()` calls that function immediately. A scene contains
@@ -551,7 +586,7 @@ Compare that with repeating one binding:
 
 ```js
 const echoes = [rings, rings, rings];
-go(echoes);
+activate(echoes);
 ```
 
 All three entries use the same current implementation and configuration. AlgoLab gives
@@ -697,13 +732,13 @@ const neonGarden = [
   plasma,
 ];
 
-go(neonGarden);
+activate(neonGarden);
 ```
 
-`go()` takes the array value, not its name as a string. This is incorrect:
+`activate()` takes the array value, not its name as a string. This is incorrect:
 
 ```js
-go("neonGarden");
+activate("neonGarden");
 ```
 
 Array order is visual order:
@@ -740,7 +775,7 @@ const diagnostic = [solidBackground, slowOrbiters, plasma, audioMeters];
 Activate one by evaluating a statement such as:
 
 ```js
-go(calm);
+activate(calm);
 ```
 
 Moving `audioMeters` before `plasma` allows Plasma to transform the meters. Moving it
@@ -775,7 +810,7 @@ const inlineStudy = [
   plasma,
 ];
 
-go(inlineStudy);
+activate(inlineStudy);
 ```
 
 JavaScript constructs each inline value when the scene cell evaluates; AlgoLab calls
@@ -987,7 +1022,7 @@ const cyanDots = makeDots({ hue: 190, speed: 0.25 });
 const pinkDots = makeDots({ count: 36, hue: 320, speed: -0.45 });
 
 const scene = [solidBackground, cyanDots, pinkDots];
-go(scene);
+activate(scene);
 ```
 
 Each call creates a distinct object with independent configuration. The returned
@@ -1342,7 +1377,7 @@ const clubLens = new ShaderChain()
   .contrast(1.15);
 
 const scene = [solidBackground, laserFan, clubLens];
-go(scene);
+activate(scene);
 ```
 
 Every operator argument may be a number or a function that receives the normal live
@@ -1397,11 +1432,91 @@ const scene = [
   bassZoom,
 ];
 
-go(scene);
+activate(scene);
 ```
 
 Because `slowRotate` and `bassZoom` are ordinary patch objects, they can be installed,
 reordered, duplicated, or replaced exactly like a drawing patch.
+
+## Parameterized ShaderChain factories
+
+A factory can turn one shader design into several configured first-class patch
+objects. Ordinary arguments establish the configuration; arrow functions inside the
+chain retain those values through closures and still receive the current draw context:
+
+```js
+function makeShaderFlow({
+  speed = 0.05,
+  zoom = 1.02,
+  bassZoom = 0.2,
+  rotation = 0.08,
+} = {}) {
+  return new ShaderChain()
+    .scrollX(({ time }) =>
+      time * speed
+    )
+    .rotate(({ time, audio }) =>
+      time * rotation + audio.mid * 0.08
+    )
+    .scale(({ audio }) =>
+      zoom + audio.bass * bassZoom
+    );
+}
+```
+
+The factory may be called directly in a scene array:
+
+```js
+const scene = [
+  solidBackground,
+  waveTerrain,
+
+  makeShaderFlow({
+    speed: -0.03,
+    zoom: 1.05,
+    bassZoom: 0.35,
+    rotation: 0.12,
+  }),
+
+  plasma,
+];
+
+activate(scene);
+```
+
+The factory call runs when the scene cell evaluates and returns one real
+`ShaderChain`. Because this chain is anonymous, its scene position is its identity.
+Construct it in a named patch cell instead when other scenes should share it or live
+code needs to refer to it by name.
+
+Use `param()` when a value should appear in the Live Parameters panel and be captured
+by project or Performance persistence:
+
+```js
+param("flowSpeed", 0.05, {
+  min: -0.3,
+  max: 0.3,
+  step: 0.01,
+});
+
+param("flowBassZoom", 0.25, {
+  min: 0,
+  max: 0.8,
+  step: 0.01,
+});
+
+const shaderFlow = new ShaderChain()
+  .scrollX(({ time, params }) =>
+    time * params.flowSpeed
+  )
+  .scale(({ audio, params }) =>
+    1.02 + audio.bass * params.flowBassZoom
+  );
+```
+
+Use a factory for differently configured copies. Use `param()` for controls that
+should remain adjustable during a performance and saved with the project. The two
+approaches can be combined when both kinds of control are useful.
 
 ## Lesson 20: A custom shader as an advanced class
 

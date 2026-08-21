@@ -194,7 +194,7 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     return order;
   }
 
-  function go(name) {
+  function activate(name) {
     if (!scenes.has(name)) throw new Error(`No scene named "${name}"`);
     activeSceneName = name;
     notify();
@@ -227,7 +227,7 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
   }
 
   function panic() {
-    return safeSceneName !== null && scenes.has(safeSceneName) ? go(safeSceneName) : null;
+    return safeSceneName !== null && scenes.has(safeSceneName) ? activate(safeSceneName) : null;
   }
 
   // --- snapshots ---------------------------------------------------------------
@@ -356,7 +356,7 @@ export function createRegistry({ historyLimit = DEFAULT_HISTORY_LIMIT, now = () 
     listStrategies: () => [...strategies.values()],
     strategyNames: () => [...strategies.keys()],
     defineScene,
-    go,
+    activate,
     activeOrder,
     activeInstances,
     activeStrategies,

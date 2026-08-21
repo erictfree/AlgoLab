@@ -15,7 +15,7 @@ describe('application controller boundary', () => {
     h.evaluator.evaluate(`
       const rings = { draw() {} };
       const show = [rings, rings];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
 
@@ -45,7 +45,7 @@ const rings = { draw() {} };
 const scene = [
   plasma,
 ];
-go(scene);`;
+activate(scene);`;
     h.controller.setSourceProvider(() => source);
     h.evaluator.evaluate(source);
     h.frame(2);
@@ -93,7 +93,7 @@ const broken = { draw() { ((( } };`);
       }
       const orbiters = new Orbiters();
       const show = [wash, rings, orbiters];
-      go(show);
+      activate(show);
     `);
     h.frame(2);
 
@@ -136,8 +136,8 @@ const broken = { draw() { ((( } };`);
       };
       const safe = [counter];
       const empty = [];
-      go(empty);
-      go(safe);
+      activate(empty);
+      activate(safe);
       param("speed", 1, { min: 0, max: 2 });
     `);
     h.frame(8);
@@ -147,7 +147,7 @@ const broken = { draw() { ((( } };`);
     h.controller.actions.resetStrategy('counter');
     expect(h.stateStore.get('counter').n).toBe(0);
 
-    h.evaluator.evaluate('go(empty);');
+    h.evaluator.evaluate('activate(empty);');
     h.frame(2);
     expect(h.registry.activeSceneName()).toBe('empty');
     expect(h.controller.actions.panic()).toBe('safe');
@@ -165,7 +165,7 @@ const broken = { draw() { ((( } };`);
         draw({ state }) { state.n++; state.version = 1; },
       };
       const trusted = [counter];
-      go(trusted);
+      activate(trusted);
       param("speed", 1, { min: 0, max: 4 });
     `;
     h.controller.setSourceProvider(() => source);
@@ -181,7 +181,7 @@ const broken = { draw() { ((( } };`);
     source = `
       const counter = { draw({ state }) { state.version = 2; } };
       const empty = [];
-      go(empty);
+      activate(empty);
       param("speed", 0);
     `;
     h.controller.sourceChanged();
@@ -217,7 +217,7 @@ const broken = { draw() { ((( } };`);
         draw({ state }) { state.frames++; },
       };
       const trusted = [trustedPatch];
-      go(trusted);
+      activate(trusted);
       param("energy", 0.75);
     `;
     h.controller.setSourceProvider(() => source);
@@ -227,7 +227,7 @@ const broken = { draw() { ((( } };`);
     const checkpoint = h.controller.checkpoint();
     const trustedFrames = h.stateStore.get('trustedPatch').frames;
 
-    source = 'const temporary = { draw() {} }; const other = [temporary]; go(other);';
+    source = 'const temporary = { draw() {} }; const other = [temporary]; activate(other);';
     h.evaluator.evaluate(source);
     h.frame(2);
     expect(h.registry.activeSceneName()).toBe('other');

@@ -296,7 +296,7 @@ export function createPanels({
       );
     } else if (!active && inSceneSource) {
       action = button(
-        'Added — run scene',
+        'Added — activate scene',
         `${entry.title} is in the active scene source and waiting for Cmd/Ctrl+Enter`,
         () => {},
       );

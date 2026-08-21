@@ -413,20 +413,20 @@ Named strategies are combined into named scenes:
 
 ```js
 const tunnel = [wash, orbiters, sparks];
-go(tunnel);
+activate(tunnel);
 ```
 
 Re-evaluating a scene definition changes its layer order without changing the
 strategy implementations or their state.
 
 Scene arrays contain the strategies directly. There is no descriptor or separate
-configuration syntax, and `go()` accepts the array itself rather than a string name.
+configuration syntax, and `activate()` accepts the array itself rather than a string name.
 
 Composition changes use the same JavaScript array students can see and edit:
 
 ```js
 const tunnel = [orbiters, sparks, sparks];
-go(tunnel);
+activate(tunnel);
 ```
 
 Re-evaluating this source satisfies Degree 3 when it recombines authored visual logic;
@@ -587,6 +587,7 @@ Priority definitions:
 | L-07 | P1       | A strategy may implement `enter`, `draw`, `beat`, and `exit` lifecycle handlers.                                           |
 | L-08 | P1       | The editor shall evaluate the block containing the cursor through one keyboard shortcut.                                |
 | L-09 | P2       | The system shall support user-defined classes, factories, and higher-order strategy helpers as ordinary JavaScript. |
+| L-10 | P1       | The structured editor shall expose a quiet, keyboard-accessible gutter control for inserting a complete object-patch cell at a boundary. |
 
 ### Safety and recovery
 

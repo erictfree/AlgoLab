@@ -107,7 +107,7 @@ const flow = new ShaderChain()
           .rotate(({ time, audio }) => time * 0.1 + audio.bass * 0.2)
           .contrast(1.1),
       ];
-      go(show);
+      activate(show);
     `);
 
     // Apply the transaction, but do not draw: the unit host deliberately has no p5

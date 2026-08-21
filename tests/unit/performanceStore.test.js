@@ -12,7 +12,7 @@ function fakeStorage() {
 
 const snapshot = (name = 'Afterglow') => ({
   name,
-  source: 'const scene = [plasma]; go(scene);',
+  source: 'const scene = [plasma]; activate(scene);',
   sceneName: 'scene',
   safeScene: 'scene',
   params: [{ name: 'energy', value: 0.7, min: 0, max: 1, step: 0.1 }],
