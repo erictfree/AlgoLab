@@ -815,6 +815,32 @@ export function createEditor(textarea, handlers) {
     foldControls?.style.setProperty('--fold-scroll-y', `${textarea.scrollTop}px`);
   }
 
+  /** A replacement project has no meaningful caret, scroll, or open-cell position. */
+  function resetNavigation() {
+    openFolds.clear();
+    lastSourceCaret = 0;
+    textarea.setSelectionRange(0, 0);
+    textarea.scrollTop = 0;
+    textarea.scrollLeft = 0;
+
+    const foldedScroller = foldedView?.parentElement;
+    if (foldedScroller) {
+      foldedScroller.scrollTop = 0;
+      foldedScroller.scrollLeft = 0;
+    }
+
+    foldControlSignature = '';
+    foldedSource = null;
+    syncMirror();
+
+    // Repainting a structured project replaces its rows. Reassert the origin after
+    // that layout so a large preceding project cannot leave the new one off-screen.
+    if (foldedScroller) {
+      foldedScroller.scrollTop = 0;
+      foldedScroller.scrollLeft = 0;
+    }
+  }
+
   function flash(ok, visibleTargets = []) {
     const targets = mirror ? [textarea, mirror, ...visibleTargets] : [textarea, ...visibleTargets];
     for (const node of targets) node.classList.remove('flash-ok', 'flash-bad');
@@ -1267,6 +1293,7 @@ export function createEditor(textarea, handlers) {
     set value(next) {
       write(next, true);
       changed();
+      resetNavigation();
     },
     focus: () => textarea.focus(),
     setFolded,

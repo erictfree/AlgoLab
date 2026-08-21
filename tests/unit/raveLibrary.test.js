@@ -79,13 +79,15 @@ describe('the system patch library', () => {
 
   });
 
-  it('evaluates the arrow-controlled Plasma as ordinary live JavaScript', () => {
+  it('evaluates the ASCII and Plasma starter as ordinary live JavaScript', () => {
     const h = createTestHost();
     const result = h.evaluator.evaluate(STARTER_SOURCE);
     h.host.commitPendingChanges();
 
     expect(result.ok).toBe(true);
+    expect(h.registry.hasStrategy('asciiNoise')).toBe(true);
     expect(h.registry.hasStrategy('plasma')).toBe(true);
+    expect(h.registry.activeOrder()).toEqual(['asciiNoise', 'plasma']);
   });
 
   it('ships ten independently installable patches in varied JavaScript forms', () => {
@@ -122,6 +124,23 @@ describe('the system patch library', () => {
     expect(h.evaluator.evaluate(entry.source).ok).toBe(true);
     h.host.commitPendingChanges();
     expect(h.registry.hasStrategy('breathingEllipse')).toBe(true);
+  });
+
+  it('starts with a transparent stateful random ASCII patch', () => {
+    const asciiSource = STARTER_SOURCE.slice(
+      STARTER_SOURCE.indexOf('// %% patch asciiNoise'),
+      STARTER_SOURCE.indexOf('// %% patch plasma'),
+    );
+    expect(asciiSource).toContain('const asciiNoise = {');
+    expect(asciiSource).toContain('characters:');
+    expect(asciiSource).toContain('asciiNoise.shuffle()');
+    expect(asciiSource).toContain('audio.beat');
+    expect(asciiSource).not.toMatch(/\bbackground\s*\(/);
+
+    const h = createTestHost();
+    expect(h.evaluator.evaluate(STARTER_SOURCE).ok).toBe(true);
+    h.host.commitPendingChanges();
+    expect(h.registry.hasStrategy('asciiNoise')).toBe(true);
   });
 
   it('ships eight small transparent remix layers that evaluate independently', () => {

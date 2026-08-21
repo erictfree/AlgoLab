@@ -262,12 +262,23 @@ audio.treble
 audio.beat
 audio.spectrum
 audio.waveform
+audio.sampleRate
+audio.nyquist
 audio.raw
 ```
 
-Normalized scalar features are generally `0..1`. `spectrum` contains FFT values;
-`waveform` contains current waveform samples. With no source, patches continue with
-a silent snapshot.
+Normalized scalar features are generally `0..1`. `spectrum` contains FFT magnitudes
+from `0..255`; `waveform` contains samples from `-1..1`. Both are immutable ordinary
+JavaScript arrays, so `map`, `filter`, `reduce`, `some`, and `every` work directly.
+`sampleRate` and `nyquist` identify the frequency range. `raw` contains the original
+p5 scalar values and the same waveform and spectrum arrays. With no source, patches
+continue with a silent snapshot.
+
+```js
+const strongBins = audio.spectrum.filter((magnitude) => magnitude > 180);
+const average = audio.waveform.reduce((sum, sample) => sum + abs(sample), 0)
+  / max(1, audio.waveform.length);
+```
 
 ## Live parameters
 

@@ -42,7 +42,10 @@ export function createFeatureExtractor(overrides = {}) {
   let previousBass = 0;
   let sinceBeat = 999;
 
-  const EMPTY = new Float32Array(0);
+  // Patches should be able to teach and use ordinary JavaScript over analysis data.
+  // A frozen plain Array has the full Array higher-order API and cannot be changed by
+  // one patch before the next patch receives the same per-frame snapshot.
+  const EMPTY = Object.freeze([]);
 
   /**
    * @param {object} input raw values straight off p5.sound
@@ -53,6 +56,8 @@ export function createFeatureExtractor(overrides = {}) {
    * @param {number} input.treble 0..255
    * @param {number} input.centroid Hz from p5.FFT#getCentroid
    * @param {number} input.nyquist Hz, half the sample rate
+   * @param {ArrayLike<number>} [input.waveform] time-domain samples, normally -1..1
+   * @param {ArrayLike<number>} [input.spectrum] FFT magnitudes, normally 0..255
    */
   function compute(input) {
     const dt = clamp(input.dt ?? 0, 0, 0.25);
@@ -86,6 +91,7 @@ export function createFeatureExtractor(overrides = {}) {
     // Centroid on a log scale — musically, 200 Hz to 400 Hz is the same distance as
     // 2 kHz to 4 kHz, and a linear divide by nyquist would pin everything near zero.
     const nyquist = input.nyquist || 22050;
+    const sampleRate = nyquist * 2;
     const centroidHz = clamp(input.centroid ?? 0, 0, nyquist);
     const centroid =
       centroidHz <= 20 ? 0 : clamp(Math.log(centroidHz / 20) / Math.log(nyquist / 20), 0, 1);
@@ -115,6 +121,9 @@ export function createFeatureExtractor(overrides = {}) {
     bassAverage += (raw.bass - bassAverage) * memoryAlpha;
     previousBass = raw.bass;
 
+    const waveform = Object.freeze(Array.from(input.waveform ?? EMPTY));
+    const spectrum = Object.freeze(Array.from(input.spectrum ?? EMPTY));
+
     return Object.freeze({
       level,
       bass,
@@ -123,14 +132,20 @@ export function createFeatureExtractor(overrides = {}) {
       centroid,
       beat,
       sinceBeat,
-      waveform: input.waveform ?? EMPTY,
-      spectrum: input.spectrum ?? EMPTY,
+      sampleRate,
+      nyquist,
+      waveform,
+      spectrum,
       raw: Object.freeze({
         level: raw.level,
         bass: input.bass ?? 0,
         mid: input.mid ?? 0,
         treble: input.treble ?? 0,
         centroid: centroidHz,
+        sampleRate,
+        nyquist,
+        waveform,
+        spectrum,
       }),
     });
   }
@@ -161,9 +176,21 @@ export function createFeatureExtractor(overrides = {}) {
       centroid: 0,
       beat: false,
       sinceBeat: 999,
+      sampleRate: 0,
+      nyquist: 0,
       waveform: EMPTY,
       spectrum: EMPTY,
-      raw: Object.freeze({ level: 0, bass: 0, mid: 0, treble: 0, centroid: 0 }),
+      raw: Object.freeze({
+        level: 0,
+        bass: 0,
+        mid: 0,
+        treble: 0,
+        centroid: 0,
+        sampleRate: 0,
+        nyquist: 0,
+        waveform: EMPTY,
+        spectrum: EMPTY,
+      }),
     });
   }
 

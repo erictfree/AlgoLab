@@ -90,7 +90,7 @@ AlgoLab passes one object to each patch. Destructure only what you need.
 | `time` | Host time in seconds |
 | `sceneTime` | Seconds since the scene changed |
 | `dt` | Seconds since the previous draw |
-| `audio` | Level, bands, beat, spectrum, waveform, and raw analysis |
+| `audio` | Level, bands, beat, and plain-array spectrum/waveform data |
 | `state` | Persistent data for this occurrence of the patch |
 | `canvas` | Main p5 renderer; also usable as a shader source |
 | `params` | Values created with `param()` |
@@ -279,7 +279,7 @@ the tab. See [SECURITY.md](../SECURITY.md).
 | `Cmd/Ctrl+Shift+Enter` | Evaluate the complete editor |
 | `Cmd/Ctrl+/` | Toggle one comment layer |
 | `Cmd/Ctrl+Option/Alt+T` | Tidy the current cell |
-| `Cmd/Ctrl+Alt+N` | Start a new Plasma performance |
+| `Cmd/Ctrl+Alt+N` | Start a new performance from the default scene |
 | `Esc` | Release editor focus |
 | `Space` | Play or pause audio |
 | `\` | Show or hide tools |

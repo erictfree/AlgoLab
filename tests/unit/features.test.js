@@ -36,6 +36,27 @@ describe('normalized bands', () => {
     expect(s.raw.centroid).toBe(1200);
   });
 
+  it('exposes raw analysis as immutable plain arrays with the standard higher-order API', () => {
+    const fx = createFeatureExtractor();
+    const s = fx.compute(frame({
+      nyquist: 24000,
+      waveform: new Float32Array([-1, -0.5, 0, 0.5, 1]),
+      spectrum: new Uint8Array([0, 40, 120, 240]),
+    }));
+
+    expect(Array.isArray(s.waveform)).toBe(true);
+    expect(Array.isArray(s.spectrum)).toBe(true);
+    expect(Object.isFrozen(s.waveform)).toBe(true);
+    expect(Object.isFrozen(s.spectrum)).toBe(true);
+    expect(s.waveform.map((sample) => sample * 2)).toEqual([-2, -1, 0, 1, 2]);
+    expect(s.spectrum.filter((magnitude) => magnitude >= 100)).toEqual([120, 240]);
+    expect(s.spectrum.reduce((total, magnitude) => total + magnitude, 0)).toBe(400);
+    expect(s.sampleRate).toBe(48000);
+    expect(s.nyquist).toBe(24000);
+    expect(s.raw.waveform).toBe(s.waveform);
+    expect(s.raw.spectrum).toBe(s.spectrum);
+  });
+
   it('auto-gain makes a quiet source useful without pinning it at 1', () => {
     const fx = createFeatureExtractor();
     let last = 0;
@@ -79,9 +100,11 @@ describe('normalized bands', () => {
 
   it('returns a frozen snapshot so one strategy cannot alter another’s audio', () => {
     const fx = createFeatureExtractor();
-    const s = fx.compute(frame({ bass: 100 }));
+    const s = fx.compute(frame({ bass: 100, waveform: [0, 1], spectrum: [20, 40] }));
     expect(Object.isFrozen(s)).toBe(true);
     expect(Object.isFrozen(s.raw)).toBe(true);
+    expect(() => s.waveform.push(2)).toThrow();
+    expect(() => s.spectrum.sort()).toThrow();
   });
 
   it('treats silence as silence', () => {

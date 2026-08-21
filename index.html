@@ -153,7 +153,7 @@
             <dt><kbd>Space</kbd></dt><dd>play / pause</dd>
             <dt><kbd>0</kbd></dt><dd>restore the complete safe state</dd>
             <dt><kbd>s</kbd></dt><dd>capture the current project as the safe state</dd>
-            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>start a new performance with Plasma</dd>
+            <dt><kbd>Cmd/Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd></dt><dd>start a new performance with the default scene</dd>
             <dt><kbd>\</kbd></dt><dd>show / hide the tools drawer</dd>
             <dt><kbd>r</kbd></dt><dd>show / hide the installed-patch reference</dd>
             <dt><kbd>e</kbd></dt><dd>show / hide the code</dd>
@@ -193,14 +193,6 @@
             data-tool-view="audio"
           >Audio</button>
           <button
-            id="tools-tab-network"
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="network-panel"
-            data-tool-view="network"
-          >Network <span class="beta-badge">beta</span></button>
-          <button
             id="tools-tab-library"
             type="button"
             role="tab"
@@ -224,6 +216,14 @@
             aria-controls="project-panel"
             data-tool-view="project"
           >Project</button>
+          <button
+            id="tools-tab-network"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="network-panel"
+            data-tool-view="network"
+          >Network <span class="beta-badge">beta</span></button>
         </div>
 
         <div id="panels">
@@ -404,8 +404,8 @@ const publishMain = room.publish({
                 <button
                   id="new-performance"
                   type="button"
-                  title="Start a new performance from the Plasma starter (Cmd/Ctrl+Alt+N)"
-                  aria-label="Start a new performance from the Plasma starter"
+                  title="Start a new performance from the default starter (Cmd/Ctrl+Alt+N)"
+                  aria-label="Start a new performance from the default starter"
                 >＋ New performance</button>
               </header>
               <div class="body">

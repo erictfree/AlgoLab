@@ -302,8 +302,8 @@ export function createHostLoop({
   /**
    * Forget which instances are on stage.
    *
-   * Needed after a project reset: the starter re-registers `plasma`, and if the old
-   * `plasma` were still in `entered`, its enter() would never run again. Clocks are
+   * Needed after a project reset: the starter re-registers its patches, and if an old
+   * instance were still in `entered`, its enter() would never run again. Clocks are
    * left alone on purpose — resetting the project is not a reload, so host time and
    * the audio keep going.
    */

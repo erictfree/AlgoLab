@@ -1141,11 +1141,11 @@ async function startNewPerformance() {
     title: 'Start a new performance?',
     body: (strategyCount) =>
       `This replaces the working source, all ${strategyCount} installed patches, ` +
-      `their history, scenes, and state with the Plasma starter. Your named ` +
+      `their history, scenes, and state with the default starter. Your named ` +
       `performances stay saved, and the music and canvas keep running.`,
     warning: 'Unsaved working edits cannot be recovered. Save, update, or export them first if needed.',
-    confirmLabel: 'Start with Plasma',
-    message: 'New performance ready — Plasma',
+    confirmLabel: 'Start fresh',
+    message: 'New performance ready — ASCII Noise + Plasma',
   });
   if (!started) return;
   performanceNameInput.value = '';

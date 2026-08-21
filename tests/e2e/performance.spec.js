@@ -11,7 +11,7 @@ async function boot(page, { tools = true, folded = false, welcome = false } = {}
   await page.reload();
   await expect
     .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder().length))
-    .toBe(1);
+    .toBe(2);
   if (!welcome) {
     // Most tests begin after onboarding; the dedicated welcome test exercises its
     // real controls. Keep this helper from changing the audio state of every case.
@@ -211,20 +211,21 @@ test.describe('multiple copies of one strategy', () => {
     await boot(page);
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
-      .toEqual(['plasma']);
+      .toEqual(['asciiNoise', 'plasma']);
     await replaceInEditorAndEvaluate(
       page,
-      'const scene = [\n  plasma,\n];',
-      'const scene = [\n  plasma,\n  plasma,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  plasma,\n  plasma,\n  plasma,\n];',
     );
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
-      .toEqual(['plasma', 'plasma#2', 'plasma#3']);
+      .toEqual(['asciiNoise', 'plasma', 'plasma#2', 'plasma#3']);
 
     // The reference shows the count; the scene itself remains authoritative in code.
     await expect(page.locator('[data-strategy="plasma"]')).toContainText('×3');
     await expect(page.locator('#scene-panel')).toHaveCount(0);
     expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual([
+      'asciiNoise',
       'plasma',
       'plasma#2',
       'plasma#3',
@@ -241,12 +242,12 @@ test.describe('multiple copies of one strategy', () => {
     await expect(page.locator('[data-instance="plasma#2"] button')).toHaveCount(0);
     await replaceInEditorAndEvaluate(
       page,
-      'const scene = [\n  plasma,\n  plasma,\n  plasma,\n];',
-      'const scene = [\n  plasma,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  plasma,\n  plasma,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  plasma,\n  plasma,\n];',
     );
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
-      .toEqual(['plasma', 'plasma#2']);
+      .toEqual(['asciiNoise', 'plasma', 'plasma#2']);
   });
 
   test('library insertion installs source; scene arrays activate it', async ({ page }) => {
@@ -274,8 +275,8 @@ test.describe('multiple copies of one strategy', () => {
 
     await replaceInEditorAndEvaluate(
       page,
-      'const scene = [\n  plasma,\n];',
-      'const scene = [\n  laserFan,\n  laserFan,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  laserFan,\n  laserFan,\n  plasma,\n];',
     );
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeInstancesOf('laserFan').length))
@@ -366,9 +367,10 @@ activate(laserScene);`);
     await page.mouse.up();
 
     await expect(page.locator('#code')).toHaveValue(
-      /const scene = \[\n  plasma,\n  checkerZoom,\n\];/,
+      /const scene = \[\n  asciiNoise,\n  plasma,\n  checkerZoom,\n\];/,
     );
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['asciiNoise', 'plasma']);
   });
 
   test('Add to scene moves a top-level scene line down when the caret begins that line', async ({ page }) => {
@@ -386,9 +388,10 @@ activate(laserScene);`);
       .click();
 
     await expect(page.locator('#code')).toHaveValue(
-      /const scene = \[\n  checkerZoom,\n  plasma,\n\];/,
+      /const scene = \[\n  asciiNoise,\n  checkerZoom,\n  plasma,\n\];/,
     );
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['asciiNoise', 'plasma']);
   });
 
   test('Add to scene opens only the scene cell without unfolding the project', async ({ page }) => {
@@ -429,17 +432,20 @@ activate(laserScene);`);
       .getByRole('button', { name: 'Add installed patch checkerZoom to the active scene source' })
       .click();
 
-    await expect(page.locator('#code')).toHaveValue(/const scene = \[\n  \/\/ plasma,\n  checkerZoom,\n\];/);
+    await expect(page.locator('#code')).toHaveValue(
+      /const scene = \[\n  asciiNoise,\n  \/\/ plasma,\n  checkerZoom,\n\];/,
+    );
     await expect(page.locator('#code')).not.toHaveValue(/\n  plasma,\n/);
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['asciiNoise', 'plasma']);
   });
 
   test('shows the full lifecycle from available through running', async ({ page }) => {
     await boot(page);
 
     const library = page.locator('#strategy-library');
-    await expect(library.locator('[data-library]')).toHaveCount(28);
-    await expect(page.getByRole('button', { name: /^All 28$/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(library.locator('[data-library]')).toHaveCount(29);
+    await expect(page.getByRole('button', { name: /^All 29$/ })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('[data-library="laserFan"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-library="plasma"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-available="laserFan"]')).toContainText('laserFan');
@@ -578,15 +584,15 @@ activate(show);`;
 
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
-      .toEqual(['plasma']);
+      .toEqual(['asciiNoise', 'plasma']);
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.controller.snapshot().installedPatches))
-      .toEqual(['frequencyBars', 'audioMeters', 'plasma']);
+      .toEqual(['frequencyBars', 'audioMeters', 'asciiNoise', 'plasma']);
     expect(pageErrors).toEqual([]);
     await expect(page.locator('[data-library="frequencyBars"]')).toContainText('Installed');
     await expect(page.locator('[data-library="frequencyBars"]')).toContainText('Open source');
     await expect(page.locator('[data-library="audioMeters"]')).toContainText('Installed');
-    await expect(page.getByRole('button', { name: /^Installed 3$/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Installed 4$/ })).toBeVisible();
     await expect(page.locator('#diagnostics-list')).toContainText('Saved project recovered with errors');
     await expect(page.locator('#code')).toHaveValue(/const frequencyBars = \{ draw\(\) \{ \(\(\(/);
   });
@@ -600,8 +606,8 @@ activate(show);`;
 
     await replaceInEditorAndEvaluate(
       page,
-      'const scene = [\n  plasma,\n];',
-      'const scene = [\n  shaderFlow,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  shaderFlow,\n  plasma,\n];',
     );
 
     await expect
@@ -623,8 +629,8 @@ activate(show);`;
 
     await replaceInEditorAndEvaluate(
       page,
-      'const scene = [\n  plasma,\n];',
-      'const scene = [\n  waveTerrain,\n  slowRotate,\n  bassZoom,\n  prismMirror,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  plasma,\n];',
+      'const scene = [\n  asciiNoise,\n  waveTerrain,\n  slowRotate,\n  bassZoom,\n  prismMirror,\n  plasma,\n];',
     );
 
     await expect
@@ -681,6 +687,33 @@ activate(show);`;
     expect(population.cells).toBeGreaterThan(0);
     expect(population.living).toBeGreaterThan(0);
     await expect(page.locator('[data-library="gameOfLife"]')).toContainText('Running');
+  });
+
+  test('starts with and renders the random ASCII object patch', async ({ page }) => {
+    await boot(page);
+
+    await expect
+      .poll(() => page.evaluate(() => {
+        const strategy = window.AlgoLab.controller.snapshot().strategies
+          .find(({ name }) => name === 'asciiNoise');
+        const state = window.AlgoLab.stateStore.get('asciiNoise');
+        return {
+          running: strategy?.running ?? false,
+          error: strategy?.lastError?.message ?? null,
+          cells: state?.cells?.length ?? 0,
+        };
+      }))
+      .toMatchObject({ running: true, error: null });
+    await expect
+      .poll(() => page.evaluate(() => window.AlgoLab.stateStore.get('asciiNoise')?.cells.length ?? 0))
+      .toBeGreaterThan(0);
+    await expect(page.locator('[data-library="asciiNoise"]')).toContainText('Running');
+
+    const before = await page.evaluate(() => window.AlgoLab.evaluator.binding('asciiNoise').shuffleVersion);
+    const result = await page.evaluate(() => window.AlgoLab.evaluator.evaluate('asciiNoise.shuffle();'));
+    expect(result.ok).toBe(true);
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.evaluator.binding('asciiNoise').shuffleVersion))
+      .toBe(before + 1);
   });
 
   test('runs an anonymous arrow directly from a live scene array', async ({ page }) => {
@@ -964,7 +997,7 @@ test.describe('the minimal display', () => {
       .toContainText('// %% patch plasma');
     await expect(
       page.locator('.folded-block', { hasText: 'patch plasma' }).locator('.folded-line.folded-closed'),
-    ).toHaveText('1');
+    ).toHaveText(/^\d+$/);
 
     const foldedSurfaces = await page.evaluate(() => {
       const alpha = (selector) => {
@@ -1007,7 +1040,7 @@ test.describe('the minimal display', () => {
       },
     });
     await expect(plasma.locator('.folded-source')).toContainText('class Plasma');
-    await expect(plasma.locator('.folded-line.folded-open')).toHaveText('1');
+    await expect(plasma.locator('.folded-line.folded-open')).toHaveText(/^\d+$/);
 
     const columns = await page.evaluate(() => {
       const textRect = (element) => {
@@ -1455,7 +1488,8 @@ test.describe('the minimal display', () => {
     await page.keyboard.press('e');
     await expect(page.locator('#code-layer')).not.toHaveClass(/is-hidden/);
 
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['asciiNoise', 'plasma']);
   });
 
   test('creates a handwritten object patch between folded cells', async ({ page }) => {
@@ -1669,10 +1703,11 @@ circle(20, 20, 10);
     await expect(page.locator('#side')).not.toHaveClass(/is-hidden/);
 
     // Hiding the tools must not disturb the sketch — it is only a panel.
-    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+    expect(await page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['asciiNoise', 'plasma']);
   });
 
-  test('the drawer separates audio, library, messages and project without duplicating the scene', async ({ page }) => {
+  test('the drawer keeps Network beta last without duplicating the scene', async ({ page }) => {
     await boot(page, { tools: false });
     await page.locator('#tools-toggle').click();
 
@@ -1681,10 +1716,14 @@ circle(20, 20, 10);
     await expect(page.locator('#library-panel')).toBeHidden();
     await expect(page.locator('#messages-panel')).toBeHidden();
     await expect(page.locator('#project-panel')).toBeHidden();
+    await expect(page.locator('#network-panel')).toBeHidden();
+    expect(await page.locator('#tool-tabs [data-tool-view]').evaluateAll((tabs) =>
+      tabs.map((tab) => tab.dataset.toolView),
+    )).toEqual(['audio', 'library', 'messages', 'project', 'network']);
     await expect(page.locator('#scene-panel')).toHaveCount(0);
     await expect(page.locator('#code')).toHaveValue(/const scene = \[/);
     await expect(page.locator('#parameters-panel')).toBeHidden();
-    await expect(page.locator('#library-tab-count')).toHaveText('1');
+    await expect(page.locator('#library-tab-count')).toHaveText('2');
     await expect(page.locator('#stagebar')).not.toContainText('set safe');
 
     await page.getByRole('tab', { name: 'Project' }).click();
@@ -1744,7 +1783,7 @@ test.describe('safe-state recovery', () => {
 
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
-      .toEqual(['plasma']);
+      .toEqual(['asciiNoise', 'plasma']);
     const restored = await page.evaluate(() => ({
       plasmaVersion: window.AlgoLab.registry.getStrategy('plasma').version,
       hasChaos: window.AlgoLab.registry.hasStrategy('chaos'),
@@ -1762,7 +1801,53 @@ test.describe('safe-state recovery', () => {
 });
 
 test.describe('named Performance recall', () => {
-  test('starts a new Plasma performance from the button or modifier shortcut without deleting named performances', async ({ page }) => {
+  test('new performance clears structured-editor navigation from the previous project', async ({ page }) => {
+    await boot(page, { tools: false, folded: true });
+
+    const previous = [
+      '// %% patch previous',
+      'const previous = {',
+      '  draw() {',
+      ...Array.from({ length: 80 }, (_, index) => `    // old project line ${index}`),
+      '  },',
+      '};',
+      '',
+      '// %% scene scene',
+      'const scene = [',
+      '  previous,',
+      '];',
+      'activate(scene);',
+    ].join('\n');
+    await page.evaluate((source) => {
+      window.AlgoLab.editor.value = source;
+    }, previous);
+
+    const patch = page.locator('.folded-block[data-block-description="patch previous"]');
+    const scene = page.locator('.folded-block[data-block-description="scene scene"]');
+    await patch.locator('summary').click();
+    await scene.locator('summary').click();
+    await page.locator('#folded-code').evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+      node.scrollLeft = 120;
+    });
+    await expect(page.locator('.folded-block[open]')).toHaveCount(2);
+    await expect.poll(() => page.locator('#folded-code').evaluate((node) => node.scrollTop))
+      .toBeGreaterThan(0);
+
+    await page.keyboard.press('Control+Alt+n');
+    const dialog = page.locator('.dialog-backdrop');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Start fresh' }).click();
+
+    await expect(page.locator('.folded-block[open]')).toHaveCount(0);
+    await expect(page.locator('.folded-block[data-block-description="patch plasma"]')).toBeVisible();
+    await expect.poll(() => page.locator('#folded-code').evaluate((node) => ({
+      top: node.scrollTop,
+      left: node.scrollLeft,
+    }))).toEqual({ top: 0, left: 0 });
+  });
+
+  test('starts a new default performance from the button or modifier shortcut without deleting named performances', async ({ page }) => {
     await boot(page);
     await selectTool(page, 'Project');
 
@@ -1783,19 +1868,21 @@ test.describe('named Performance recall', () => {
     await page.locator('#performance-name').fill('Unsaved name');
 
     await expect(
-      page.getByRole('button', { name: 'Start a new performance from the Plasma starter' }),
+      page.getByRole('button', { name: 'Start a new performance from the default starter' }),
     ).toBeVisible();
     await page.locator('#code').focus();
     await page.keyboard.press('Control+Alt+n');
     const dialog = page.locator('.dialog-backdrop');
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText('named performances stay saved');
-    await dialog.getByRole('button', { name: 'Start with Plasma' }).click();
+    await dialog.getByRole('button', { name: 'Start fresh' }).click();
 
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
-      .toEqual(['plasma']);
-    await expect(page.locator('#code')).toHaveValue(/const scene = \[\s*plasma,\s*\]/);
+      .toEqual(['asciiNoise', 'plasma']);
+    await expect(page.locator('#code')).toHaveValue(
+      /const scene = \[\s*asciiNoise,\s*plasma,\s*\]/,
+    );
     await expect(page.locator('#code')).not.toHaveValue(/\/\/ %% patch effects/);
     await expect(page.locator('#performance-name')).toHaveValue('');
     await expect(page.locator('#performance-name')).toBeFocused();
@@ -1848,7 +1935,8 @@ test.describe('named Performance recall', () => {
 
     await page.locator('.performance-row').getByRole('button', { name: 'Recall' }).click();
     await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeSceneName())).toBe('scene');
-    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+    await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+      .toEqual(['asciiNoise', 'plasma']);
     expect(await page.locator('#smoothing').inputValue()).toBe('0.35');
     expect(await page.locator('#auto-gain').isChecked()).toBe(false);
     expect(await page.locator('#code-size').inputValue()).toBe('18');
@@ -2010,7 +2098,7 @@ test.describe('project portability', () => {
       hostTime: window.AlgoLab.host.time(),
       strategies: window.AlgoLab.registry.listStrategies().length,
     }));
-    expect(before.strategies).toBe(2);
+    expect(before.strategies).toBe(3);
 
     await page.getByRole('button', { name: 'Discard everything and go back to the starter project' }).click();
     const dialog = page.locator('.dialog-backdrop');
@@ -2026,7 +2114,7 @@ test.describe('project portability', () => {
 
     await expect
       .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
-      .toEqual(['plasma']);
+      .toEqual(['asciiNoise', 'plasma']);
 
     const after = await page.evaluate(() => ({
       hasMess: window.AlgoLab.registry.hasStrategy('mess'),
@@ -2039,7 +2127,7 @@ test.describe('project portability', () => {
     }));
 
     expect(after.hasMess).toBe(false);
-    expect(after.stateKeys).toEqual(['plasma']);
+    expect(after.stateKeys).toEqual(['asciiNoise', 'plasma']);
     expect(after.source).toContain('ALGOLAB — starter scene');
     expect(after.safeScene).not.toBe(null);
     // The point of doing this in place rather than reloading: the canvas and the

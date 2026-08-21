@@ -11,7 +11,7 @@
 // than throwing during startup, because a performer should never be met with a
 // broken page.
 
-// v5 intentionally starts from the compact, self-sufficient Plasma-only starter. Previous local
+// v5 intentionally starts from the compact, self-sufficient starter. Previous local
 // project keys contained the retired built-in patches, so reading them would immediately
 // repopulate a library the product has deliberately removed. Exported v6 projects are
 // still readable and can be imported explicitly.

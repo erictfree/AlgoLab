@@ -1,16 +1,97 @@
-// The deliberately minimal AlgoLab starter project.
-//
-// Plasma is the one installed patch. Everything else begins in the Patch Library, so
-// Available, Installed, Active, and Running remain distinct ideas from the first load.
+// The compact AlgoLab starter project: one transparent drawing patch followed by one
+// post-processing shader. Everything else begins in the Patch Library.
 
-export const STARTER_SOURCE = `// %% patch plasma
+export const STARTER_SOURCE = `// %% patch asciiNoise
 // ALGOLAB — starter scene
 //
 // A patch is an ordinary function, object, or class instance that can draw.
 // A scene is an array of patches, drawn from first to last.
 //
-// Plasma is installed and active below. Open the Patch Library to install another
+// asciiNoise and Plasma are active below. Open the Patch Library to install another
 // patch, add it to the scene source, then press Cmd/Ctrl+Enter in that scene cell.
+
+// asciiNoise — a changing character grid that layers over earlier patches.
+// Try changing these properties live, or call asciiNoise.shuffle().
+const asciiNoise = {
+  characters: " .,:;irsXA253hMHGS#9B&@",
+  cellSize: 24,
+  density: 0.42,
+  changeRate: 10,
+  hue: 155,
+  shuffleVersion: 0,
+
+  shuffle() {
+    this.shuffleVersion += 1;
+  },
+
+  state() {
+    return { columns: 0, rows: 0, cells: [], elapsed: 0, shuffleVersion: -1 };
+  },
+
+  rebuild(state) {
+    state.columns = max(1, ceil(width / this.cellSize));
+    state.rows = max(1, ceil(height / this.cellSize));
+    state.cells = Array.from(
+      { length: state.columns * state.rows },
+      () => ({ glyph: random(), visibility: random(), phase: random(TWO_PI) }),
+    );
+    state.shuffleVersion = this.shuffleVersion;
+  },
+
+  draw({ audio, state, dt, time }) {
+    const columns = max(1, ceil(width / this.cellSize));
+    const rows = max(1, ceil(height / this.cellSize));
+    if (
+      columns !== state.columns ||
+      rows !== state.rows ||
+      state.shuffleVersion !== this.shuffleVersion
+    ) this.rebuild(state);
+
+    state.elapsed += dt;
+    if (audio.beat || state.elapsed >= 1 / this.changeRate) {
+      state.elapsed = 0;
+      const fraction = audio.beat ? 0.32 : 0.015 + audio.treble * 0.08;
+      const changes = max(1, floor(state.cells.length * fraction));
+      for (let i = 0; i < changes; i++) {
+        const cell = random(state.cells);
+        cell.glyph = random();
+        cell.visibility = random();
+        cell.phase = random(TWO_PI);
+      }
+    }
+
+    const glyphs = this.characters || "@";
+    const visible = constrain(this.density + audio.level * 0.3, 0, 1);
+    const jitter = audio.treble * this.cellSize * 0.16;
+    colorMode(HSB, 360, 100, 100, 1);
+    blendMode(ADD);
+    textFont("monospace");
+    textAlign(CENTER, CENTER);
+    textSize(this.cellSize * (0.72 + audio.mid * 0.18));
+    noStroke();
+
+    for (let index = 0; index < state.cells.length; index++) {
+      const cell = state.cells[index];
+      if (cell.visibility > visible) continue;
+      const column = index % state.columns;
+      const row = floor(index / state.columns);
+      const band = row / max(1, state.rows - 1);
+      const energy = lerp(audio.bass, audio.treble, band);
+      const glyphIndex = floor((cell.glyph + energy * 0.45) * glyphs.length) % glyphs.length;
+      const x = (column + 0.5) * this.cellSize + sin(time * 2 + cell.phase) * jitter;
+      const y = (row + 0.5) * this.cellSize + cos(time * 1.7 + cell.phase) * jitter;
+      fill(
+        (this.hue + column * 2.2 + row * 1.3 + time * 8) % 360,
+        38 + audio.mid * 45,
+        64 + energy * 36,
+        0.2 + energy * 0.62,
+      );
+      text(glyphs[glyphIndex], x, y);
+    }
+  },
+};
+
+// %% patch plasma
 
 // plasma — a live post-processing shader implemented as a real class instance.
 //
@@ -166,6 +247,7 @@ const plasma = new Plasma();
 // %% scene scene
 // Array order is layer order. Keep plasma last when you add another patch.
 const scene = [
+  asciiNoise,
   plasma,
 ];
 activate(scene);

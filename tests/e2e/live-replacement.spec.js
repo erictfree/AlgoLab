@@ -198,7 +198,8 @@ test('source, installed patches, and scene order survive a refresh', async ({ pa
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder())).toEqual(['plasma']);
+  await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
+    .toEqual(['asciiNoise', 'plasma']);
 
   await page.evaluate(() => {
     const editor = document.getElementById('code');
@@ -206,8 +207,8 @@ test('source, installed patches, and scene order survive a refresh', async ({ pa
     editor.value = editor.value
       .replace('// %% scene scene', `${marker}// %% scene scene`)
       .replace(
-        'const scene = [\n  plasma,\n];',
-        'const scene = [\n  marker,\n  plasma,\n];',
+        'const scene = [\n  asciiNoise,\n  plasma,\n];',
+        'const scene = [\n  asciiNoise,\n  marker,\n  plasma,\n];',
       );
     editor.dispatchEvent(new Event('input', { bubbles: true }));
     window.AlgoLab.evaluator.evaluate(editor.value, { label: 'buffer' });
@@ -219,5 +220,5 @@ test('source, installed patches, and scene order survive a refresh', async ({ pa
   await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.hasStrategy('marker'))).toBe(true);
   await expect
     .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
-    .toEqual(['marker', 'plasma']);
+    .toEqual(['asciiNoise', 'marker', 'plasma']);
 });

@@ -97,18 +97,20 @@ browser or computer.
 
 ## First edit
 
-The starter scene contains one patch:
+The starter scene contains a transparent ASCII layer followed by Plasma:
 
 ```js
 const scene = [
+  asciiNoise,
   plasma,
 ];
 
 activate(scene);
 ```
 
-Open the `plasma` cell, change `speed` or `motion`, and press `Cmd/Ctrl+Enter`.
-The image should change without a page reload.
+Open `asciiNoise` and change `cellSize`, `density`, or `hue`; or open `plasma`
+and change `speed` or `motion`. Press `Cmd/Ctrl+Enter` in that cell. The image
+should change without a page reload.
 
 To add a built-in patch:
 
@@ -138,7 +140,7 @@ cursor in `draw()`.
 | `Cmd/Ctrl+Shift+Enter` | Evaluate the complete editor |
 | `Cmd/Ctrl+/` | Toggle one comment layer |
 | `Cmd/Ctrl+Option/Alt+T` | Tidy the current cell |
-| `Cmd/Ctrl+Alt+N` | Start a new Plasma performance |
+| `Cmd/Ctrl+Alt+N` | Start a new performance from the default scene |
 | `Esc` | Release editor focus |
 | `Space` | Play or pause audio |
 | `\` | Show or hide tools |
@@ -175,7 +177,7 @@ Add it to the scene, then evaluate the scene cell.
 ### Old source returns after a restart
 
 AlgoLab restores the working project saved in that browser. Use **New performance**
-for a Plasma-only project, or import another project.
+for the default ASCII Noise + Plasma scene, or import another project.
 
 ### Audio does not start
 

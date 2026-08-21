@@ -6,7 +6,7 @@ async function boot(page) {
     localStorage.clear();
     document.getElementById('start-overlay').hidden = true;
   });
-  await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder().length)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder().length)).toBe(2);
 }
 
 test('publishes, discovers, inserts, and receives another editor canvas', async ({ page, context }) => {
