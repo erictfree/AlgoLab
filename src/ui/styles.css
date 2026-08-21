@@ -1,8 +1,7 @@
 /* AlgoLab — performer theme.
  *
- * PRD §10.1: dark, usable in low light, readable at 1280x720, stage at least 60% of
- * the viewport. Nothing here draws on top of the canvas: diagnostics live in the
- * chrome, because the canvas is what the audience sees (§10.5).
+ * Dark, usable in low light, and readable at 1280x720. Nothing here draws diagnostics
+ * into the canvas because the canvas is what the audience sees.
  */
 
 :root {
@@ -83,14 +82,14 @@ input:focus-visible {
 /* --- layout: the stage IS the window ------------------------------------------
  *
  * The canvas fills the viewport and the performer's tools float over it. This is not
- * only about size (§10.1 asks for 60%; this gives 100%). It is about aspect ratio:
+ * only about size; it is about aspect ratio:
  * with the tools taking a column, the performer composed on a ~5:4 canvas while the
  * projector showed 16:9, so the thing being made was never the shape of the thing
  * being shown. Now it is, and the tools occlude a corner of it rather than reshaping
  * it — and they can be hidden outright.
  *
  * The tools are DOM over the canvas, so they cannot reach the projection window,
- * which copies pixels rather than markup. P-01 holds for free.
+ * which copies pixels rather than markup, keeping performer chrome out of projection.
  */
 
 #app {
@@ -899,7 +898,7 @@ input[type='number'] {
   width: 64px;
 }
 
-/* --- trusted-code confirmation (D-03) ------------------------------------------ */
+/* --- trusted-code confirmation ------------------------------------------------- */
 
 .dialog-backdrop {
   position: fixed;
@@ -1184,6 +1183,66 @@ input[type='number'] {
   border: 0;
   border-radius: 999px;
 }
+
+.network-example {
+  overflow-x: auto;
+  margin: 8px 0;
+  padding: 8px;
+  color: var(--text);
+  background: rgba(10, 10, 13, 0.7);
+  border: 1px solid var(--line);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.beta-badge {
+  margin-left: 0.35em;
+  color: var(--warn);
+  font-size: 0.7em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.network-beta-note {
+  color: var(--warn);
+}
+.network-join-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin: 8px 0;
+}
+.network-join-form input,
+.network-join-form button {
+  min-width: 0;
+}
+.network-join-form input[type='password'],
+.network-join-form button {
+  grid-column: 1 / -1;
+}
+.network-room {
+  margin-top: 8px;
+  color: var(--accent);
+  border-bottom-color: var(--line);
+}
+.network-stream,
+.network-publication {
+  padding-left: 8px;
+}
+.network-online,
+.network-joined {
+  color: var(--ok);
+}
+.network-connecting,
+.network-reconnecting {
+  color: var(--warn);
+}
+.network-unsupported,
+.network-error {
+  color: var(--bad);
+}
 .audio-load-state progress::-webkit-progress-bar {
   background: #1b1b21;
 }
@@ -1271,7 +1330,7 @@ input[type='number'] {
 
 /* Installed strategies are a read-only object browser. The summary remains as compact
  * as the old shelf row; opening it reveals only a data projection, never the live
- * student object itself. */
+ * authored patch object itself. */
 .strategy-reference {
   border-bottom: 1px solid #1b1b21;
 }
@@ -1411,7 +1470,7 @@ input[type='number'] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.library-origin.student {
+.library-origin.community {
   color: var(--code-comment);
 }
 
@@ -1579,6 +1638,7 @@ button.icon {
 .welcome-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 26px;
   min-height: 104px;
   padding: 18px 26px;
@@ -1586,7 +1646,7 @@ button.icon {
 }
 .welcome-department-mark {
   display: block;
-  width: min(350px, 45%);
+  width: min(280px, 36%);
   flex: 0 0 auto;
   border-radius: 2px;
 }
@@ -1602,8 +1662,8 @@ button.icon {
 }
 .welcome-name {
   min-width: 0;
-  padding-left: 24px;
-  border-left: 1px solid #dedbe1;
+  padding-right: 26px;
+  border-right: 1px solid #dedbe1;
 }
 #start-overlay .welcome-name h1 {
   margin: 0 0 5px;
@@ -1618,13 +1678,6 @@ button.icon {
   line-height: 1.35;
   letter-spacing: 0.13em;
   color: #5e5864;
-}
-#start-overlay .welcome-name .welcome-school {
-  margin-top: 11px;
-  color: #b154a0;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
 }
 .welcome-body {
   padding: 28px 30px 24px;
@@ -1802,7 +1855,7 @@ button.icon {
   }
   .welcome-name {
     padding: 0;
-    border-left: 0;
+    border-right: 0;
   }
   .welcome-body,
   .welcome-start {

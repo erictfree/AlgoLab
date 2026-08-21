@@ -1,6 +1,6 @@
 // State store — state belongs to the strategy INSTANCE, not to a function body.
 //
-// This is the whole point of PRD §7 ("State has an identity") and L-03. When a
+// State has an identity. When a
 // performer re-evaluates `const pixelRain = ...`, the implementation object is
 // replaced. The trail array is not. It is found again by identity.
 //
@@ -11,7 +11,7 @@
 // Extra copies are `pixelRain#2`, `pixelRain#3`, and each gets its own state, because
 // two rain fields sharing one drop array would be one field drawn twice.
 //
-// §13.4 sets the contract: strategy state should be numbers, strings, booleans, arrays,
+// Strategy state should be numbers, strings, booleans, arrays,
 // plain objects — structured-clone-compatible values. p5.Image, media elements, and
 // analyzers are host resources and do not belong here. We enforce nothing, but a value
 // that cannot be cloned loses its rollback snapshot, and we say so out loud.
@@ -58,7 +58,7 @@ export function createStateStore({ diagnostics } = {}) {
 
   /**
    * Copy the current state so it can be put back if a candidate version fails on its
-   * first frame (S-03). Returns `null` when the state cannot be cloned — the caller
+   * first frame. Returns `null` when the state cannot be cloned — the caller
    * treats that as "code can roll back, state cannot".
    */
   function snapshot(name) {
@@ -69,7 +69,7 @@ export function createStateStore({ diagnostics } = {}) {
     } catch (err) {
       diagnostics?.warn(
         `${name}: state could not be snapshotted`,
-        `${err.message} — strategy state should be JSON-compatible (PRD §13.4). ` +
+        `${err.message} — strategy state should be JSON-compatible. ` +
           `Code will still roll back, but this strategy's state will not.`,
       );
       return null;
@@ -87,7 +87,7 @@ export function createStateStore({ diagnostics } = {}) {
     return true;
   }
 
-  /** Explicit performer-initiated reset — `reset(pixelRain)` (L-04). */
+  /** Explicit performer-initiated reset — `reset(pixelRain)`. */
   function reset(id, factory) {
     states.set(id, buildInitialState(id, factory));
     return states.get(id);

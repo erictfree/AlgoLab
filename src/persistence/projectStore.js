@@ -1,4 +1,4 @@
-// Local project persistence — D-01.
+// Local project persistence.
 //
 // The current editor source and performer settings persist locally after refresh.
 //
@@ -8,12 +8,12 @@
 // saved strategy turns out to throw.
 //
 // The stored shape is versioned. A format change degrades to "start fresh" rather
-// than throwing during startup, because a student mid-semester should never be met
-// with a broken page.
+// than throwing during startup, because a performer should never be met with a
+// broken page.
 
 // v5 intentionally starts from the compact, self-sufficient Plasma-only starter. Previous local
 // project keys contained the retired built-in patches, so reading them would immediately
-// repopulate a library the course has deliberately removed. Exported v6 projects are
+// repopulate a library the product has deliberately removed. Exported v6 projects are
 // still readable and can be imported explicitly.
 const KEY = 'algolab.project.v5';
 const OBSOLETE_KEYS = [
@@ -124,15 +124,14 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
     }
   }
 
-  // --- export / import (D-02, D-03) ----------------------------------------------
+  // --- export / import -----------------------------------------------------------
 
   /**
-   * D-02: a human-readable project containing source and live parameter values.
+   * A human-readable project containing source and live parameter values.
    *
    * Pretty-printed JSON, with the source split into lines. A single escaped string
-   * with `\n` in it is technically readable and practically not — an instructor
-   * reading a student's submitted project, or diffing two of them, needs to see the
-   * code as code.
+   * with `\n` in it is technically readable and practically not — a collaborator
+   * reviewing or diffing two projects needs to see the code as code.
    */
   function exportProject(editorSource, extra = {}) {
     const data = snapshot(editorSource);
@@ -171,7 +170,7 @@ export function createProjectStore({ registry, diagnostics, storage = globalThis
   /**
    * Parse an exported project. Returns `{ ok, data }` or `{ ok: false, error }`.
    *
-   * Parsing is separate from applying on purpose: D-03 requires an explicit
+   * Parsing is separate from applying on purpose: imported code requires an explicit
    * trusted-code confirmation, and the performer cannot meaningfully confirm anything
    * until they can be shown what is in the file. So this validates and hands back the
    * contents; running it is a second, deliberate step.

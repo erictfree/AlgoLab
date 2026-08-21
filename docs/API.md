@@ -1,24 +1,21 @@
-# Writing AlgoLab programs
+# AlgoLab API
 
-AlgoLab code is ordinary JavaScript. You write patches and place them in an array;
-AlgoLab keeps p5's main `draw()` loop alive and invokes those patches in array order.
-There is no registration wrapper and no string name to keep synchronized. The host
-uses “strategy” as an internal architecture term; the student-facing object is a patch.
+AlgoLab code is JavaScript. The host owns p5 `setup()` and `draw()`; live code
+provides patches and scene arrays.
 
-## The patch lifecycle
+## Patch states
 
-- **Available** means the patch exists in the library.
-- **Installed** means its source has been added to this project.
-- **Active** means a patch instance is in the current scene array.
-- **Running** means that active instance evaluated and rendered successfully.
+- **Available:** listed in the Library.
+- **Installed:** source is in the project.
+- **Active:** an evaluated scene contains the patch.
+- **Running:** the active patch rendered successfully.
 
-Installing a patch never activates it. “Add to scene” edits the visible scene array;
-press `Cmd/Ctrl+Enter` in that scene cell to evaluate the edit and make the patch Active.
-It becomes Running only after its first successful render.
+**Install source** does not activate a patch. **Add to scene** edits the scene array;
+evaluate that scene to activate the change.
 
-## Three ways to write a patch
+## Patch forms
 
-A plain function is the smallest form:
+### Function
 
 ```js
 const waveScope = ({ audio }) => {
@@ -28,20 +25,19 @@ const waveScope = ({ audio }) => {
 };
 ```
 
-An object literal adds properties, helper methods, and normal `this` behavior:
+### Object
 
 ```js
 const laserFan = {
   beams: 13,
-  spread: 0.72,
 
   addBeams(amount) {
     this.beams += amount;
   },
 
   draw({ audio }) {
-    for (let i = 0; i < this.beams; i++) {
-      line(width / 2, height, i * this.spread * 50, audio.treble * height);
+    for (let i = 0; i < this.beams; i += 1) {
+      line(width / 2, height, i * 50, audio.treble * height);
     }
   },
 };
@@ -49,7 +45,7 @@ const laserFan = {
 laserFan.addBeams(2);
 ```
 
-A class instance adds constructors, private fields, and resource lifecycle:
+### Class instance
 
 ```js
 // %% patch neonTunnel
@@ -60,56 +56,34 @@ class NeonTunnel {
   }
 
   draw({ audio, time }) {
-    // this.rings and this.sides belong to this instance
+    // draw with this.rings and this.sides
   }
 }
 
 const neonTunnel = new NeonTunnel({ rings: 20, sides: 8 });
 ```
 
-The exact object is retained—not copied or flattened—so prototypes, getters, private
-fields, data, helper methods, and `this` all behave like normal JavaScript. AlgoLab
-invokes an object as `strategy.draw(drawInputs)`, so `this` is the strategy object.
-Avoid arrow functions for object methods when you need `this`.
+AlgoLab retains the exact value. Prototypes, private fields, getters, helper methods,
+and `this` behave normally. Object methods are called as
+`patch.draw(drawInputs)`. Do not use an arrow method when it needs `this`.
 
-## Draw inputs and normal parameters
+## Draw inputs
 
-`{ audio, time }` is one normal parameter using object destructuring. These are
-equivalent:
-
-```js
-draw(inputs) {
-  const audio = inputs.audio;
-  const time = inputs.time;
-}
-```
-
-```js
-draw({ audio, time }) {
-  // use audio and time directly
-}
-```
-
-The useful distinction is who supplies a value:
-
-- AlgoLab supplies changing live values to `draw()` and lifecycle methods.
-- The strategy stores configuration and object state on `this`.
-- Student code supplies arguments to ordinary methods such as `laserFan.addBeams(2)`.
-
-The available draw inputs are:
+`draw({ audio, time })` is a normal parameter using object destructuring. AlgoLab
+supplies the object on each frame.
 
 | Field | Meaning |
 | --- | --- |
-| `audio` | Shared normalized audio analysis for the current draw |
-| `canvas` | Live main p5 renderer, usable as a shader texture source |
-| `state` | Persistent data for this scene copy |
+| `audio` | Shared audio analysis for this draw |
+| `canvas` | Main p5 renderer; usable as a shader texture source |
+| `state` | Persistent data for this scene occurrence |
 | `dt` | Seconds since the previous draw, bounded after stalls |
 | `time` | Seconds since the host started |
 | `sceneTime` | Seconds since the active scene changed |
 | `params` | Values declared with `param()` |
 | `controls` | Read-only keyboard state |
 
-A strategy requests only what it needs. It may ignore the argument entirely:
+A patch may ignore the input:
 
 ```js
 const dot = {
@@ -119,14 +93,14 @@ const dot = {
 };
 ```
 
-Global p5 functions and values such as `fill`, `circle`, `noise`, `map`, `width`, and
-`height` remain available. AlgoLab wraps each strategy in `push()`/`pop()` and resets
-common drawing defaults so styles and transforms do not leak between strategies.
+p5 globals such as `fill`, `circle`, `noise`, `map`, `width`, and `height` remain
+available. Each patch is wrapped in `push()`/`pop()`, and common drawing defaults are
+reset between patches.
 
-## Higher-order functions and configuration
+## Configuration
 
-A higher-order function can accept ordinary parameters and return a configured
-strategy. The returned function remembers those values through its closure:
+Use normal JavaScript configuration: properties, constructors, closures, factories,
+or object spread.
 
 ```js
 function makeKaleido(segments, hue) {
@@ -134,114 +108,36 @@ function makeKaleido(segments, hue) {
     segments,
     hue,
     draw({ audio, time }) {
-      // draw this.segments rotated shapes
+      // draw with this.segments and this.hue
     },
   };
 }
 
 const kaleido = makeKaleido(12, 285);
-```
-
-Objects and classes store the same configuration as properties or constructor values.
-Give a configured result its own binding when you want to address it elsewhere:
-
-```js
 const pinkLasers = { ...laserFan, hue: 330, direction: -1 };
-const cyanLasers = { ...laserFan, hue: 180, beams: 7 };
 ```
 
-When the configured value belongs only to one scene, a factory result or arrow function
-can instead be written directly in that scene array. AlgoLab gives it a scene-local
-identity automatically.
+AlgoLab supplies changing context values. The patch owns its configuration and
+state. Do not rewrite shared context values such as `audio` or `time`.
 
-The same pattern works when what differs is how each object interprets the shared
-draw inputs:
+## Scenes
 
 ```js
-class ReactiveHalo {
-  constructor({ band, scale }) {
-    this.band = band;
-    this.scale = scale;
-  }
+const scene = [
+  checkerZoom,
+  neonTunnel,
+  laserFan,
+  plasma,
+];
 
-  draw({ audio }) {
-    circle(width / 2, height / 2, 40 + audio[this.band] * this.scale);
-  }
-}
-
-const bassHalo = new ReactiveHalo({ band: "bass", scale: 300 });
-const trebleHalo = new ReactiveHalo({ band: "treble", scale: 120 });
-const duet = [bassHalo, trebleHalo];
-activate(duet);
-```
-
-AlgoLab supplies the same read-only-by-convention inputs to both. Each object owns
-the parameters that select and transform those inputs; it should not rewrite the
-shared `audio`, `time`, or other host values.
-
-There is deliberately no separate scene-configuration descriptor. Closures, object
-properties, constructors, and factories are already JavaScript's configuration tools.
-
-## Shader chains
-
-`ShaderChain` is a built-in class for transforming the image drawn by earlier patches.
-It is not a second language or a registration API: the resulting instance is an
-ordinary patch object with `draw()` and `dispose()` methods.
-
-```js
-const clubLens = new ShaderChain()
-  .rotate(({ time }) => time * 0.08)
-  .scale(({ audio }) => 1 + audio.bass * 0.18)
-  .pixelate(32, 18)
-  .hue(({ audio }) => audio.mid * 0.2)
-  .contrast(1.15);
-
-const scene = [solidBackground, laserFan, clubLens, plasma];
 activate(scene);
 ```
 
-Every operator argument may be either a number or a function receiving the same live
-context as `draw()`. The chain evaluates those functions every frame, then sends their
-results to one generated fragment shader. Put a chain after the drawing patches it
-should transform.
+Earlier entries draw first. `activate()` accepts the array, not its name as a string.
+Re-evaluating a scene changes its order without replacing unchanged patch
+implementations or their state.
 
-Transform operators:
-
-| Method | Arguments |
-| --- | --- |
-| `rotate(angle, speed)` | radians and optional radians per second |
-| `scale(amount, xMult, yMult, offsetX, offsetY)` | zoom, axis multipliers, and center |
-| `pixelate(pixelX, pixelY)` | horizontal and vertical cell counts |
-| `repeat(x, y, offsetX, offsetY)` | tiled copies and alternating offsets |
-| `repeatX(reps, offset)` / `repeatY(reps, offset)` | one-axis tiling |
-| `kaleid(sides)` | radial mirror count |
-| `scroll(x, y, speedX, speedY)` | offset and speed on both axes |
-| `scrollX(x, speed)` / `scrollY(y, speed)` | one-axis offset and speed |
-
-Color operators:
-
-`posterize`, `shift`, `invert`, `contrast`, `brightness`, `luma`, `thresh`, `color`,
-`saturate`, `hue`, `colorama`, `sum`, and `rgba`.
-
-These single-input operations compile into one GPU pass. Blend and modulation methods
-are intentionally not present yet: they need a second named texture, which belongs to
-the future multi-source routing model rather than being hidden inside this class.
-
-## Scenes are arrays
-
-```js
-const scene = [checkerZoom, neonTunnel, laserFan, plasma];
-activate(scene);
-```
-
-Earlier entries draw underneath later entries. Re-evaluating the array changes the
-composition without replacing its members or their persistent state. `activate()` accepts
-the array itself, not its name as a string.
-
-Named entries use their JavaScript binding names—`laserFan` and `plasma`—as stable
-identities for replacement, diagnostics, history, and the performer UI. Anonymous
-functions, objects, class instances, and factory results can also be placed directly
-in the array:
+Functions, objects, instances, and factory results may appear inline:
 
 ```js
 const scene = [
@@ -252,75 +148,54 @@ const scene = [
     circle(
       width / 2 + cos(time) * 180,
       height / 2 + sin(time) * 180,
-      size
+      size,
     );
   },
 
-  new ShaderChain()
-    .rotate(({ time }) => time * 0.1),
-
+  new ShaderChain().rotate(({ time }) => time * 0.1),
   plasma,
 ];
-
-activate(scene);
 ```
 
-When this cell is evaluated, JavaScript creates each inline value once. On every draw,
-AlgoLab calls an inline function as `functionStrategy(context)` or an inline object as
-`objectStrategy.draw(context)`. Function return values are ignored; p5 drawing calls
-are their visual output.
+Inline values are created when the scene cell evaluates. AlgoLab calls functions as
+`patch(context)` and objects as `patch.draw(context)`. Return values are ignored.
 
-Anonymous entries use their zero-based array position as identity. The function above
-appears as `scene[1]` and the shader as `scene[2]`. Re-evaluating an implementation in
-the same slot retains that slot's persistent `state`. Moving it to another slot gives
-it a new identity and therefore fresh state. Bind a strategy to a name when its identity
-should survive scene reordering or when other live code needs to call its methods.
+### Identity and copies
 
-The same strategy can appear more than once:
+A named binding such as `laserFan` is a stable identity. An anonymous entry uses its
+zero-based scene position, such as `scene[1]`; moving it creates a new identity and
+fresh state.
+
+The same patch may occur more than once:
 
 ```js
 const echoes = [laserFan, laserFan, laserFan, plasma];
-activate(echoes);
 ```
 
-The copies share the current implementation but receive independent persistent state.
-They appear as `laserFan`, `laserFan#2`, and `laserFan#3` in the scene UI.
+The copies share one implementation but have separate state. They appear as
+`laserFan`, `laserFan#2`, and `laserFan#3`.
 
 ## Live commands
 
-Commands take first-class JavaScript values:
-
 ```js
-activate(scene);     // make this scene array active at the next frame boundary
-reset(laserFan);     // reset every copy's persistent state
+activate(scene);     // activate at the next frame boundary
+reset(laserFan);     // recreate state for every active copy
 param("trail", 0.08, { min: 0, max: 0.3 });
 ```
 
-Composition is ordinary source, not a command language. Add, remove, duplicate, or
-reorder entries by editing and evaluating the array:
+Commands take JavaScript values, not string names. Edit arrays to add, remove,
+duplicate, or reorder patches. The scene strip is read-only.
+
+Ordinary calls such as `laserFan.addBeams(2)` run immediately and do not create a
+new patch version.
+
+## Cells and editor commands
+
+`Cmd/Ctrl+Enter` evaluates the statement or cell under the cursor. A `// %%` marker
+groups related statements into one atomic cell:
 
 ```js
-const scene = [laserFan, laserFan, neonTunnel, plasma]; // two independent copies
-const empty = [];                                        // an intentionally empty scene
-activate(scene);
-```
-
-An ordinary method call is also valid live code:
-
-```js
-laserFan.addBeams(2);
-```
-
-Strings are not accepted in place of strategy or scene values. The scene strip is a
-read-only view of the active array, so the editor remains the single source of truth.
-
-## Live-coding cells
-
-`Cmd/Ctrl+Enter` evaluates the cell or statement under the cursor. A `// %%` marker
-groups several related statements into one atomic cell:
-
-```js
-// %% strategy plasma
+// %% patch plasma
 class Plasma {
   // ...
 }
@@ -328,34 +203,27 @@ class Plasma {
 const plasma = new Plasma();
 ```
 
-Editing the class and evaluating anywhere in that cell constructs a new instance from
-the new class. The same pattern works for a factory and the strategy it returns.
-Without a marker, each complete top-level statement remains its own block.
-`Cmd/Ctrl+Shift+Enter` evaluates the whole buffer.
+Evaluating this cell updates the class and instance together. Without a marker, each
+complete top-level statement is its own block. `Cmd/Ctrl+Shift+Enter` evaluates the
+complete buffer.
 
-The editor preserves indentation on Enter, indents inside matching `{}`, `[]`, and
-`()`, and outdents closing delimiters typed on a blank line. Tab and Shift+Tab adjust
-the current selection. `Cmd/Ctrl+/` toggles a reversible comment layer on the current
-line or all selected lines. In a mixed selection an already commented line therefore
-becomes `// // line`; removing the outer layer restores its earlier disabled state.
-Folding is reversible in both presentations: the structured editor can
-expand every object/function/class and still collapse any one again, while the complete
-editor keeps a disclosure control beside every top-level declaration.
-In the structured editor, hovering a boundary in the far-left gutter reveals a
-keyboard-accessible **＋ New patch** control. It inserts a complete object-patch cell at
-that source boundary, keeps scene cells last when necessary, opens the new cell, and
-places the caret inside `draw()` without evaluating or activating the patch.
-`Cmd/Ctrl+Option/Alt+T` tidies indentation in the current cell without evaluating it. Plain
-`Cmd/Ctrl+T` remains the browser's new-tab command.
-The Project panel's **code size** control changes the complete editor, folded cells,
-line numbers, and projected code together. The browser remembers it locally, and a
-named performance captures it as part of its view settings.
-`Cmd/Ctrl+Alt+[` folds all and `Cmd/Ctrl+Alt+]` unfolds all; both work while the editor
-has focus. `Cmd/Ctrl+Alt+/` opens that key-command sheet without leaving the editor.
+Editor behavior:
 
-## Lifecycle and persistent state
+- Enter preserves indentation and indents inside matching delimiters.
+- Tab and Shift+Tab adjust selected lines.
+- `Cmd/Ctrl+/` adds or removes one comment layer. Nested comments are preserved.
+- `Cmd/Ctrl+Option/Alt+T` tidies the current cell without evaluating it.
+- `Cmd/Ctrl+Alt+[` folds all; `Cmd/Ctrl+Alt+]` unfolds all.
+- `Cmd/Ctrl+Alt+/` opens the command sheet.
+- The Project panel's **code size** setting also changes folded and projected code.
 
-Only `draw()` is required. Object and class strategies may add lifecycle methods:
+In the structured editor, hover a boundary in the far-left gutter to reveal
+**+ New patch**. It inserts an object-patch cell, opens it, and places the cursor in
+`draw()`. It does not evaluate or activate the patch.
+
+## Lifecycle and state
+
+Only `draw()` is required. Objects and class instances may implement:
 
 ```js
 const pixelRain = {
@@ -365,57 +233,26 @@ const pixelRain = {
 
   enter({ state }) {},
   beat({ state, audio }) {},
-
-  draw({ state, audio, dt }) {
-    // update state.drops using dt and audio.treble
-  },
-
+  draw({ state, audio, dt }) {},
   exit({ state }) {},
 
   dispose() {
-    // Release resources owned by this implementation.
+    // release resources owned by this implementation
   },
 };
 ```
 
-`state()` runs once per scene copy. Re-evaluating the strategy retains that state;
-`reset(pixelRain)` explicitly recreates it. Keep persistent state structured-clone
-compatible—numbers, strings, booleans, arrays, and plain objects—so first-draw rollback
-can restore it.
+`state()` runs once per scene occurrence. Re-evaluating the patch retains that state;
+`reset(pixelRain)` recreates it. State should contain structured-clone-compatible
+data: numbers, strings, booleans, arrays, and plain objects.
 
-Lifecycle methods are invoked with the exact object as `this`. `dispose()` runs once
-when an implementation is replaced, rolled back, or removed during a project reset.
-It is intended for WEBGL buffers, shaders, cameras, and similar external resources.
-
-## Shaders
-
-A class strategy may own an offscreen `WEBGL` graphics buffer and composite it into
-the 2D stage. It can use `canvas` as a `sampler2D` source, which makes a strategy placed
-last in a scene a true post-processing pass. Create resources lazily in `draw()`, pass
-`audio` and `time` through uniforms, and release resources in `dispose()`. The starter's
-`Plasma` class is a complete example. Its public `speed` and `motion` numbers and its
-audio-mapped `intensity` and `warp` functions sit together above the shader strings;
-editing those four values is the intended first experiment.
-
-For smaller experiments, the Library includes `slowRotate`, `bassZoom`, `prismMirror`,
-`pixelDrift`, and `neonInk`. Each is only a `ShaderChain`: place a drawing patch such
-as `roseWindow`, `waveTerrain`, or `moireField` before it and the chain transforms that
-accumulated image. Because each recipe is an ordinary patch, several can be reordered
-or stacked:
-
-```js
-const scene = [
-  solidBackground,
-  waveTerrain,
-  roseWindow,
-  slowRotate,
-  bassZoom,
-];
-```
+Lifecycle methods receive the patch as `this`. `dispose()` runs when an
+implementation is replaced, rolled back, or removed during project reset. Use it for
+WebGL buffers, shaders, cameras, and similar resources.
 
 ## Audio
 
-`audio` is computed once and shared by every strategy during a draw:
+The shared `audio` object contains:
 
 ```js
 audio.level
@@ -428,13 +265,11 @@ audio.waveform
 audio.raw
 ```
 
-Normalized scalar features are generally `0..1`. `spectrum` contains FFT values and
-`waveform` contains the current waveform. Choose an audio file, drop one on the stage,
-or select the microphone. With no source, strategies keep drawing against silence.
+Normalized scalar features are generally `0..1`. `spectrum` contains FFT values;
+`waveform` contains current waveform samples. With no source, patches continue with
+a silent snapshot.
 
 ## Live parameters
-
-Parameters are optional performer controls shared through the draw inputs:
 
 ```js
 param("checkerSpeed", 0.08, { min: -0.4, max: 0.4, step: 0.01 });
@@ -444,26 +279,99 @@ const checkerZoom = ({ time, params }) => {
 };
 ```
 
-Re-evaluating `param()` keeps the value currently selected by the performer rather than
-overwriting it with the source default.
+Re-evaluating `param()` keeps the performer's current value instead of restoring the
+source default.
+
+## ShaderChain
+
+`ShaderChain` is a patch that transforms the pixels drawn by earlier scene entries.
+It implements `draw()` and `dispose()`.
+
+```js
+const clubLens = new ShaderChain()
+  .rotate(({ time }) => time * 0.08)
+  .scale(({ audio }) => 1 + audio.bass * 0.18)
+  .pixelate(32, 18)
+  .hue(({ audio }) => audio.mid * 0.2)
+  .contrast(1.15);
+```
+
+Every argument may be a number or a function receiving the live context. Functions
+are evaluated each frame. One generated fragment shader applies the operators in
+order.
+
+Transform operators:
+
+| Method | Arguments |
+| --- | --- |
+| `rotate(angle, speed)` | Radians and optional radians per second |
+| `scale(amount, xMult, yMult, offsetX, offsetY)` | Zoom, axis multipliers, and center |
+| `pixelate(pixelX, pixelY)` | Horizontal and vertical cell counts |
+| `repeat(x, y, offsetX, offsetY)` | Tiled copies and alternating offsets |
+| `repeatX(reps, offset)` / `repeatY(reps, offset)` | One-axis tiling |
+| `kaleid(sides)` | Radial mirror count |
+| `scroll(x, y, speedX, speedY)` | Offset and speed on both axes |
+| `scrollX(x, speed)` / `scrollY(y, speed)` | One-axis offset and speed |
+
+Color operators:
+
+`posterize`, `shift`, `invert`, `contrast`, `brightness`, `luma`, `thresh`, `color`,
+`saturate`, `hue`, `colorama`, `sum`, and `rgba`.
+
+These are single-input operations. Use a custom WebGL patch for multiple textures.
+The starter `Plasma` class shows how to own an offscreen WebGL buffer, pass `canvas`
+to a sampler, update uniforms, and release resources.
+
+## StreamRoom (beta)
+
+`StreamRoom` is a beta API for sharing rendered canvas video. `publish()` and
+`receive()` return normal
+lifecycle patches.
+
+```js
+const room = new StreamRoom({
+  name: "warehouse-stage",
+  performer: "Eric",
+});
+
+const mayaParticles = room.receive({
+  stream: "Maya/particles",
+  fit: "cover",
+  opacity: 1,
+});
+
+const publishMain = room.publish({
+  name: "main-output",
+  fps: 30,
+});
+```
+
+The publisher uses the main canvas unless `source` returns another canvas or render
+surface. `fps` is clamped to 1–60.
+
+Receiver `fit` is `cover`, `contain`, or `stretch`; `opacity` is 0–1. Its read-only
+`texture` becomes a stable p5 media source after the remote track arrives. Status
+moves through `waiting`, `connecting`, `live`, and `stalled` without throwing when a
+peer leaves.
+
+Publishing is explicit and video-only. The Network panel can join for discovery and
+add a configured receiver. An editable `networkReceiver` template is under
+**Library → Utilities**. See [NETWORKING.md](NETWORKING.md).
 
 ## Evaluation and recovery
 
-- Syntax or evaluation errors do not alter the live scene.
-- Replacements land at a draw boundary, never halfway through a scene.
-- A replacement is provisional until every active copy survives its first draw.
-- If a provisional version throws, AlgoLab restores the previous implementation,
-  binding, version, and clone-compatible state snapshot.
-- Successful versions appear in History and can be restored without a page reload.
-- Calling an ordinary method such as `laserFan.addBeams(2)` executes normal JavaScript
-  immediately; it does not create a replacement version.
-- Re-evaluating an explicit named patch cell replaces that patch's declaration group.
-  If the same named cell was accidentally installed twice, the newest copy is used
-  instead of compiling two declarations such as `class Plasma` together.
-- **Set safe** captures source, installed patch implementations and versions, the active
-  scene, parameters, and clone-compatible runtime state. **Restore safe state** restores
-  that checkpoint and reports anything that could not be restored. Failed evaluations
-  never replace the safe snapshot.
+- Compile, execution, or validation failure changes nothing.
+- Replacements are queued for a frame boundary.
+- Active copies must survive their first draw before a replacement is confirmed.
+- First-draw failure restores the previous implementation, binding, version, and
+  clone-compatible state.
+- Successful versions appear in History.
+- Duplicate named patch cells are collapsed to the newest source before full-buffer
+  evaluation.
+- **Set safe** captures source, implementations, versions, scene, parameters, and
+  clone-compatible state.
+- **Restore safe state** reports any state it could not restore.
 
-AlgoLab executes trusted JavaScript with `new Function`; it is an error boundary, not
-a security sandbox. An infinite loop can still freeze the tab.
+AlgoLab evaluates trusted code with `new Function`. It catches exceptions but cannot
+stop an infinite loop or prevent access to browser globals. See
+[SECURITY.md](../SECURITY.md).

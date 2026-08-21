@@ -1,15 +1,17 @@
 // The soak test is slow by nature, so it lives outside the normal E2E run.
 //   npm run test:soak                 # 3 minutes
-//   SOAK_MINUTES=30 npm run test:soak # the PRD §15 figure
+//   SOAK_MINUTES=30 npm run test:soak
 
 import { defineConfig, devices } from '@playwright/test';
+
+const PORT = Number(process.env.PORT ?? 5173);
 
 export default defineConfig({
   testDir: './tests/soak',
   timeout: 45 * 60_000,
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: `http://localhost:${PORT}`,
     viewport: { width: 1280, height: 720 },
   },
   projects: [
@@ -30,7 +32,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:5173/index.html',
+    url: `http://localhost:${PORT}/index.html`,
     reuseExistingServer: true,
     timeout: 30_000,
   },

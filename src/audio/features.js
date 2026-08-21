@@ -1,16 +1,16 @@
-// Audio features — the shared snapshot of PRD §9.5.
+// Audio features — the shared per-frame snapshot.
 //
 // Pure and p5-free on purpose: this is the part with real arithmetic in it, so it is
 // the part worth unit-testing. audioEngine.js does the p5.sound plumbing and hands the
 // raw numbers here.
 //
-// Two design decisions the PRD leaves open (§19.3) are settled here:
+// Two normalization decisions are settled here:
 //
 //   - Normalized 0..1 values are the top-level names. p5.sound's own scales survive
-//     under `raw`, so a student can still learn the underlying API deliberately.
+//     under `raw`, so a patch can still use the underlying API deliberately.
 //   - Normalization is a decaying-peak auto-gain, not a fixed divisor. A quiet track
 //     and a loud track should both drive `map(audio.bass, 0, 1, ...)` usefully, which
-//     is the mapping students actually write. The three spectral bands share one
+//     is the mapping patch authors actually write. The three spectral bands share one
 //     ceiling so their relative balance survives normalization.
 
 const EPSILON = 1e-6;
@@ -20,7 +20,7 @@ export const FEATURE_DEFAULTS = Object.freeze({
   gainDecay: 0.4, // how fast the auto-gain ceiling falls, per second
   gainFloor: 0.02, // never divide by something tiny and turn silence into noise
   gainTarget: 0.82, // leave visible/dynamic headroom instead of pinning every peak at 1
-  autoGain: true, // A-06: off means "divide by nothing", raw 0..1 passes through
+  autoGain: true, // off means "divide by nothing", raw 0..1 passes through
   beatThreshold: 1.3, // bass must exceed this multiple of its recent average
   beatFloor: 0.08, // ...and be at least this loud, so silence never beats
   beatRise: 0.05, // ...and must actually have risen since the previous frame
@@ -30,7 +30,7 @@ export const FEATURE_DEFAULTS = Object.freeze({
 
 export function createFeatureExtractor(overrides = {}) {
   // Held in one mutable object rather than closed-over constants, so the performer
-  // can tune smoothing and auto-gain from the Audio panel mid-set (A-06).
+  // can tune smoothing and auto-gain from the Audio panel mid-set.
   const options = { ...FEATURE_DEFAULTS, ...overrides };
 
   const smoothed = { level: 0, bass: 0, mid: 0, treble: 0, centroid: 0 };
@@ -90,7 +90,7 @@ export function createFeatureExtractor(overrides = {}) {
     const centroid =
       centroidHz <= 20 ? 0 : clamp(Math.log(centroidHz / 20) / Math.log(nyquist / 20), 0, 1);
 
-    // Onset (§9.5 `beat`).
+    // Onset detection for `audio.beat`.
     //
     // Deliberately computed from the RAW band energy, not the auto-gained value.
     // Auto-gain exists to flatten dynamics so map() behaves consistently — which is
@@ -151,7 +151,7 @@ export function createFeatureExtractor(overrides = {}) {
     return clamp((value / (peak + EPSILON)) * target, 0, 1);
   }
 
-  /** The snapshot handed to strategies when there is no sound at all (A-07). */
+  /** The snapshot handed to strategies when there is no sound at all. */
   function silence() {
     return Object.freeze({
       level: 0,
@@ -167,7 +167,7 @@ export function createFeatureExtractor(overrides = {}) {
     });
   }
 
-  /** Tune smoothing / auto-gain live from the Audio panel (A-06). */
+  /** Tune smoothing and auto-gain live from the Audio panel. */
   function configure(changes = {}) {
     for (const [key, value] of Object.entries(changes)) {
       if (key in FEATURE_DEFAULTS) options[key] = value;

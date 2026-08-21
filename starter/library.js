@@ -1,9 +1,9 @@
 // AlgoLab's compact system patch library.
 //
-// The core ten mixing patches deliberately use several forms students should recognize:
+// The core mixing patches deliberately use several forms patch authors can remix:
 // a plain function, arrow functions, object literals, higher-order factories, and
 // classes. Three diagnostic patches expose the raw waveform, FFT bins, and normalized
-// audio features. A small scene utility sets a solid background. ShaderFlow teaches
+// audio features. A small scene utility sets a solid background. ShaderFlow demonstrates
 // the built-in fluent GPU pipeline, and Cellular & Blobular demonstrates feedback.
 // Breathing Ellipse is the deliberately tiny first example: one object and one shape.
 // The small remix set adds three transparent drawing layers and five ShaderChain
@@ -11,7 +11,7 @@
 // Configuration remains ordinary JavaScript, with one param() example for a control
 // that can be performed live from the Parameters panel.
 
-/** @typedef {{ name: string, blurb: string, category: 'visual'|'utility'|'shader'|'user', source: string }} LibraryEntry */
+/** @typedef {{ name: string, blurb: string, category: 'visual'|'utility'|'shader'|'community', source: string }} LibraryEntry */
 
 /** @type {LibraryEntry[]} */
 export const LIBRARY = [
@@ -434,6 +434,27 @@ const solidBackground = {
     background(...this.colour);
   },
 };`,
+  },
+
+  {
+    name: 'networkReceiver',
+    category: 'utility',
+    blurb: 'Beta: receives another performer’s canvas. Edit the room, your name, and the published stream name.',
+    source: `// %% patch networkReceiver
+// networkReceiver (beta) — another performer's canvas as an ordinary scene object.
+// 1. Use the same room name shown in the Network panel.
+// 2. Set performer to your own name.
+// 3. Copy the remote stream name exactly, including the slash.
+const receiverRoom = new StreamRoom({
+  name: "performance-room",
+  performer: "your-name",
+});
+
+const networkReceiver = receiverRoom.receive({
+  stream: "performer/main-output",
+  fit: "cover",       // "cover", "contain", or "stretch"
+  opacity: 1,
+});`,
   },
 
   {
@@ -1236,7 +1257,7 @@ export const DIAGNOSTIC_PATCH_NAMES = [
 ];
 
 /**
- * Update copied system diagnostics without rewriting unrelated student code.
+ * Update copied system diagnostics without rewriting unrelated project code.
  * Only the exact former defaults inside the named patch cells are replaced.
  */
 export function upgradeOpaqueDiagnostics(source) {

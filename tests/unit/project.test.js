@@ -1,4 +1,4 @@
-// Source-authoritative project persistence: D-01, D-02, D-03.
+// Source-authoritative project persistence.
 
 import { describe, it, expect } from 'vitest';
 import { createRegistry } from '../../src/host/registry.js';
@@ -36,7 +36,7 @@ const SOURCE = [
   'activate(tunnel);',
 ].join('\n');
 
-describe('D-01 local persistence', () => {
+describe('local persistence', () => {
   it('round-trips source and performer settings', () => {
     const { storage, store } = setup();
     store.save(SOURCE);
@@ -147,7 +147,7 @@ describe('D-01 local persistence', () => {
   });
 });
 
-describe('D-02 export is human-readable', () => {
+describe('export is human-readable', () => {
   it('writes source as lines and keeps composition only in that source', () => {
     const { store } = setup();
     const text = store.exportProject(SOURCE);
@@ -164,7 +164,7 @@ describe('D-02 export is human-readable', () => {
   });
 });
 
-describe('D-03 import parsing is separate from running', () => {
+describe('import parsing is separate from running', () => {
   it('round-trips an exported project without inventing composition data', () => {
     const { store } = setup();
     const parsed = store.parseProject(store.exportProject(SOURCE));

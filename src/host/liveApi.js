@@ -1,6 +1,6 @@
 // The live authoring API — the small set of commands around first-class strategies.
 //
-// Students do not register callbacks. They define ordinary named functions, objects,
+// Patch authors do not register callbacks. They define ordinary named functions, objects,
 // or class instances:
 //
 //   const waveScope = ({ audio }) => { ... };
@@ -13,12 +13,14 @@
 // `scene[1]`. Composition changes only by editing that array.
 
 import { ShaderChain } from '../shaders/shaderChain.js';
+import { StreamRoom } from '../network/streamRoom.js';
 
 export const LIVE_API_NAMES = [
   'activate',
   'reset',
   'param',
   'ShaderChain',
+  'StreamRoom',
 ];
 
 const LIFECYCLE_KEYS = ['state', 'enter', 'draw', 'beat', 'exit', 'dispose'];
@@ -38,7 +40,7 @@ export function inlineStrategyName(sceneName, index) {
   return `${sceneName}[${index}]`;
 }
 
-/** Validate and return the exact function or object supplied by the student. */
+/** Validate and return the exact function or object supplied by the patch author. */
 export function validateStrategy(value, suggestedName) {
   const name = suggestedName;
   if (typeof value === 'function') {
@@ -125,6 +127,7 @@ export function createTransaction(source = '', { nameOf = () => null } = {}) {
 
   const api = {
     ShaderChain,
+    StreamRoom,
 
     activate(scene) {
       if (typeof scene === 'string') {

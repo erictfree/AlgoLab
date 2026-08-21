@@ -1,4 +1,4 @@
-// The trusted-code confirmation — PRD D-03 and §13.3.
+// Trusted-code confirmation for imported projects.
 //
 // "The user shall be able to import an exported project only through an explicit
 // trusted-code confirmation."

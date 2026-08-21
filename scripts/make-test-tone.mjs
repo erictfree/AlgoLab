@@ -1,7 +1,7 @@
 // Generates tests/fixtures/test-tone.wav — a short, deliberately rhythmic tone used
-// by the Degree 3 acceptance test (PRD §12 step 2, "music is playing").
+// by the live-replacement browser test while music is playing.
 //
-// Written by hand rather than committed as an opaque binary so the course build stays
+// Written by hand rather than committed as an opaque binary so the local build stays
 // dependency-free and the fixture is reproducible: run `node scripts/make-test-tone.mjs`.
 
 import { writeFileSync, mkdirSync } from 'node:fs';

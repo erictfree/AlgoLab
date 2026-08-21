@@ -1,7 +1,7 @@
 // Bundle individually authored community patches into one browser module.
 //
 // Git distributes the files; this script only turns their source into importable data.
-// It deliberately does not execute student code.
+// It deliberately does not execute contributed code.
 
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
@@ -16,7 +16,7 @@ const OUTPUT = fileURLToPath(
 const metadata = (source, field) =>
   new RegExp(`^//\\s*@${field}\\s+(.+)$`, 'm').exec(source)?.[1].trim() ?? null;
 
-const CATEGORIES = new Set(['visual', 'utility', 'shader', 'user']);
+const CATEGORIES = new Set(['visual', 'utility', 'shader', 'community']);
 
 const files = (await readdir(SOURCE_DIR))
   .filter((file) => extname(file) === '.js')
@@ -43,7 +43,7 @@ for (const file of files) {
   }
   if (!CATEGORIES.has(category)) {
     throw new Error(
-      `${file} has unknown @category "${category}"; use visual, utility, shader, or user`,
+      `${file} has unknown @category "${category}"; use visual, utility, shader, or community`,
     );
   }
 
@@ -54,7 +54,7 @@ for (const file of files) {
     blurb,
     category,
     source: source.trimEnd(),
-    origin: 'student',
+    origin: 'community',
     file: basename(file),
   });
 }

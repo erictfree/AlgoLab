@@ -1,12 +1,12 @@
 // AlgoLab — wiring.
 //
 // This is the only file that touches p5's globals directly, and the only file that
-// assigns window.setup and window.draw. PRD §8: the host owns those functions, and
-// student code never redefines them. Everything a student writes arrives through the
+// assigns window.setup and window.draw. The host owns those functions, and evaluated
+// patch code never redefines them. Everything authored live arrives through the
 // evaluator instead.
 //
-// The draw loop below is the one printed in §8. It is short on purpose — it is meant
-// to be read by students as the answer to "what stayed alive while I edited?"
+// The draw loop below is short on purpose: it makes what stays alive during an edit
+// easy for contributors to inspect.
 
 import { createDiagnostics } from './host/diagnostics.js';
 import { createRegistry } from './host/registry.js';
@@ -22,6 +22,7 @@ import { createProjectStore } from './persistence/projectStore.js';
 import { createPerformanceStore } from './persistence/performanceStore.js';
 import { createAppController } from './app/controller.js';
 import { evaluateStartupProject } from './app/startupRecovery.js';
+import { getDefaultNetworkManager } from './network/networkManager.js';
 import { STARTER_SOURCE, upgradeLegacyPlasma } from '../starter/starter.js';
 import {
   LIBRARY,
@@ -61,12 +62,13 @@ const registry = createRegistry();
 const stateStore = createStateStore({ diagnostics });
 const evaluator = createEvaluator({ registry, stateStore, diagnostics });
 const audio = createAudioEngine({ diagnostics });
+const network = getDefaultNetworkManager();
 
-// Read-only keyboard state, handed to strategies as one of the draw inputs (§9.4).
+// Read-only keyboard state, handed to strategies as one of the draw inputs.
 const controls = { keys: new Set(), shift: false, alt: false };
 
 /**
- * p5 drawing isolation for one strategy invocation (R-05, §7).
+ * p5 drawing isolation for one strategy invocation.
  *
  * push()/pop() already save and restore p5's style and transform stack. The reset in
  * between exists for a subtler reason: without it, an object inherits whatever the
@@ -103,7 +105,15 @@ const host = createHostLoop({
   controls,
   onCodeError: (name) => showCodeError(name),
 });
-const controller = createAppController({ registry, stateStore, diagnostics, evaluator, audio, host });
+const controller = createAppController({
+  registry,
+  stateStore,
+  diagnostics,
+  evaluator,
+  audio,
+  host,
+  network,
+});
 const projectStore = createProjectStore({ registry, diagnostics });
 const performanceStore = createPerformanceStore({ diagnostics });
 const projection = createProjection({
@@ -129,7 +139,7 @@ let stageCanvas = null;
 const editor = createEditor(document.getElementById('code'), {
   onEvaluate: (source, label) => {
     const result = evaluator.evaluate(source, { label });
-    // P-02: the projection's code layout shows the block that was actually accepted,
+    // The projection's code layout shows the block that was actually accepted,
     // never a failed candidate — the audience should not be shown a broken edit.
     if (result.ok) projection.setActiveCode(source);
     return result;
@@ -171,11 +181,99 @@ const panels = createPanels({
   library: PATCH_LIBRARY,
   onInsertLibrary: installFromLibrary,
   onAddToScene: addPatchToScene,
+  onAddNetworkStream: addNetworkStream,
   onRestoreSafe: restoreSafeState,
   onLocateStrategy: (name) => {
     if (editor.revealStrategy(name)) toggleReference(true);
   },
 });
+
+function networkIdentifier(label) {
+  const words = label
+    .replace(/[^A-Za-z0-9_$]+/g, ' ')
+    .trim()
+    .split(/\s+/);
+  let base = words
+    .map((word, index) => index ? `${word[0]?.toUpperCase() ?? ''}${word.slice(1)}` : word)
+    .join('') || 'remoteStream';
+  if (!/^[A-Za-z_$]/.test(base)) base = `stream${base}`;
+  let name = base;
+  let suffix = 2;
+  while (new RegExp(`\\b(?:const|let|var|class|function)\\s+${name}\\b`).test(editor.value)) {
+    name = `${base}${suffix++}`;
+  }
+  return name;
+}
+
+function receiverCellsFor(stream) {
+  const literal = JSON.stringify(stream).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const streamProperty = new RegExp(`\\bstream\\s*:\\s*${literal}`);
+  return findCells(editor.value).flatMap((cell) => {
+    const patch = /^(?:strategy|patch)\s+([A-Za-z_$][\w$]*)$/.exec(cell.label);
+    return patch && streamProperty.test(cell.text)
+      ? [{ name: patch[1], source: cell.text.trimEnd() }]
+      : [];
+  });
+}
+
+function addNetworkStream({ room, performer, stream }) {
+  let receivers = receiverCellsFor(stream);
+  let name = receivers[0]?.name;
+
+  // Repeated clicks should activate the receiver already in the project, not create
+  // ericMainOutput2, ericMainOutput3, and another peer reference every time.
+  if (!name) {
+    name = networkIdentifier(stream.replace('/', ' '));
+    const roomName = `${name}Room`;
+    editor.insertPatchSource(`// %% patch ${name}
+const ${roomName} = new StreamRoom({
+  name: ${JSON.stringify(room)},
+  performer: ${JSON.stringify(performer)},
+});
+
+const ${name} = ${roomName}.receive({
+  stream: ${JSON.stringify(stream)},
+  fit: "cover",
+});`);
+    receivers = receiverCellsFor(stream);
+  }
+
+  const sceneName = registry.activeSceneName() ?? 'scene';
+  let sceneCell = findCells(editor.value).find((cell) => cell.label === `scene ${sceneName}`);
+  const activeLine = new RegExp(`^[ \\t]*${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*,?`, 'm');
+  if (!sceneCell || !activeLine.test(sceneCell.text)) {
+    const order = controller.snapshot().scene.sourceOrder;
+    const inserted = editor.addStrategyToScene(sceneName, name, order);
+    if (!inserted.ok) {
+      diagnostics.error(
+        `Could not add ${stream} to ${sceneName}`,
+        'The receiver source is still in the project and can be added to the scene by hand.',
+      );
+      return inserted;
+    }
+    sceneCell = findCells(editor.value).find((cell) => cell.label === `scene ${sceneName}`);
+  }
+
+  // A network control is operational UI rather than a source-only library browser.
+  // Evaluate the receiver definition and updated scene together so one click really
+  // does add the remote canvas. Existing duplicate cells are included so projects
+  // created by the earlier insert-only behavior recover without undefined names.
+  receivers = receiverCellsFor(stream);
+  const source = [...receivers.map((receiver) => receiver.source), sceneCell?.text]
+    .filter(Boolean)
+    .join('\n\n');
+  const result = evaluator.evaluate(source, { label: `receiver ${stream}` });
+  if (result.ok) {
+    projection.setActiveCode(sceneCell?.text ?? source);
+    diagnostics.success(
+      `${stream} receiver added and activated`,
+      receivers.length > 1
+        ? `Reused the existing source. This project contains ${receivers.length} copies; keep one when you next tidy the code.`
+        : 'The incoming canvas will appear when the peer connection becomes live.',
+    );
+  }
+  return result;
+}
 
 // --- p5 lifecycle ---------------------------------------------------------------
 
@@ -183,8 +281,8 @@ window.setup = function setup() {
   const stage = document.getElementById('stage');
   stageCanvas = createCanvas(stage.clientWidth, stage.clientHeight);
   stageCanvas.parent(stage);
-  // One device pixel per canvas pixel. §13.5 budgets 60 FPS at 1280x720 on a
-  // classroom laptop, and a retina backing store quadruples the fill cost.
+  // One device pixel per canvas pixel. The reference budget is 60 FPS at 1280x720,
+  // and a retina backing store quadruples the fill cost.
   pixelDensity(1);
   frameRate(60);
   background(8, 8, 12);
@@ -251,7 +349,7 @@ window.setup = function setup() {
       : saved,
   );
   // Panic needs somewhere to go from the first minute, not only after the performer
-  // has thought to designate a safe scene (S-06).
+  // has deliberately designated a safe scene.
   if (registry.safeSceneName() === null) registry.setSafeScene();
 
   diagnostics.info(
@@ -282,7 +380,7 @@ window.draw = function draw() {
 
 window.windowResized = function windowResized() {
   const stage = document.getElementById('stage');
-  // R-06: resizing changes the canvas, never the registrations or their state.
+  // Resizing changes the canvas, never the registrations or their state.
   resizeCanvas(stage.clientWidth, stage.clientHeight);
 };
 
@@ -360,7 +458,7 @@ async function startAudio() {
     resetWelcomeLoadStatus();
     diagnostics.success(`Audio context ${state}`);
   } catch (error) {
-    // A-07: an audio failure is a message, not a stopped draw loop.
+    // An audio failure is a message, not a stopped draw loop.
     overlay.hidden = true;
     resetWelcomeLoadStatus();
     diagnostics.error('Could not start audio', `${error.message} — running on silence.`);
@@ -423,7 +521,7 @@ function toggleLoop() {
 document.getElementById('loop-toggle').addEventListener('click', toggleLoop);
 document.getElementById('loop-performance-toggle').addEventListener('click', toggleLoop);
 
-// --- live input (A-02) -----------------------------------------------------------
+// --- live input ------------------------------------------------------------------
 
 const deviceSelect = document.getElementById('input-device');
 
@@ -449,7 +547,7 @@ deviceSelect.addEventListener('change', (event) => {
   if (event.target.value) startMicrophone(event.target.value);
 });
 
-// --- analysis controls (A-06) ----------------------------------------------------
+// --- analysis controls -----------------------------------------------------------
 
 const smoothingInput = document.getElementById('smoothing');
 const smoothingValue = document.getElementById('smoothing-value');
@@ -638,7 +736,7 @@ const fpsThresholdInput = document.getElementById('fps-threshold');
 fpsThresholdInput.addEventListener('change', () => {
   const value = Number(fpsThresholdInput.value);
   if (!Number.isFinite(value) || value <= 0) return;
-  host.setFpsThreshold(value); // S-07 calls the threshold configurable
+  host.setFpsThreshold(value);
   diagnostics.info(`Frame rate warning set to ${value} FPS`);
 });
 
@@ -898,7 +996,7 @@ document.getElementById('panic').addEventListener('click', panic);
  * Insert a library patch into the editor and register it without changing a scene.
  *
  * It goes through the ordinary evaluation path — no privileged loading — so a library
- * patch is exactly as replaceable as one the student typed, and appears in Installed
+ * patch is exactly as replaceable as one authored in the editor, and appears in Installed
  * Patches with a version number like any other.
  */
 function installFromLibrary(entry) {
@@ -988,7 +1086,7 @@ function buildDemoScene() {
 
 document.getElementById('insert-demo-scene').addEventListener('click', buildDemoScene);
 
-// --- project export / import (D-02, D-03) ----------------------------------------
+// --- project export / import -----------------------------------------------------
 
 document.getElementById('export-project').addEventListener('click', () => {
   const name = projectStore.download(editor.value);
@@ -1056,8 +1154,8 @@ async function startNewPerformance() {
 
 document.getElementById('new-performance').addEventListener('click', startNewPerformance);
 
-/** Start over — the destructive project-file counterpart to the clearer performer
- * action above. Kept for students who think in terms of resetting a project. */
+/** Start over — the destructive project-file counterpart to the clearer New
+ * performance action above. */
 document.getElementById('reset-project').addEventListener('click', () => {
   confirmStarterProject({
     title: 'Reset this project?',
@@ -1083,9 +1181,8 @@ document.getElementById('import-file').addEventListener('change', async (event) 
   }
   const importedSource = upgradeLegacyActivation(parsed.data.source);
 
-  // D-03: importing runs someone else's JavaScript on this machine. §13.3 is explicit
-  // that error boundaries are not a sandbox, so the confirmation shows the actual
-  // source and defaults to Cancel.
+  // Importing runs someone else's JavaScript on this machine. Error boundaries are
+  // not a sandbox, so confirmation shows the actual source and defaults to Cancel.
   const confirmed = await dialog.ask({
     title: `Import "${file.name}"?`,
     body:
@@ -1120,7 +1217,7 @@ document.getElementById('import-file').addEventListener('change', async (event) 
   diagnostics.success(`Imported ${file.name}`);
 });
 
-// Drop an audio file anywhere on the stage (§10.2 step 2).
+// Drop an audio file anywhere on the stage.
 stage.addEventListener('dragover', (event) => event.preventDefault());
 stage.addEventListener('drop', async (event) => {
   event.preventDefault();
@@ -1151,7 +1248,7 @@ stage.addEventListener('drop', async (event) => {
  */
 const COMMANDS = {
   ' ': () => toggleAudio(),
-  0: () => panic(), // S-06 / P-05: one action, back to a scene the performer trusts
+  0: () => panic(), // one action back to a scene the performer trusts
   s: () => setSafeScene(),
   '\\': () => toggleTools(), // the settings drawer
   r: () => toggleReference(), // project patches and their public interfaces
@@ -1211,10 +1308,13 @@ window.addEventListener('keyup', (event) => {
 });
 
 // Save on the way out, so a mid-set refresh does not lose the last edit.
-window.addEventListener('beforeunload', () => projectStore.save(editor.value));
+window.addEventListener('beforeunload', () => {
+  projectStore.save(editor.value);
+  network.dispose();
+});
 
-// Exposed for the automated acceptance test (tests/e2e/degree3.spec.js) and for
-// students who want to poke at the running system from the browser console.
+// Exposed for automated browser tests and for patch authors who want to inspect the
+// running system from the browser console.
 window.AlgoLab = {
   controller,
   registry,
@@ -1227,8 +1327,9 @@ window.AlgoLab = {
   projection,
   projectStore,
   performanceStore,
+  network,
 };
-// Keep already-open console snippets and course test harnesses alive through the
+// Keep already-open console snippets and compatibility harnesses alive through the
 // product renames. New material uses window.AlgoLab.
 window.LivecodeLab = window.AlgoLab;
 window.Patchlab = window.AlgoLab;

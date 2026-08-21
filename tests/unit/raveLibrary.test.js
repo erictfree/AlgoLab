@@ -25,7 +25,7 @@ const RAVE_PATCHES = [
 
 const MIX_ORDER = RAVE_PATCH_NAMES;
 
-describe('the rave teaching library', () => {
+describe('the system patch library', () => {
   it('makes the starter Plasma visibly controllable and upgrades known untouched versions', () => {
     expect(STARTER_SOURCE).toContain('float softBlob(');
     expect(STARTER_SOURCE).toContain('speed = 0.35;');
@@ -226,6 +226,16 @@ describe('the rave teaching library', () => {
     expect(entry.source).toContain('Put it first in the scene array');
   });
 
+  it('ships an editable first-class network receiver utility', () => {
+    const entry = LIBRARY.find(({ name }) => name === 'networkReceiver');
+    expect(entry.category).toBe('utility');
+    expect(entry.source).toContain('// %% patch networkReceiver');
+    expect(entry.source).toContain('new StreamRoom({');
+    expect(entry.source).toContain('performer: "your-name"');
+    expect(entry.source).toContain('stream: "performer/main-output"');
+    expect(entry.source).toContain('const networkReceiver = receiverRoom.receive({');
+  });
+
   it('upgrades copied diagnostic defaults without touching other patch cells', () => {
     const source = `// %% patch frequencyBars
 const frequencyBars = {
@@ -236,14 +246,14 @@ const frequencyBars = {
 // %% patch audioMeters
 const audioMeters = { draw() { fill(...colour, 220); } };
 
-// %% patch studentPatch
-const studentPatch = { draw() { fill(100, 145, 255, 230); } };`;
+// %% patch customPatch
+const customPatch = { draw() { fill(100, 145, 255, 230); } };`;
 
     const upgraded = upgradeOpaqueDiagnostics(source);
     expect(upgraded).toContain('heightRatio: 0.34');
     expect(upgraded).toContain('fill(100, 145, 255);');
     expect(upgraded).toContain('fill(...colour);');
-    expect(upgraded).toContain('studentPatch = { draw() { fill(100, 145, 255, 230); } }');
+    expect(upgraded).toContain('customPatch = { draw() { fill(100, 145, 255, 230); } }');
   });
 
   it('gives every system library patch an explicit display category', () => {

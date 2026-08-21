@@ -1,4 +1,4 @@
-// P1 safety and performance requirements: S-06, S-07, P-05.
+// Safety and performance behavior.
 
 import { describe, it, expect } from 'vitest';
 import { createTestHost } from './helpers.js';
@@ -11,7 +11,7 @@ const TWO_SCENES = `
   activate(calm);
 `;
 
-describe('S-06 / P-05 safe scene and panic', () => {
+describe('safe scene and recovery', () => {
   it('returns to the designated scene in one action', () => {
     const h = createTestHost();
     h.evaluator.evaluate(TWO_SCENES);
@@ -66,7 +66,7 @@ describe('S-06 / P-05 safe scene and panic', () => {
   });
 });
 
-describe('S-07 frame rate warning', () => {
+describe('frame rate warning', () => {
   it('warns only after the frame rate stays low for five seconds', () => {
     const h = createTestHost({ fpsThreshold: 30 });
     h.evaluator.evaluate('const a = { draw() {} };');
@@ -119,7 +119,7 @@ describe('S-07 frame rate warning', () => {
   });
 });
 
-describe('S-08 dt is capped after a stall', () => {
+describe('dt is capped after a stall', () => {
   it('hands strategies a bounded dt even after a long freeze', () => {
     const h = createTestHost();
     const seen = [];

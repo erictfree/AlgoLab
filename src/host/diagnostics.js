@@ -1,11 +1,11 @@
 // Diagnostics — the performer's channel, and only the performer's.
 //
-// PRD §10.5 / P-01: when an evaluation fails, the message belongs in the performer
+// When an evaluation fails, the message belongs in the performer
 // chrome. It must never be drawn onto the canvas, because the canvas is what the
 // audience is watching. Nothing in this module touches the p5 canvas.
 //
 // Entries are held in a bounded ring so a long set cannot grow host memory without
-// limit (§15, soak test).
+// limit, verified by the soak test.
 
 const DEFAULT_LIMIT = 200;
 

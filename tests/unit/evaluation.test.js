@@ -9,7 +9,7 @@ const RINGS_V1 = `
   activate(show);
 `;
 
-describe('S-01 a syntax error never replaces a valid active strategy', () => {
+describe('a syntax error never replaces a valid active strategy', () => {
   it('rejects before anything is staged', () => {
     const h = createTestHost();
     h.evaluator.evaluate(RINGS_V1);
@@ -41,7 +41,7 @@ describe('S-01 a syntax error never replaces a valid active strategy', () => {
   });
 });
 
-describe('S-02 an evaluation error never replaces a valid active strategy', () => {
+describe('an evaluation error never replaces a valid active strategy', () => {
   it('installs an explicitly named first-class function patch before it is in a scene', () => {
     const h = createTestHost();
     const result = h.evaluator.evaluate(`// %% patch strobe
@@ -334,7 +334,7 @@ const plasma = new Plasma();`;
   });
 });
 
-describe('S-03 a first-frame runtime error restores the previous object', () => {
+describe('a first-frame runtime error restores the previous object', () => {
   it('restores both the previous object and the pre-candidate state', () => {
     const h = createTestHost();
     h.evaluator.evaluate(RINGS_V1);
@@ -459,7 +459,7 @@ describe('resource disposal', () => {
   });
 });
 
-describe('S-04 one failing strategy does not stop the others', () => {
+describe('one failing strategy does not stop the others', () => {
   it('keeps drawing the rest of the scene, every frame', () => {
     const h = createTestHost();
     h.evaluator.evaluate(`
@@ -502,7 +502,7 @@ describe('S-04 one failing strategy does not stop the others', () => {
   });
 });
 
-describe('S-05 version history and reversion', () => {
+describe('version history and reversion', () => {
   it('keeps successful versions and reverts to a chosen object', () => {
     const h = createTestHost();
     for (let i = 1; i <= 12; i++) {
@@ -525,7 +525,7 @@ describe('S-05 version history and reversion', () => {
   });
 });
 
-describe('R-03 / L-02 replacement is scoped and lands at a frame boundary', () => {
+describe('replacement is scoped and lands at a frame boundary', () => {
   it('does not re-evaluate or reset unrelated objects', () => {
     const h = createTestHost();
     h.evaluator.evaluate(`

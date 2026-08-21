@@ -1,11 +1,11 @@
-// Audio engine — shared infrastructure, created once (PRD §7, A-03).
+// Audio engine — shared infrastructure, created once.
 //
 // Exactly one p5.Amplitude and one p5.FFT exist for the whole session, no matter how
 // many strategies are drawing, and no matter how many times the input source changes.
 // Strategies never construct their own analyzers; they read the snapshot this module
 // produces.
 //
-// Nothing in the evaluation path calls into this file. That is how A-04 is satisfied:
+// Nothing in the evaluation path calls into this file:
 // evaluating code cannot restart playback or recreate an analyzer, because evaluating
 // code has no way to reach either one.
 
@@ -52,7 +52,7 @@ export function createAudioEngine({ diagnostics } = {}) {
     fft.setInput(node);
   }
 
-  // --- file input (A-01) ----------------------------------------------------------
+  // --- file input -----------------------------------------------------------------
 
   /**
    * Load a browser-readable audio file. This is a user action, not an evaluation, so
@@ -102,7 +102,7 @@ export function createAudioEngine({ diagnostics } = {}) {
           sourceError = `Could not decode ${file.name}`;
           loadPhase = null;
           loadProgress = null;
-          // A-07: a failed input is a diagnostic, not a stopped draw loop.
+          // A failed input is a diagnostic, not a stopped draw loop.
           diagnostics?.error(
             sourceError,
             'Try a .mp3, .wav, .ogg, .m4a, or .aac file. The sketch keeps running on silence.',
@@ -122,7 +122,7 @@ export function createAudioEngine({ diagnostics } = {}) {
     });
   }
 
-  // --- microphone / line input (A-02) ---------------------------------------------
+  // --- microphone / line input ----------------------------------------------------
 
   /**
    * Switch to live input. The browser prompts for permission the first time; a denial
@@ -188,7 +188,7 @@ export function createAudioEngine({ diagnostics } = {}) {
     mic = null;
   }
 
-  /** Selectable input devices, for the source picker (A-02). */
+  /** Selectable input devices for the source picker. */
   async function listInputs() {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -221,7 +221,7 @@ export function createAudioEngine({ diagnostics } = {}) {
     return context.state;
   }
 
-  /** The explicit user gesture browsers require before audio may start (§10.2). */
+  /** The explicit user gesture browsers require before audio may start. */
   async function start() {
     const state = await unlock();
     if (sourceKind === 'file' && soundFile && !soundFile.isPlaying()) soundFile.play();
@@ -252,15 +252,15 @@ export function createAudioEngine({ diagnostics } = {}) {
   // --- analysis -------------------------------------------------------------------
 
   /**
-   * One analysis pass per frame, shared by every strategy that frame (A-03, A-05).
-   * Returns a frozen snapshot in the shape of §9.5.
+   * One analysis pass per frame, shared by every strategy that frame.
+   * Returns a frozen audio snapshot.
    */
   function readFrame() {
     const nowSeconds = performance.now() / 1000;
     const dt = lastReadAt === null ? 1 / 60 : Math.min(nowSeconds - lastReadAt, 0.25);
     lastReadAt = nowSeconds;
 
-    // A-07: no source, a suspended context, or a failed input all produce a stable
+    // No source, a suspended context, or a failed input all produce a stable
     // silence snapshot. The draw loop never learns that anything went wrong.
     if (!fft || !amplitude || sourceKind === 'none' || getAudioContext().state !== 'running') {
       return features.silence();
@@ -311,7 +311,7 @@ export function createAudioEngine({ diagnostics } = {}) {
     setLoop,
     readFrame,
     status,
-    /** Live smoothing / auto-gain controls (A-06). */
+    /** Live smoothing and auto-gain controls. */
     configure: features.configure,
     featureOptions: features.options,
   };

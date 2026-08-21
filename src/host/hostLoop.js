@@ -1,18 +1,18 @@
 // Host loop — the part that stays alive.
 //
-// PRD §8: AlgoLab, not student code, owns setup() and draw(). This module is the
-// body of that draw(). Student code contributes named behaviors that this loop calls.
+// AlgoLab, not evaluated patch code, owns setup() and draw(). This module is the
+// body of that draw(); live code contributes named behaviors that this loop calls.
 //
-// It also owns steps 6 and 7 of the evaluation transaction (§13.2): a candidate strategy
+// It also owns the frame-boundary steps of the evaluation transaction: a candidate strategy
 // is invoked inside an error boundary, and either survives its first frame (commit) or
 // is replaced by its predecessor along with the state snapshot taken before it ran.
 //
 // Drawing is injected through `drawing` so this file can be unit-tested without p5.
 
-const MAX_DT = 1 / 10; // S-08: after a stall, resumed state must not leap.
+const MAX_DT = 1 / 10; // after a stall, resumed state must not leap
 const FPS_WINDOW = 60;
 const ERROR_REPEAT_FRAMES = 120; // Throttle a strategy that throws every frame.
-const SLOW_SECONDS = 5; // S-07: sustained, not a single bad frame.
+const SLOW_SECONDS = 5; // sustained, not a single bad frame
 
 export function createHostLoop({
   registry,
@@ -21,7 +21,7 @@ export function createHostLoop({
   diagnostics,
   drawing,
   controls = {},
-  fpsThreshold = 30, // S-07 calls this configurable; the panel writes to it
+  fpsThreshold = 30, // configurable from the Project panel
   now = () => performance.now() / 1000,
   onCodeError = () => {},
 }) {
@@ -37,7 +37,7 @@ export function createHostLoop({
   let fpsIndex = 0;
   let fpsFilled = 0;
 
-  // One draw-input object, reused every frame for every strategy. §13.5 forbids
+  // One draw-input object, reused every frame for every strategy. Avoid
   // unbounded per-frame allocation, and a performance can run for half an hour.
   // `state` is swapped per instance immediately before the call.
   const drawInputs = {
@@ -87,7 +87,7 @@ export function createHostLoop({
     return drawInputs;
   }
 
-  /** `exit` runs when an instance leaves the active scene (§9.3). */
+  /** `exit` runs when an instance leaves the active scene. */
   function runExitsForDepartedStrategies() {
     const current = registry.activeStrategies();
     const currentIds = new Set(current.map((strategy) => strategy.id));
@@ -107,10 +107,10 @@ export function createHostLoop({
   /**
    * Draw one strategy inside its own error boundary.
    *
-   * Two failure paths, and the difference matters (§10.5):
+   * Two failure paths, and the difference matters:
    *   - a candidate version throws  -> automatic rollback to the previous version
    *   - an already-committed version throws -> it is marked failed, but the loop and
-   *     every other strategy keeps running (S-04)
+   *     every other strategy keeps running
    */
   function drawStrategy(strategy, inputs) {
     const id = strategy.id;
@@ -230,7 +230,7 @@ export function createHostLoop({
 
   /**
    * End of frame. Confirm candidates only after every active instance has had its
-   * turn, then splice in queued transactions for the next frame boundary (R-03).
+   * turn, then splice in queued transactions for the next frame boundary.
    * A shared definition is not good merely because its first copy survived: another
    * copy can take a different path through the same code because state is per copy.
    */
@@ -266,7 +266,7 @@ export function createHostLoop({
   }
 
   /**
-   * S-07: warn when average FPS stays below the threshold for five seconds.
+   * Warn when average FPS stays below the threshold for five seconds.
    *
    * The five seconds matter. A single slow frame is a garbage collection or a window
    * resize; five seconds of them is a strategy that is too expensive, and that is worth

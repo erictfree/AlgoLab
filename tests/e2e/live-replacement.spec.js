@@ -34,9 +34,9 @@ const trailDots = {
   },
 };
 
-// %% scene degree
-const degree = [baseFade, laserFan, trailDots, plasma];
-activate(degree);
+// %% scene liveSet
+const liveSet = [baseFade, laserFan, trailDots, plasma];
+activate(liveSet);
 `;
 
 const LASER_EDITED = `const laserFan = {
@@ -96,7 +96,7 @@ const snapshot = (page) =>
     };
   });
 
-test('Degree 3: visual logic is replaceable while everything else stays alive', async ({ page }) => {
+test('visual logic is replaceable while everything else stays alive', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
@@ -109,7 +109,7 @@ test('Degree 3: visual logic is replaceable while everything else stays alive', 
   await page.evaluate(() => window.AlgoLab.editor.setFolded(false));
 
   const starter = await page.locator('#code').inputValue();
-  await setBufferAndCursor(page, `${starter.trimEnd()}\n${FIXTURE_SOURCE}`, 'const degree =');
+  await setBufferAndCursor(page, `${starter.trimEnd()}\n${FIXTURE_SOURCE}`, 'const liveSet =');
   await page.locator('#code').press('Control+Shift+Enter');
   await expect
     .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
@@ -168,10 +168,10 @@ test('Degree 3: visual logic is replaceable while everything else stays alive', 
   expect(afterRollback.canvasId).toBe('original');
 
   const reordered = edited.replace(
-    'const degree = [baseFade, laserFan, trailDots, plasma];',
-    'const degree = [baseFade, trailDots, laserFan, plasma];',
+    'const liveSet = [baseFade, laserFan, trailDots, plasma];',
+    'const liveSet = [baseFade, trailDots, laserFan, plasma];',
   );
-  await setBufferAndCursor(page, reordered, 'const degree =');
+  await setBufferAndCursor(page, reordered, 'const liveSet =');
   await page.locator('#code').press('Control+Enter');
   await expect
     .poll(() => page.evaluate(() => window.AlgoLab.registry.activeOrder()))
@@ -194,7 +194,7 @@ test('Degree 3: visual logic is replaceable while everything else stays alive', 
   expect(pageErrors).toEqual([]);
 });
 
-test('D-01: source, installed patches, and scene order survive a refresh', async ({ page }) => {
+test('source, installed patches, and scene order survive a refresh', async ({ page }) => {
   await page.goto('/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();

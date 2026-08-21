@@ -1,6 +1,6 @@
 // Evaluator — atomic live replacement for ordinary strategy functions and objects.
 //
-// A student writes normal JavaScript bindings, not registration calls:
+// A patch author writes normal JavaScript bindings, not registration calls:
 //
 //   class NeonTunnel { draw({ audio }) { ... } }
 //   const neonTunnel = new NeonTunnel();

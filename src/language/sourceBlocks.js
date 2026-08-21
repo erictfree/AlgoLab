@@ -137,7 +137,7 @@ export function findCells(source) {
 
 /**
  * Upgrade the retired scene command in persisted source without exposing it as a
- * runtime alias. Comments and strings remain untouched so teaching notes and example
+ * runtime alias. Comments and strings remain untouched so project notes and example
  * text retain exactly what the author wrote.
  *
  * @param {string} source
@@ -519,7 +519,7 @@ function skipRegex(source, i) {
 
 /**
  * The block containing `cursor`, or null if the cursor sits outside every block
- * (in which case the caller evaluates the whole buffer — §10.3's "smallest complete
+ * (in which case the caller evaluates the whole buffer — the "smallest complete
  * program" fallback).
  * @param {string} source
  * @param {number} cursor

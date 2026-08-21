@@ -1,15 +1,15 @@
-// Projection view — PRD §10.6, P-01 through P-03.
+// Projection view for the audience window.
 //
-// "Performer and audience views are different" (§7). The performer keeps the editor,
+// The performer keeps the editor,
 // the controls, error messages, and file names. The audience gets the canvas, and
 // optionally a deliberate overlay that clarifies the performer's agency.
 //
-// P-01 is a prohibition as much as a feature: editor errors, file paths, transport
+// Editor errors, file paths, transport
 // controls, and private notes never appear here. Nothing in this module reads the
 // diagnostics bus, and that is on purpose — there is no path from a stack trace to
 // the projector.
 //
-// Implementation note (§19.5 asks whether a separate window is reliable): the popup
+// The popup
 // gets its own 2D canvas and each frame is copied across with drawImage, rather than
 // moving the p5 canvas into the other window. Moving it works until the popup is
 // closed, at which point the running sketch loses its drawing surface mid-set. A copy
@@ -51,7 +51,7 @@ export function createProjection({ controller, onBlocked, onOpened }) {
 
   const isOpen = () => win !== null && !win.closed;
 
-  /** Must be called from a user gesture, or the popup is blocked (§10.6). */
+  /** Must be called from a user gesture, or the popup is blocked. */
   function open() {
     if (isOpen()) {
       win.focus();
@@ -167,7 +167,7 @@ export function createProjection({ controller, onBlocked, onOpened }) {
     overlay.hidden = false;
 
     if (layout === 'code') {
-      // P-02: the most recently evaluated block, and nothing else. Not the buffer,
+      // The most recently evaluated block, and nothing else. Not the buffer,
       // not the file name, not the error.
       const pre = win.document.createElement('pre');
       pre.textContent = activeCode.trim();
@@ -175,7 +175,7 @@ export function createProjection({ controller, onBlocked, onOpened }) {
       return;
     }
 
-    // P-03: strategy names, layer order, and audio-to-behavior mappings.
+    // Strategy names, layer order, and audio-to-behavior mappings.
     const snapshot = controller.snapshot();
     const title = win.document.createElement('div');
     title.className = 'trace-title';

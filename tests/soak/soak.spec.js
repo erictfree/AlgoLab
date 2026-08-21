@@ -1,9 +1,9 @@
-// PRD §15 reliability — the claims that only a long run can support.
+// Reliability claims that only a long run can support.
 //
 //   "A 30-minute input-and-render soak test completes without audio
 //    reinitialization or unbounded host memory growth."
 //
-// And from §16's rehearsal test: accidental double evaluation, bad code, and FPS
+// The rehearsal path also covers accidental double evaluation, bad code, and FPS
 // degradation over a sustained set.
 //
 // This is separated from the normal E2E suite because it is slow by nature. Duration
@@ -11,7 +11,7 @@
 // minutes before a show:
 //
 //   npm run test:soak                 # 3 minutes, the default
-//   SOAK_MINUTES=30 npm run test:soak # the §15 figure
+//   SOAK_MINUTES=30 npm run test:soak
 //
 // What it is actually watching for: a leak that only shows up after thousands of
 // evaluations, an audio graph quietly rebuilt underneath the sketch, and a frame rate
@@ -49,7 +49,7 @@ const EDITS = [
   () => 'activate(tunnel);',
 ];
 
-test(`§15 soak — ${MINUTES} minutes of continuous render, analysis, and evaluation`, async ({
+test(`soak — ${MINUTES} minutes of continuous render, analysis, and evaluation`, async ({
   page,
 }) => {
   test.setTimeout(DURATION_MS + 120_000);
@@ -67,7 +67,7 @@ test(`§15 soak — ${MINUTES} minutes of continuous render, analysis, and evalu
   await expect.poll(() => page.evaluate(() => window.AlgoLab.audio.status().playing)).toBe(true);
 
   // Identity probes: if any of these change, something was rebuilt underneath the
-  // running sketch, which is exactly what A-04 and R-01 forbid.
+  // running sketch, which would violate audio and host continuity.
   await page.evaluate(() => {
     document.querySelector('#stage canvas').dataset.probe = 'original';
     window.__probe = { context: getAudioContext(), draw: window.draw, setup: window.setup };
@@ -89,7 +89,7 @@ test(`§15 soak — ${MINUTES} minutes of continuous render, analysis, and evalu
         contextState: getAudioContext().state,
         strategyCount: R.registry.listStrategies().length,
         sceneSize: R.registry.activeOrder().length,
-        // Bounded structures — §13.5 forbids unbounded per-frame growth.
+        // Bounded structures prevent unbounded per-frame growth.
         diagnostics: R.diagnostics.list().length,
         maxHistory: Math.max(...R.registry.listStrategies().map((p) => p.history.length)),
         motesTrail: R.stateStore.get('motes')?.pts?.length ?? 0,

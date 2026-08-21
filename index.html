@@ -6,9 +6,9 @@
     <title>AlgoLab — p5.js live visual playground</title>
 
     <!--
-      p5 and p5.sound are pinned course builds, vendored locally so the project runs
-      with no network access (PRD §8, D-05). There is no CDN reference anywhere in
-      this page, and no other origin is contacted at any point.
+      p5 and p5.sound are pinned builds, vendored locally so the visual app runs
+      with no CDN access. Networking remains dormant unless a performer joins a
+      StreamRoom; a deployment may then use its configured signaling and ICE services.
 
       They must be classic scripts, and they must come before the module below. p5's
       global mode binds window.setup / window.draw on the window `load` event; module
@@ -21,7 +21,7 @@
 
   <body>
     <div id="app">
-      <!-- STAGE — never replaced by an editor error (§10.1) -->
+      <!-- STAGE — never replaced by an editor error -->
       <main id="stage">
         <div
           id="start-overlay"
@@ -32,6 +32,10 @@
         >
           <article class="welcome-card">
             <header class="welcome-header">
+              <div class="welcome-name">
+                <h1 id="welcome-title">ALGOLAB</h1>
+                <p>AUDIO-REACTIVE VISUAL LIVE CODING IN THE BROWSER</p>
+              </div>
               <a
                 class="welcome-department-mark"
                 href="https://aet.utexas.edu/"
@@ -45,16 +49,12 @@
                   alt="Department of Arts and Entertainment Technologies"
                 />
               </a>
-              <div class="welcome-name">
-                <h1 id="welcome-title">ALGOLAB</h1>
-                <p>AUDIO-REACTIVE VISUAL LIVE CODING IN THE BROWSER</p>
-                <p class="welcome-school">THE UNIVERSITY OF TEXAS AT AUSTIN</p>
-              </div>
             </header>
 
             <div class="welcome-body">
               <p id="welcome-description" class="welcome-intro">
-                AlgoLab is a browser-based visual instrument created by Eric Freeman at the
+                AlgoLab is a browser-based visual instrument for live-coding audio-reactive
+                graphics with JavaScript and p5.js. It was created by Eric Freeman at the
                 <a href="https://aet.utexas.edu/" target="_blank" rel="noopener noreferrer">Department of Arts and Entertainment Technologies</a>
                 at The University of Texas at Austin.
                 Build visuals with JavaScript patches, arrange them into a scene,
@@ -102,7 +102,7 @@
         </div>
       </main>
 
-      <!-- CODE LAYER (§10.1) — the code sits directly on the visuals, edge to edge,
+      <!-- CODE LAYER — the code sits directly on the visuals, edge to edge,
            with no panel around it. #code-mirror renders the text and the translucent
            box behind each line; #line-numbers is a read-only gutter. The textarea on
            top is transparent and holds the caret, selection, and value. It remains the
@@ -125,7 +125,7 @@
       </div>
 
 
-      <!-- RUNTIME MONITOR (§10.1) — outside the drawer, because the one thing a
+      <!-- RUNTIME MONITOR — outside the drawer, because the one thing a
            performer must be able to see at all times is whether it is still running. -->
       <div id="runtime-bar">
         <span><span class="label">fps</span> <span class="value" id="stat-fps">0</span></span>
@@ -169,7 +169,7 @@
       </div>
 
       <!-- TOOLS DRAWER — everything that is a setting rather than a performance move.
-           Hidden by default (§10.1 wants the stage; this gives it the whole window). -->
+           Hidden by default so the stage gets the whole window. -->
       <aside id="side" class="right-drawer is-hidden">
         <div id="stagebar">
           <span class="brand">ALGOLAB</span>
@@ -192,6 +192,14 @@
             aria-controls="audio-panel"
             data-tool-view="audio"
           >Audio</button>
+          <button
+            id="tools-tab-network"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="network-panel"
+            data-tool-view="network"
+          >Network <span class="beta-badge">beta</span></button>
           <button
             id="tools-tab-library"
             type="button"
@@ -258,6 +266,67 @@
                   <input id="auto-gain" type="checkbox" checked />
                 </label>
               </details>
+            </div>
+          </section>
+
+          <section
+            class="tool-view"
+            id="network-panel"
+            role="tabpanel"
+            aria-labelledby="tools-tab-network"
+            data-tool-panel="network"
+            hidden
+          >
+            <div class="body">
+              <p class="hint network-beta-note">
+                Beta: intended for small rooms. Production use requires configured STUN/TURN services.
+              </p>
+              <div class="row">
+                <span class="name">signaling</span>
+                <span id="network-status" class="value">offline</span>
+              </div>
+              <div id="network-service" class="hint">Not connected</div>
+              <p class="hint">
+                Join to discover streams without publishing. Active <code>StreamRoom</code> objects also retain their room automatically.
+              </p>
+              <form id="network-join-form" class="network-join-form">
+                <input
+                  id="network-room-name"
+                  type="text"
+                  maxlength="120"
+                  autocomplete="off"
+                  placeholder="Room name"
+                  aria-label="Room name"
+                  required
+                />
+                <input
+                  id="network-performer-name"
+                  type="text"
+                  maxlength="120"
+                  autocomplete="nickname"
+                  placeholder="Your performer name"
+                  aria-label="Performer name"
+                  required
+                />
+                <input
+                  id="network-room-token"
+                  type="password"
+                  maxlength="120"
+                  autocomplete="off"
+                  placeholder="Invite token (optional)"
+                  aria-label="Room invite token"
+                />
+                <button type="submit">Join for discovery</button>
+              </form>
+              <pre class="network-example"><code>const room = new StreamRoom({
+  name: "warehouse-stage",
+  performer: "Your name",
+});
+
+const publishMain = room.publish({
+  name: "main-output",
+});</code></pre>
+              <div id="network-rooms"></div>
             </div>
           </section>
 

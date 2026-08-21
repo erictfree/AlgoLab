@@ -1,7 +1,7 @@
 // Application controller — the boundary between the runtime model and DOM views.
 //
 // Views receive immutable snapshots and dispatch named actions. They never receive the
-// registry, state store, evaluator, audio engine, host loop, or student objects themselves.
+// registry, state store, evaluator, audio engine, host loop, or authored objects themselves.
 
 import { findCells } from '../language/sourceBlocks.js';
 
@@ -40,7 +40,7 @@ function formatValue(value, depth = 0) {
     }
   } catch {
     // A proxy may reject reflection. The reference is optional and must never break
-    // the runtime snapshot when a student's object does something unusual.
+    // the runtime snapshot when an authored object does something unusual.
   }
   return `[${constructorName(value)}]`;
 }
@@ -69,7 +69,7 @@ function constructorName(value) {
 /**
  * Convert a live function/object into strings suitable for a view.
  *
- * Descriptors are inspected instead of reading `strategy[name]`: getters are student
+ * Descriptors are inspected instead of reading `strategy[name]`: getters are authored
  * code, and merely opening a documentation panel must not run them. Private class
  * fields are correctly absent because JavaScript reflection cannot expose them.
  */
@@ -139,7 +139,15 @@ function describeStrategy(definition) {
   }
 }
 
-export function createAppController({ registry, stateStore, diagnostics, evaluator, audio, host }) {
+export function createAppController({
+  registry,
+  stateStore,
+  diagnostics,
+  evaluator,
+  audio,
+  host,
+  network = null,
+}) {
   let latestAudio = null;
   let sourceProvider = () => '';
   let safeSnapshot = null;
@@ -150,6 +158,7 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
   };
   const unsubscribeRegistry = registry.subscribe(notify);
   const unsubscribeDiagnostics = diagnostics.subscribe(notify);
+  const unsubscribeNetwork = network?.subscribe?.(notify) ?? (() => {});
 
   function projectSignature(source = sourceProvider()) {
     return JSON.stringify({
@@ -368,6 +377,12 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
       safeState: safeStateStatus(),
       params: registry.listParams().map((entry) => ({ ...entry })),
       history,
+      network: network?.snapshot?.() ?? {
+        service: null,
+        status: 'offline',
+        clientId: null,
+        rooms: [],
+      },
       diagnostics: diagnostics.list().slice(0, 30).map((entry) => ({ ...entry })),
     });
   }
@@ -395,6 +410,14 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
 
     setParam(name, value) {
       return registry.setParam(name, value);
+    },
+
+    joinNetworkRoom(config) {
+      return network?.watchRoom?.(config) ?? null;
+    },
+
+    leaveNetworkRoom(name) {
+      return network?.unwatchRoom?.(name) ?? false;
     },
 
     setSafeState() {
@@ -450,6 +473,7 @@ export function createAppController({ registry, stateStore, diagnostics, evaluat
     dispose() {
       unsubscribeRegistry();
       unsubscribeDiagnostics();
+      unsubscribeNetwork();
       listeners.clear();
     },
   };

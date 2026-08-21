@@ -1,4 +1,4 @@
-// P1 course-ready behavior in the real page: projection, panic, and import.
+// Performance behavior in the real page: projection, recovery, and import.
 
 import { test, expect } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
@@ -91,12 +91,12 @@ async function appendCellAndEvaluate(page, source) {
   await page.locator('#code').press('Control+Enter');
 }
 
-test.describe('P-01..P-03 projection view', () => {
+test.describe('projection view', () => {
   test('opens a window that shows the canvas and no diagnostics', async ({ page, context }) => {
     await boot(page);
 
     // Put a real error in the performer's Messages panel first — the whole point of
-    // P-01 is that this must not travel to the projector.
+    // Performer diagnostics must not travel to the projector.
     await page.evaluate(() =>
       window.AlgoLab.evaluator.evaluate('const rings = { draw() { ((( broken', { label: 'strategy rings' }),
     );
@@ -132,7 +132,7 @@ test.describe('P-01..P-03 projection view', () => {
     await projector.close();
   });
 
-  test('P-02 code layout shows the last accepted block, not a failed one', async ({
+  test('code layout shows the last accepted block, not a failed one', async ({
     page,
     context,
   }) => {
@@ -188,7 +188,7 @@ test.describe('P-01..P-03 projection view', () => {
     await projector.close();
   });
 
-  test('P-03 trace layout shows layer order and audio mappings', async ({ page, context }) => {
+  test('trace layout shows layer order and audio mappings', async ({ page, context }) => {
     await boot(page);
     const [projector] = await Promise.all([
       context.waitForEvent('page'),
@@ -438,8 +438,8 @@ activate(laserScene);`);
     await boot(page);
 
     const library = page.locator('#strategy-library');
-    await expect(library.locator('[data-library]')).toHaveCount(27);
-    await expect(page.getByRole('button', { name: /^All 27$/ })).toHaveAttribute('aria-pressed', 'true');
+    await expect(library.locator('[data-library]')).toHaveCount(28);
+    await expect(page.getByRole('button', { name: /^All 28$/ })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('[data-library="laserFan"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-library="plasma"]')).toHaveAttribute('data-origin', 'system');
     await expect(page.locator('[data-available="laserFan"]')).toContainText('laserFan');
@@ -461,7 +461,7 @@ activate(laserScene);`);
     await expect(
       library.locator('[data-library-group="shader"] [data-library="shaderFlow"]'),
     ).toBeVisible();
-    await expect(library.locator('[data-library-group="user"]')).toHaveCount(0);
+    await expect(library.locator('[data-library-group="community"]')).toHaveCount(0);
     await expect(page.locator('.shader-operator-reference')).toContainText('Shader operators');
 
     await expect(page.locator('[data-library="laserFan"]')).toContainText('Available');
@@ -823,7 +823,7 @@ test.describe('the demo scene', () => {
     ).toBe(0);
   });
 
-  test('mixes exactly the ten teaching patches when starter Plasma is present', async ({ page }) => {
+  test('mixes exactly the ten system patches when starter Plasma is present', async ({ page }) => {
     await boot(page);
     await page.getByRole('button', { name: 'Insert a configured library scene into the source' }).click();
     await expect(page.locator('#diagnostics-list')).toContainText('not active yet');
@@ -1491,15 +1491,15 @@ test.describe('the minimal display', () => {
     await name.press('Enter');
     await expect(page.getByRole('alert')).toHaveText('class is reserved. Choose another name.');
 
-    await name.fill('studentPulse');
+    await name.fill('customPulse');
     await name.press('Enter');
 
-    const patch = page.locator('.folded-block[data-block-description="patch studentPulse"]');
+    const patch = page.locator('.folded-block[data-block-description="patch customPulse"]');
     await expect(patch).toBeVisible();
     await expect(patch).toHaveAttribute('open', '');
-    const body = patch.getByRole('textbox', { name: 'Edit patch studentPulse' });
+    const body = patch.getByRole('textbox', { name: 'Edit patch customPulse' });
     await expect(body).toBeFocused();
-    await expect(body).toHaveValue(/const studentPulse = \{\n  draw\(\{ time, audio \}\) \{/);
+    await expect(body).toHaveValue(/const customPulse = \{\n  draw\(\{ time, audio \}\) \{/);
     expect(await body.evaluate((element) => ({
       start: element.selectionStart,
       before: element.value.slice(0, element.selectionStart),
@@ -1508,14 +1508,14 @@ test.describe('the minimal display', () => {
     });
 
     const source = await page.locator('#code').inputValue();
-    expect(source.indexOf('// %% patch studentPulse')).toBeLessThan(
+    expect(source.indexOf('// %% patch customPulse')).toBeLessThan(
       source.indexOf('// %% scene scene'),
     );
-    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('studentPulse'))).toBe(false);
+    expect(await page.evaluate(() => window.AlgoLab.registry.hasStrategy('customPulse'))).toBe(false);
 
     await body.press('Control+Enter');
     await expect.poll(
-      () => page.evaluate(() => window.AlgoLab.registry.hasStrategy('studentPulse')),
+      () => page.evaluate(() => window.AlgoLab.registry.hasStrategy('customPulse')),
     ).toBe(true);
   });
 
@@ -1716,7 +1716,7 @@ circle(20, 20, 10);
   });
 });
 
-test.describe('S-06 / P-05 safe-state recovery', () => {
+test.describe('safe-state recovery', () => {
   test('restores source, versions, scene and state from the keyboard', async ({ page }) => {
     await boot(page);
 
@@ -1934,7 +1934,7 @@ test.describe('anchored performance controls', () => {
   });
 });
 
-test.describe('D-02 / D-03 project portability', () => {
+test.describe('project portability', () => {
   test('exports a readable project file', async ({ page }) => {
     await boot(page);
     await selectTool(page, 'Project');
@@ -2062,12 +2062,13 @@ test.describe('D-02 / D-03 project portability', () => {
   });
 });
 
-test.describe('D-05 offline course bundle', () => {
+test.describe('offline application bundle', () => {
   test('loads with every non-local request blocked', async ({ page }) => {
     const external = [];
     await page.route('**/*', (route) => {
       const url = route.request().url();
-      if (url.startsWith('http://localhost:5173/') || url.startsWith('data:')) return route.continue();
+      const parsed = new URL(url);
+      if (parsed.hostname === 'localhost' || parsed.protocol === 'data:') return route.continue();
       external.push(url);
       return route.abort();
     });

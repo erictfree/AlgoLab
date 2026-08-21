@@ -8,7 +8,7 @@ library configuration and every field is required:
 // @title My Patch
 // @author Your Name
 // @description One sentence explaining what it draws.
-// @category user
+// @category community
 
 const myPatch = {
   draw({ audio }) {
@@ -22,7 +22,7 @@ Valid categories are:
 - `visual` — a general drawing patch
 - `utility` — backgrounds, diagnostics, meters, or scene helpers
 - `shader` — a WebGL or post-processing patch
-- `user` — a contributed patch that should stay in the User patches group
+- `community` — a contributed patch that should stay in the Community patches group
 
 Run `npm run build:patches` after adding or changing a file. Invalid or missing metadata
 stops the build instead of silently placing the patch in the wrong group.

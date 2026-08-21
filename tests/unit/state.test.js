@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { createTestHost } from './helpers.js';
 
-describe('L-03 replacing a strategy preserves compatible state', () => {
+describe('replacing a strategy preserves compatible state', () => {
   it('hands the new object the same state object', () => {
     const h = createTestHost();
     h.evaluator.evaluate(`
@@ -57,7 +57,7 @@ describe('L-03 replacing a strategy preserves compatible state', () => {
   });
 });
 
-describe('L-04 explicit reset', () => {
+describe('explicit reset', () => {
   it('reset(object) re-runs the factory', () => {
     const h = createTestHost();
     h.evaluator.evaluate(`
@@ -106,7 +106,7 @@ describe('state compatibility', () => {
   });
 });
 
-describe('L-05 / L-06 scene arrays', () => {
+describe('scene arrays', () => {
   it('activates a named array and draws in array order', () => {
     const h = createTestHost();
     const order = [];

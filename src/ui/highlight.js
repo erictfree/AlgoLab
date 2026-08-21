@@ -8,7 +8,7 @@
 // It is pure and DOM-free so it can be tested in plain Node, which is where the rest
 // of `tests/unit/` runs.
 
-/** Words that are the language rather than the student's strategy. */
+/** Words that are the language rather than the authored strategy. */
 const KEYWORDS = new Set([
   'async', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'default',
   'delete', 'do', 'else', 'export', 'extends', 'false', 'finally', 'for', 'function',
@@ -18,10 +18,10 @@ const KEYWORDS = new Set([
 ]);
 
 /**
- * AlgoLab's own vocabulary (§9). Coloured apart from every other call because these
+ * AlgoLab's own vocabulary. Coloured apart from every other call because these
  * are the small command vocabulary around otherwise ordinary JavaScript objects.
  */
-const HOST_API = new Set(['activate', 'reset', 'param']);
+const HOST_API = new Set(['activate', 'reset', 'param', 'StreamRoom']);
 
 /**
  * @typedef {'comment' | 'string' | 'number' | 'keyword' | 'host' | 'call' | 'text'} TokenKind

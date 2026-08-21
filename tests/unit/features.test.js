@@ -1,4 +1,4 @@
-// PRD §9.5 — the shared audio snapshot.
+// The shared audio snapshot.
 
 import { describe, it, expect } from 'vitest';
 import { createFeatureExtractor } from '../../src/audio/features.js';
@@ -28,7 +28,7 @@ describe('normalized bands', () => {
     }
   });
 
-  it('preserves p5.sound’s own scales under raw (§19.3)', () => {
+  it('preserves p5.sound’s own scales under raw', () => {
     const fx = createFeatureExtractor();
     const s = fx.compute(frame({ bass: 200, mid: 100, treble: 30, centroid: 1200 }));
     expect(s.raw.bass).toBe(200);
@@ -56,7 +56,7 @@ describe('normalized bands', () => {
     expect(last.treble / last.bass).toBeCloseTo(0.25, 2);
   });
 
-  it('A-06: auto-gain can be turned off mid-set', () => {
+  it('auto-gain can be turned off mid-set', () => {
     const fx = createFeatureExtractor();
     for (let i = 0; i < 200; i++) fx.compute(frame({ bass: 10 }));
     expect(fx.compute(frame({ bass: 10 })).bass).toBeGreaterThan(0.8);
@@ -70,14 +70,14 @@ describe('normalized bands', () => {
     expect(fx.compute(frame({ bass: 10 })).bass).toBeGreaterThan(0.8);
   });
 
-  it('A-06: smoothing is adjustable and bounded to known keys', () => {
+  it('smoothing is adjustable and bounded to known keys', () => {
     const fx = createFeatureExtractor();
     expect(fx.configure({ smoothing: 0.9 }).smoothing).toBe(0.9);
     // An unknown key is ignored rather than quietly added to the option set.
     expect(fx.configure({ notAnOption: 1 }).notAnOption).toBeUndefined();
   });
 
-  it('returns a frozen snapshot so one strategy cannot alter another’s audio (A-05)', () => {
+  it('returns a frozen snapshot so one strategy cannot alter another’s audio', () => {
     const fx = createFeatureExtractor();
     const s = fx.compute(frame({ bass: 100 }));
     expect(Object.isFrozen(s)).toBe(true);

@@ -114,7 +114,7 @@ activate(show);
   });
 
   it('moves a library patch installed below a scene ahead of that scene', () => {
-    const misplaced = `// course notes
+    const misplaced = `// project notes
 
 // %% patch wash
 const wash = { draw() {} };
@@ -129,17 +129,17 @@ const newPatch = { draw() {} };
 
     const ordered = moveSceneCellsLast(misplaced);
     expect(ordered.startsWith('// %% patch wash')).toBe(true);
-    expect(ordered.indexOf('// %% patch wash')).toBeLessThan(ordered.indexOf('// course notes'));
+    expect(ordered.indexOf('// %% patch wash')).toBeLessThan(ordered.indexOf('// project notes'));
     expect(ordered.indexOf('// %% patch wash')).toBeLessThan(ordered.indexOf('// %% patch newPatch'));
     expect(ordered.indexOf('// %% patch newPatch')).toBeLessThan(ordered.indexOf('// %% scene tunnel'));
-    expect(ordered).toContain('// course notes');
+    expect(ordered).toContain('// project notes');
   });
 
   it('puts a hidden preamble inside the first cell even when the scene is already last', () => {
-    const prefixed = `// course notes\n\n${source}`;
+    const prefixed = `// project notes\n\n${source}`;
     const ordered = moveSceneCellsLast(prefixed);
 
-    expect(ordered.startsWith('// %% strategy orbiters\n// course notes')).toBe(true);
+    expect(ordered.startsWith('// %% strategy orbiters\n// project notes')).toBe(true);
     expect(findCells(ordered)[0].start).toBe(0);
   });
 

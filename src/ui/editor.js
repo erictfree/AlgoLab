@@ -24,7 +24,7 @@ const RESERVED_PATCH_NAMES = new Set([
   'var', 'void', 'while', 'with', 'yield',
   // These are evaluator-provided bindings, so declaring one in a cell would collide
   // with the live-coding API even though it is a legal JavaScript identifier.
-  'activate', 'param', 'reset', 'ShaderChain',
+  'activate', 'param', 'reset', 'ShaderChain', 'StreamRoom',
 ]);
 
 function patchScaffold(name) {
@@ -998,7 +998,7 @@ export function createEditor(textarea, handlers) {
 
     if (event.key === 'Enter' && accel) {
       event.preventDefault();
-      // Focus stays exactly where it was — §10.4.
+      // Focus stays exactly where it was.
       if (event.shiftKey) evaluateBuffer();
       else evaluateCursorBlock();
       return;
@@ -1318,7 +1318,7 @@ export function createEditor(textarea, handlers) {
       revealRange(target.start + localStart, target.start + localStart + name.length + 6);
       return true;
     },
-    /** Put a stored version back in the editor when the performer reverts (§10.4). */
+    /** Put a stored version back in the editor when the performer reverts. */
     replaceBlockFor(name, source) {
       const blocks = findBlocks(textarea.value);
       const sceneName = inlineSceneName(name);

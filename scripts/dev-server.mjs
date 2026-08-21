@@ -1,17 +1,33 @@
-// Dependency-free static server for the course build.
+// Static development server plus the small WebSocket introduction service used by
+// StreamRoom. WebRTC media still travels browser-to-browser, never through this app.
 //
 // AlgoLab is a plain HTML page — there is no bundler and no compile step. But ES
 // modules will not load from a `file://` URL, so the page needs an HTTP origin.
-// This is that origin, and nothing more. Node's standard library only, so the
-// course build keeps working with no network access (PRD D-04, D-05).
+// This server supplies that origin and the optional signaling control plane. The
+// only runtime package is `ws`; the visual app itself remains plain browser modules.
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { attachSignalingServer } from './signaling-server.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PORT = Number(process.env.PORT ?? 5173);
+
+function configuredIceServers() {
+  const value = process.env.ALGOLAB_ICE_SERVERS;
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) throw new TypeError('expected a JSON array');
+    return parsed;
+  } catch (error) {
+    console.error(`Invalid ALGOLAB_ICE_SERVERS: ${error.message}`);
+    process.exitCode = 1;
+    return [];
+  }
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -54,7 +70,10 @@ const server = createServer(async (req, res) => {
   }
 });
 
+attachSignalingServer(server, { iceServers: configuredIceServers() });
+
 server.listen(PORT, () => {
   console.log(`AlgoLab — serving ${ROOT}`);
   console.log(`  http://localhost:${PORT}`);
+  console.log(`  ws://localhost:${PORT}/network — room discovery + WebRTC signaling`);
 });

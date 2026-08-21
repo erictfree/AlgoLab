@@ -2,7 +2,21 @@
   "name": "algolab",
   "version": "0.1.0",
   "private": true,
-  "description": "AlgoLab — a p5.js live visual playground for audio-reactive performance (AET 350C)",
+  "description": "A browser-based p5.js instrument for live-coding audio-reactive visuals",
+  "keywords": [
+    "live-coding",
+    "creative-coding",
+    "p5js",
+    "audio-reactive",
+    "visuals",
+    "algorave"
+  ],
+  "author": "Eric Freeman",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/erictfree/AlgoLab.git"
+  },
   "type": "module",
   "scripts": {
     "build:patches": "node scripts/build-patch-library.mjs",
@@ -17,5 +31,8 @@
   "devDependencies": {
     "@playwright/test": "^1.49.0",
     "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
   }
 }

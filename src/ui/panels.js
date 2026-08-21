@@ -8,7 +8,7 @@ const LIBRARY_GROUPS = Object.freeze([
   { key: 'utility', label: 'Utilities' },
   { key: 'visual', label: 'Visual patches' },
   { key: 'shader', label: 'Shaders' },
-  { key: 'user', label: 'User patches' },
+  { key: 'community', label: 'Community patches' },
 ]);
 
 export function createPanels({
@@ -16,6 +16,7 @@ export function createPanels({
   library = [],
   onInsertLibrary,
   onAddToScene,
+  onAddNetworkStream,
   onRevert,
   onLocateStrategy,
   onRestoreSafe,
@@ -51,6 +52,13 @@ export function createPanels({
     beatDot: el('beat-dot'),
     safeNote: el('safe-scene-note'),
     restoreSafe: el('restore-safe'),
+    networkStatus: el('network-status'),
+    networkRooms: el('network-rooms'),
+    networkService: el('network-service'),
+    networkJoinForm: el('network-join-form'),
+    networkRoomName: el('network-room-name'),
+    networkPerformerName: el('network-performer-name'),
+    networkRoomToken: el('network-room-token'),
   };
   let libraryFilter = 'all';
   let activeToolView = 'audio';
@@ -273,7 +281,7 @@ export function createPanels({
 
     const origin = document.createElement('span');
     origin.className = `version library-origin ${entry.origin}`;
-    origin.textContent = entry.origin === 'student' ? entry.author : 'system';
+    origin.textContent = entry.origin === 'community' ? entry.author : 'system';
 
     const status = document.createElement('span');
     status.className = `patch-status ${lifecycle}`;
@@ -284,7 +292,7 @@ export function createPanels({
     actions.className = 'actions';
     let action;
     if (!installed) {
-      const actionTitle = entry.origin === 'student'
+      const actionTitle = entry.origin === 'community'
         ? `Install ${entry.title} patch source by ${entry.author} — ${entry.blurb}`
         : `Install ${entry.title} system patch source — ${entry.blurb}`;
       action = button('Install source', actionTitle, () => onInsertLibrary?.(entry));
@@ -422,6 +430,79 @@ export function createPanels({
     diagnosticsInitialized = true;
   }
 
+  function renderNetwork(snapshot) {
+    const network = snapshot.network;
+    nodes.networkStatus.textContent = network.status;
+    nodes.networkStatus.className = `value network-${network.status}`;
+    nodes.networkService.textContent = network.service ?? 'Not connected';
+    const rows = network.rooms.flatMap((room) => {
+      const heading = document.createElement('div');
+      heading.className = 'row network-room';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = room.name;
+      const status = document.createElement('span');
+      status.className = 'version';
+      status.textContent = `${room.performer} · ${room.status}`;
+      const roomActions = document.createElement('span');
+      roomActions.className = 'actions';
+      if (room.watched) {
+        roomActions.append(button(
+          'Leave',
+          `Stop watching ${room.name}; active scene objects retain their own connection`,
+          () => controller.actions.leaveNetworkRoom(room.name),
+        ));
+      }
+      heading.append(name, status, roomActions);
+
+      const streamRows = room.streams.map((stream) => {
+        const row = document.createElement('div');
+        row.className = 'row network-stream';
+        const dot = document.createElement('span');
+        dot.className = `dot ${stream.local ? 'ok' : 'idle'}`;
+        const label = document.createElement('span');
+        label.className = 'name';
+        label.textContent = stream.label;
+        const origin = document.createElement('span');
+        origin.className = 'version';
+        origin.textContent = stream.local ? 'yours' : 'remote';
+        const actions = document.createElement('span');
+        actions.className = 'actions';
+        if (!stream.local) {
+          actions.append(button(
+            'Add receiver',
+            `Add ${stream.label} as a receiver patch and activate the updated scene`,
+            () => onAddNetworkStream?.({
+              room: room.name,
+              performer: room.performer,
+              stream: stream.label,
+            }),
+          ));
+        }
+        row.append(dot, label, origin, actions);
+        return row;
+      });
+      const publicationRows = room.publishing.map((publication) => {
+        const row = document.createElement('div');
+        row.className = 'row network-publication';
+        const dot = document.createElement('span');
+        dot.className = 'dot ok';
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = `${room.performer}/${publication.name}`;
+        const status = document.createElement('span');
+        status.className = 'version';
+        status.textContent = `${publication.fps} fps · ${publication.status}`;
+        row.append(dot, name, status);
+        return row;
+      });
+      return [heading, ...publicationRows, ...streamRows];
+    });
+    nodes.networkRooms.replaceChildren(
+      ...(rows.length ? rows : [hint('No active StreamRoom objects. Add a publisher or receiver to a scene.')]),
+    );
+  }
+
   function diagnosticRow(entry) {
     const row = document.createElement('div');
     row.className = `row diagnostic ${entry.level}`;
@@ -498,6 +579,7 @@ export function createPanels({
     renderSafeState(snapshot);
     renderParams(snapshot);
     renderHistory(snapshot);
+    renderNetwork(snapshot);
     renderDiagnostics(snapshot);
   }
 
@@ -562,6 +644,17 @@ export function createPanels({
     renderLibrary(controller.snapshot());
   });
   nodes.restoreSafe.addEventListener('click', () => onRestoreSafe?.());
+  nodes.networkJoinForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const name = nodes.networkRoomName.value.trim();
+    const performer = nodes.networkPerformerName.value.trim();
+    if (!name || !performer) return;
+    controller.actions.joinNetworkRoom({
+      name,
+      performer,
+      token: nodes.networkRoomToken.value || null,
+    });
+  });
   selectToolView(activeToolView);
   renderAll();
   const timer = setInterval(updateMeters, 1000 / METER_HZ);
