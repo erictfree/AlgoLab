@@ -1,8 +1,7 @@
 # Networked visual streams (beta)
 
-Status: **beta**. The small-room workflow is implemented, but browser and network
-conditions still need wider testing. Production use requires configured STUN/TURN
-services.
+Status: **disabled**. The beta implementation remains in the codebase for development
+and local testing, but the Network panel is not currently available to users.
 
 p5js live shares canvas video, not source code or local audio. Each performer keeps an
 independent editor, scene, audio input, and patch state.

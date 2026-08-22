@@ -231,6 +231,9 @@ The stream appears as `Eric/main-output`. Publishing begins only while
 
 ## Receive a canvas stream (beta)
 
+Network streaming is currently disabled in the interface. The workflow below documents
+the inactive beta implementation.
+
 The shortest path is in the **Network** panel:
 
 1. Join the same room with a unique performer name.

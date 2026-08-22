@@ -91,10 +91,9 @@ Do not open `index.html` directly; the application must run from an HTTP server.
 
 The same server shows the public site at [http://localhost:5173/](http://localhost:5173/).
 
-The source picker loads a bundled intro loop. It starts immediately when the browser
-allows autoplay; otherwise a click in the dialog unlocks it. Loading a file, choosing
-the microphone, or continuing in silence replaces or stops the loop. The file picker
-accepts MP3, WAV, OGG, M4A, and AAC files; codec support depends on the browser.
+The source picker waits for an audio file, microphone, or silence before starting
+audio. The file picker accepts MP3, WAV, OGG, M4A, and AAC files; codec support
+depends on the browser.
 
 To stop the server, press `Ctrl+C` in the terminal. Working source and named
 performances remain in that browser. Export projects that need to move to another
@@ -195,7 +194,7 @@ check whether the transport says **Play**. Enter with silence to test visuals al
 | --- | --- |
 | [Guide](docs/GUIDE.md) | Patches, scenes, audio, shaders, networking, and recovery |
 | [API](docs/API.md) | Context fields, lifecycle, identity, commands, and exact behavior |
-| [Networking (beta)](docs/NETWORKING.md) | Publishing, receiving, local testing, and deployment |
+| [Networking (disabled)](docs/NETWORKING.md) | Inactive beta implementation and deployment notes |
 | [Architecture](docs/ARCHITECTURE.md) | Runtime design and implementation invariants |
 | [Product](docs/PRODUCT.md) | Purpose, principles, scope, and limits |
 | [Contributing](CONTRIBUTING.md) | Development setup and contribution rules |
@@ -225,8 +224,8 @@ npm run preview
 
 `dist/` is the Workers static-assets directory. `npm run deploy` builds it and runs
 `wrangler deploy`. The custom domain is configured in Cloudflare, not in this repository.
-Network streaming still uses the local signaling implementation and is not part of the
-hosted Worker yet.
+Network streaming is currently disabled in the interface. Its beta implementation uses
+local signaling and is not part of the hosted Worker yet.
 
 ## Security
 

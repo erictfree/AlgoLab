@@ -44,6 +44,12 @@ test('publishes, discovers, inserts, and receives another editor canvas', async 
   )).toBe(true);
 
   await receiverPage.locator('#tools-toggle').click();
+  // The public control is disabled while networking remains an inactive beta.
+  // Enable it only here so this test can continue covering the retained implementation.
+  await receiverPage.locator('#tools-tab-network').evaluate((tab) => {
+    tab.disabled = false;
+    tab.removeAttribute('aria-disabled');
+  });
   await receiverPage.getByRole('tab', { name: 'Network' }).click();
   await expect(receiverPage.locator('#network-panel')).toContainText('Eric/main-output');
   await receiverPage.getByRole('button', { name: /Add Eric\/main-output as a receiver/ }).click();

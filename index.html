@@ -56,7 +56,7 @@
             <footer class="welcome-start">
               <div class="welcome-start-copy">
                 <h2>Choose a source</h2>
-                <p>Your choice replaces the intro loop.</p>
+                <p>Audio begins after you choose.</p>
               </div>
               <div class="start-actions">
                 <button id="file-label" class="start-primary" type="button">
@@ -201,7 +201,10 @@
             aria-selected="false"
             aria-controls="network-panel"
             data-tool-view="network"
-          >Network <span class="beta-badge">beta</span></button>
+            aria-disabled="true"
+            title="Network streaming is temporarily unavailable"
+            disabled
+          >Network <span class="beta-badge">disabled</span></button>
         </div>
 
         <div id="panels">
@@ -257,7 +260,7 @@
           >
             <div class="body">
               <p class="hint network-beta-note">
-                Beta: intended for small rooms. Production use requires configured STUN/TURN services.
+                Network streaming is temporarily unavailable.
               </p>
               <div class="row">
                 <span class="name">signaling</span>

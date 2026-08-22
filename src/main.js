@@ -63,7 +63,6 @@ const stateStore = createStateStore({ diagnostics });
 const evaluator = createEvaluator({ registry, stateStore, diagnostics });
 const audio = createAudioEngine({ diagnostics });
 const network = getDefaultNetworkManager();
-const WELCOME_INTRO_URL = new URL('../assets/sounds/intro.mp3', import.meta.url).href;
 
 // Read-only keyboard state, handed to strategies as one of the draw inputs.
 const controls = { keys: new Set(), shift: false, alt: false };
@@ -289,7 +288,6 @@ window.setup = function setup() {
   background(8, 8, 12);
 
   audio.init();
-  void prepareWelcomeIntro();
 
   const saved = projectStore.load();
   const source = saved?.source ?? STARTER_SOURCE;
@@ -400,54 +398,6 @@ const WELCOME_LOAD_DELAY_MS = 250;
 const WELCOME_NOTE = welcomeNote.textContent.trim();
 let welcomeLoadTimer = null;
 let welcomeLoadVisible = false;
-let welcomeIntroReady = null;
-let welcomeChoiceMade = false;
-
-function prepareWelcomeIntro() {
-  if (welcomeIntroReady) return welcomeIntroReady;
-  welcomeIntroReady = audio
-    .loadUrl(WELCOME_INTRO_URL, { label: 'intro loop', loop: true })
-    .then(async () => {
-      if (welcomeChoiceMade || overlay.hidden) return false;
-      try {
-        await audio.start();
-        return true;
-      } catch {
-        // Fresh browser sessions usually block audible autoplay. The trusted first
-        // pointer/key interaction below unlocks the already-decoded loop instead.
-        return false;
-      }
-    })
-    .catch((error) => {
-      if (error?.name !== 'AbortError') {
-        diagnostics.warn(
-          'Intro loop unavailable',
-          'Choose an audio file, microphone, or silence to continue.',
-        );
-      }
-      return false;
-    });
-  return welcomeIntroReady;
-}
-
-function resumeWelcomeIntro() {
-  if (welcomeChoiceMade || overlay.hidden) return;
-  // Invoke unlock immediately, while this handler still owns a trusted interaction.
-  // Once the context is running, a pending local decode may finish asynchronously.
-  void audio
-    .unlock()
-    .then(() => welcomeIntroReady ?? prepareWelcomeIntro())
-    .then(() => {
-      if (!welcomeChoiceMade && !overlay.hidden) return audio.start();
-      return false;
-    })
-    .catch(() => {});
-}
-
-overlay.addEventListener('pointerdown', resumeWelcomeIntro, { capture: true });
-overlay.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' || event.key === ' ') resumeWelcomeIntro();
-}, { capture: true });
 
 function cancelWelcomeLoadTimer() {
   if (welcomeLoadTimer !== null) clearTimeout(welcomeLoadTimer);
@@ -502,7 +452,6 @@ function renderAudioLoadStatus(status) {
 }
 
 async function startAudio() {
-  welcomeChoiceMade = true;
   try {
     const state = await audio.start();
     overlay.hidden = true;
@@ -529,21 +478,16 @@ async function chooseFile(input) {
     return;
   }
   try {
-    welcomeChoiceMade = true;
     await audio.loadFile(file, { onProgress: renderAudioLoadStatus });
     await startAudio();
   } catch (error) {
     if (error?.name === 'AbortError') return;
-    // loadFile already reported the decode failure. Restore the preview while the
-    // performer remains in the picker and decides what to try next.
-    welcomeChoiceMade = false;
-    welcomeIntroReady = null;
-    void prepareWelcomeIntro();
+    // loadFile already reported the decode failure. Keep the picker open so the
+    // performer can choose another source.
   }
 }
 
 async function enterWithSilence() {
-  welcomeChoiceMade = true;
   try {
     const state = await audio.unlock();
     audio.useSilence();
@@ -600,15 +544,8 @@ const deviceSelect = document.getElementById('input-device');
 
 async function startMicrophone(deviceId) {
   const fromWelcome = !overlay.hidden;
-  if (fromWelcome) welcomeChoiceMade = true;
   const ok = await audio.useMicrophone(deviceId);
-  if (!ok) {
-    if (fromWelcome) {
-      welcomeChoiceMade = false;
-      resumeWelcomeIntro();
-    }
-    return false;
-  }
+  if (!ok) return false;
   overlay.hidden = true;
   resetWelcomeLoadStatus();
   // Device labels are empty until permission has been granted once, so the picker is

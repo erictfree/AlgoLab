@@ -4,6 +4,7 @@
 // state store, evaluator, audio engine, or host loop.
 
 const METER_HZ = 15;
+const TOOL_VIEW_KEY = 'p5js-live.toolView';
 const LIBRARY_GROUPS = Object.freeze([
   { key: 'utility', label: 'Utilities' },
   { key: 'visual', label: 'Visual patches' },
@@ -20,6 +21,7 @@ export function createPanels({
   onRevert,
   onLocateStrategy,
   onRestoreSafe,
+  storage = globalThis.localStorage,
 }) {
   const el = (id) => document.getElementById(id);
   const nodes = {
@@ -62,21 +64,34 @@ export function createPanels({
   };
   let libraryFilter = 'all';
   let activeToolView = 'audio';
+  try {
+    activeToolView = storage?.getItem(TOOL_VIEW_KEY) || activeToolView;
+  } catch {
+    /* private-mode storage is optional */
+  }
   let diagnosticsInitialized = false;
   let latestDiagnosticKey = null;
   const libraryOpenGroups = new Set();
 
   function selectToolView(view, { focus = false } = {}) {
-    const selected = nodes.toolTabs.querySelector(`[data-tool-view="${view}"]`);
+    const requested = nodes.toolTabs.querySelector(`[data-tool-view="${view}"]`);
+    const selected = requested && !requested.disabled
+      ? requested
+      : nodes.toolTabs.querySelector('[data-tool-view="audio"]:not(:disabled)');
     if (!selected) return;
-    activeToolView = view;
+    activeToolView = selected.dataset.toolView;
     for (const tab of nodes.toolTabs.querySelectorAll('[data-tool-view]')) {
       const active = tab === selected;
       tab.setAttribute('aria-selected', String(active));
       tab.tabIndex = active ? 0 : -1;
     }
     for (const panel of nodes.toolPanels) {
-      panel.hidden = panel.dataset.toolPanel !== view;
+      panel.hidden = panel.dataset.toolPanel !== activeToolView;
+    }
+    try {
+      storage?.setItem(TOOL_VIEW_KEY, activeToolView);
+    } catch {
+      /* private-mode storage is optional */
     }
     if (focus) selected.focus();
   }
@@ -623,11 +638,11 @@ export function createPanels({
   const unsubscribe = controller.subscribe(renderAll);
   nodes.toolTabs.addEventListener('click', (event) => {
     const tab = event.target.closest('[data-tool-view]');
-    if (tab) selectToolView(tab.dataset.toolView);
+    if (tab && !tab.disabled) selectToolView(tab.dataset.toolView);
   });
   nodes.toolTabs.addEventListener('keydown', (event) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const tabs = [...nodes.toolTabs.querySelectorAll('[data-tool-view]')];
+    const tabs = [...nodes.toolTabs.querySelectorAll('[data-tool-view]:not(:disabled)')];
     const current = tabs.findIndex((tab) => tab.dataset.toolView === activeToolView);
     const next = event.key === 'Home'
       ? 0

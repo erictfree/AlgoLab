@@ -1745,7 +1745,7 @@ circle(20, 20, 10);
       .toEqual(['asciiNoise', 'plasma']);
   });
 
-  test('the drawer keeps Network beta last without duplicating the scene', async ({ page }) => {
+  test('the drawer keeps disabled Network last without duplicating the scene', async ({ page }) => {
     await boot(page, { tools: false });
     await page.locator('#tools-toggle').click();
 
@@ -1758,6 +1758,7 @@ circle(20, 20, 10);
     expect(await page.locator('#tool-tabs [data-tool-view]').evaluateAll((tabs) =>
       tabs.map((tab) => tab.dataset.toolView),
     )).toEqual(['audio', 'library', 'messages', 'project', 'network']);
+    await expect(page.getByRole('tab', { name: 'Network disabled' })).toBeDisabled();
     await expect(page.locator('#scene-panel')).toHaveCount(0);
     await expect(page.locator('#code')).toHaveValue(/const scene = \[/);
     await expect(page.locator('#parameters-panel')).toBeHidden();
@@ -1767,6 +1768,30 @@ circle(20, 20, 10);
     await page.getByRole('tab', { name: 'Project' }).click();
     await expect(page.locator('#project-panel')).toBeVisible();
     await expect(page.locator('#project-panel')).toContainText('Recovery point');
+  });
+
+  test('the drawer restores its last selected tab', async ({ page }) => {
+    await boot(page, { tools: false });
+    await page.locator('#tools-toggle').click();
+    await selectTool(page, 'Messages');
+
+    await page.locator('#tools-toggle').click();
+    await expect(page.locator('#side')).toHaveClass(/is-hidden/);
+    await page.locator('#tools-toggle').click();
+    await expect(page.getByRole('tab', { name: 'Messages' }))
+      .toHaveAttribute('aria-selected', 'true');
+
+    await page.reload();
+    await page.evaluate(() => {
+      document.getElementById('start-overlay').hidden = true;
+    });
+    await expect
+      .poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder().length))
+      .toBe(2);
+    await page.locator('#tools-toggle').click();
+    await expect(page.getByRole('tab', { name: 'Messages' }))
+      .toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#messages-panel')).toBeVisible();
   });
 
   test('fullscreen keeps the code over the canvas', async ({ page }) => {
