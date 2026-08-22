@@ -3,7 +3,63 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>p5js live — p5.js live visual playground</title>
+    <title>p5js.live Instrument — Live-Code p5.js Visuals</title>
+    <meta name="description" content="Launch p5js.live to write, remix, and perform audio-reactive p5.js visuals live in your browser with patches, scenes, and GPU shaders." />
+    <meta name="author" content="Eric Freeman" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="theme-color" content="#08080c" />
+    <link rel="canonical" href="https://p5js.live/live/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="any" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="p5js.live" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://p5js.live/live/" />
+    <meta property="og:title" content="p5js.live Instrument — Live-Code p5.js Visuals" />
+    <meta property="og:description" content="Write, remix, and perform audio-reactive p5.js visuals live in your browser with patches, scenes, and GPU shaders." />
+    <meta property="og:image" content="https://p5js.live/assets/hero-dj-character.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1672" />
+    <meta property="og:image:height" content="941" />
+    <meta property="og:image:alt" content="p5js.live audio-reactive visual live-coding instrument" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="p5js.live Instrument — Live-Code p5.js Visuals" />
+    <meta name="twitter:description" content="Write, remix, and perform audio-reactive p5.js visuals live in your browser." />
+    <meta name="twitter:image" content="https://p5js.live/assets/hero-dj-character.jpg" />
+    <meta name="twitter:image:alt" content="p5js.live audio-reactive visual live-coding instrument" />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "@id": "https://p5js.live/#application",
+      "name": "p5js.live",
+      "url": "https://p5js.live/live/",
+      "description": "A browser-based visual instrument for live-coding audio-reactive graphics with JavaScript, p5.js, shaders, and reusable patches.",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Any operating system with a modern web browser",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "Eric Freeman",
+        "affiliation": {
+          "@type": "Organization",
+          "name": "Department of Arts and Entertainment Technologies, The University of Texas at Austin",
+          "url": "https://aet.utexas.edu/"
+        }
+      },
+      "codeRepository": "https://github.com/erictfree/P5JS-Live",
+      "image": "https://p5js.live/assets/hero-dj-character.jpg"
+    }
+    </script>
+
+    <script type="module" src="/analytics.js"></script>
 
     <!--
       p5 and p5.sound are pinned builds, vendored locally so the visual app runs
@@ -72,7 +128,7 @@
                   <progress id="start-load-progress" max="1"></progress>
                 </div>
                 <p id="start-note">
-                  Intro loop ready · files: MP3, WAV, OGG, M4A, AAC
+                  Files: MP3, WAV, OGG, M4A, AAC
                 </p>
               </div>
             </footer>

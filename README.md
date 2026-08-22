@@ -227,6 +227,14 @@ npm run preview
 Network streaming is currently disabled in the interface. Its beta implementation uses
 local signaling and is not part of the hosted Worker yet.
 
+## Google Analytics
+
+Both public pages load `/analytics.js` and report to the p5js.live GA4 web stream. After
+deploying, confirm visits to `/` and `/live/` in the GA4 Realtime report or Tag Assistant.
+
+Add any privacy notice or consent controls required for the audiences and regions where
+the site is used before enabling collection.
+
 ## Security
 
 p5js live evaluates trusted JavaScript with `new Function`; it is not a sandbox. Code
