@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 async function boot(page) {
-  await page.goto('/index.html');
+  await page.goto('/live/index.html');
   await page.evaluate(() => {
     localStorage.clear();
     document.getElementById('start-overlay').hidden = true;

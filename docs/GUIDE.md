@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:5173` and choose an audio file, microphone, or silence.
+Open `http://localhost:5173/live/` and choose an audio file, microphone, or silence.
 Put the cursor in a patch or scene and press `Cmd/Ctrl+Enter`. Use
 `Cmd/Ctrl+Shift+Enter` to evaluate the complete buffer.
 

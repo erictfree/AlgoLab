@@ -17,8 +17,8 @@ npm run dev
 
 Open two independent browser origins so each gets separate local project storage:
 
-- `http://localhost:5173`
-- `http://127.0.0.1:5173`
+- `http://localhost:5173/live/`
+- `http://127.0.0.1:5173/live/`
 
 Use the same room name and a different performer name in each window.
 

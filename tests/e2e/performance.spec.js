@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const TONE = fileURLToPath(new URL('../fixtures/test-tone.wav', import.meta.url));
 
 async function boot(page, { tools = true, folded = false, welcome = false } = {}) {
-  await page.goto('/index.html');
+  await page.goto('/live/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect
@@ -578,7 +578,7 @@ activate(show);`;
         params: [],
       }));
     }, source);
-    await page.goto('/index.html');
+    await page.goto('/live/index.html');
     await page.getByRole('button', { name: 'Start silent' }).click();
     await openTools(page);
 

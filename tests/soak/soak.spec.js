@@ -57,7 +57,7 @@ test(`soak — ${MINUTES} minutes of continuous render, analysis, and evaluation
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
-  await page.goto('/index.html');
+  await page.goto('/live/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
 

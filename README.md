@@ -86,8 +86,10 @@ npm ci
 npm run dev
 ```
 
-Keep the terminal open and visit [http://localhost:5173](http://localhost:5173).
+Keep the terminal open and visit [http://localhost:5173/live/](http://localhost:5173/live/).
 Do not open `index.html` directly; the application must run from an HTTP server.
+
+The same server shows the public site at [http://localhost:5173/](http://localhost:5173/).
 
 The source picker loads a bundled intro loop. It starts immediately when the browser
 allows autoplay; otherwise a click in the dialog unlocks it. Loading a file, choosing
@@ -211,6 +213,20 @@ npm run test:e2e
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before changing the runtime or submitting a
 community patch.
+
+## Cloudflare Workers deployment
+
+The hosted build puts the public site at `/` and the instrument at `/live/`:
+
+```sh
+npm run build
+npm run preview
+```
+
+`dist/` is the Workers static-assets directory. `npm run deploy` builds it and runs
+`wrangler deploy`. The custom domain is configured in Cloudflare, not in this repository.
+Network streaming still uses the local signaling implementation and is not part of the
+hosted Worker yet.
 
 ## Security
 

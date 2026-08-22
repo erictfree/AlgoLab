@@ -34,7 +34,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'npm run dev',
-    url: `http://localhost:${PORT}/index.html`,
+    url: `http://localhost:${PORT}/live/index.html`,
     reuseExistingServer: true,
     timeout: 30_000,
   },

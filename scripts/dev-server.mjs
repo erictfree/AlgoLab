@@ -8,11 +8,13 @@
 
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize, sep } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { attachSignalingServer } from './signaling-server.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const SITE_ROOT = join(ROOT, 'site');
+const LIVE_PREFIX = '/live';
 const PORT = Number(process.env.PORT ?? 5173);
 
 function configuredIceServers() {
@@ -44,14 +46,42 @@ const MIME = {
   '.m4a': 'audio/mp4',
 };
 
+function resolveStaticFile(root, pathname) {
+  const rootPath = resolve(root);
+  const relativePath = pathname.replace(/^\/+/, '');
+  const filePath = resolve(rootPath, relativePath);
+  if (filePath !== rootPath && !filePath.startsWith(`${rootPath}${sep}`)) return null;
+  return filePath;
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  let pathname = decodeURIComponent(url.pathname);
+  let pathname;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bad request');
+    return;
+  }
+
+  if (pathname === LIVE_PREFIX) {
+    res.writeHead(308, {
+      Location: `${LIVE_PREFIX}/${url.search}`,
+      'Cache-Control': 'no-store',
+    });
+    res.end();
+    return;
+  }
+
+  const isLive = pathname.startsWith(`${LIVE_PREFIX}/`);
+  const staticRoot = isLive ? ROOT : SITE_ROOT;
+  if (isLive) pathname = pathname.slice(LIVE_PREFIX.length);
   if (pathname.endsWith('/')) pathname += 'index.html';
 
-  // Resolve against the project root and refuse anything that escapes it.
-  const filePath = join(ROOT, normalize(pathname));
-  if (!filePath.startsWith(ROOT.endsWith(sep) ? ROOT : ROOT + sep)) {
+  // Resolve inside the selected mount and refuse anything that escapes it.
+  const filePath = resolveStaticFile(staticRoot, pathname);
+  if (!filePath) {
     res.writeHead(403).end('Forbidden');
     return;
   }
@@ -73,7 +103,8 @@ const server = createServer(async (req, res) => {
 attachSignalingServer(server, { iceServers: configuredIceServers() });
 
 server.listen(PORT, () => {
-  console.log(`p5js live — serving ${ROOT}`);
-  console.log(`  http://localhost:${PORT}`);
+  console.log('p5js live');
+  console.log(`  http://localhost:${PORT}/ — site`);
+  console.log(`  http://localhost:${PORT}${LIVE_PREFIX}/ — instrument`);
   console.log(`  ws://localhost:${PORT}/network — room discovery + WebRTC signaling`);
 });

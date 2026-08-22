@@ -100,7 +100,7 @@ test('visual logic is replaceable while everything else stays alive', async ({ p
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
-  await page.goto('/index.html');
+  await page.goto('/live/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.locator('#audio-file').setInputFiles(TONE);
@@ -195,7 +195,7 @@ test('visual logic is replaceable while everything else stays alive', async ({ p
 });
 
 test('source, installed patches, and scene order survive a refresh', async ({ page }) => {
-  await page.goto('/index.html');
+  await page.goto('/live/index.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect.poll(() => page.evaluate(() => window.p5jsLive.registry.activeOrder()))
